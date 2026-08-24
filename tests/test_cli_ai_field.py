@@ -164,3 +164,20 @@ def test_list_prints_every_field_and_both_versions(registry_file):
     assert "analysis_version" in result.output
     for key in registry.field_keys():
         assert key in result.output
+
+
+def test_add_keeps_the_registry_world_readable(registry_file):
+    registry_file.chmod(0o644)
+
+    result = _run(
+        "ai-field", "add",
+        "--registry", str(registry_file),
+        "--key", "balcony",
+        "--label", "Balcony",
+        "--type", "text",
+    )
+
+    assert result.exit_code == 0, result.output
+    # The atomic write goes through mkstemp (0600); os.replace must not
+    # narrow a version-controlled file down to owner-only.
+    assert registry_file.stat().st_mode & 0o077 == 0o044

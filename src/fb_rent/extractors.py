@@ -2,8 +2,9 @@
 
 These are the pure functions used to normalise scraped strings into
 structured fields (`price_thb`, `bedrooms`, `property_type`) before we
-upsert into SQLite. They are intentionally simple regex/keyword parsers —
-AI-based enrichment is planned for a later iteration.
+upsert into SQLite. They are intentionally simple regex/keyword parsers;
+the semantic work is done by the AI enrichment loop (:mod:`.ai_batch`,
+:mod:`.rules`), which reads the text these functions salvage.
 """
 
 from __future__ import annotations

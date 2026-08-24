@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fb-rent"
 version = "0.1.0"
-description = "FB Marketplace Phuket rentals scraper — MVP"
+description = "FB Marketplace Phuket rentals scraper with AI enrichment"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

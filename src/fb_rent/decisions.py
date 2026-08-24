@@ -99,6 +99,9 @@ def _write_atomic(target: Path, decisions: dict[str, dict[str, Any]]) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(payload + "\n")
+        # mkstemp creates 0600; the file is meant to be readable and
+        # hand-editable, so do not let os.replace narrow it.
+        os.chmod(tmp_name, 0o644)
         os.replace(tmp_name, target)
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)

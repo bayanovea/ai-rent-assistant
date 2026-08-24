@@ -188,16 +188,18 @@ fb-rent export
 
 ```sh
 python -c "
-import sqlite3; from fb_rent import config
-c = sqlite3.connect(config.DB_PATH); c.row_factory = sqlite3.Row
-for r in c.execute('''SELECT a.fb_id, a.score, a.verdict, l.price_thb
-                      FROM ai_analysis a JOIN listings l USING (fb_id)
-                      LEFT JOIN decisions d USING (fb_id)
-                      WHERE COALESCE(d.status, 'active') != 'rejected'
-                      ORDER BY a.score DESC LIMIT 5'''):
-    print(r['fb_id'], r['price_thb'], r['score'], r['verdict'][:80])
+from fb_rent import config, storage
+conn = storage.init_db(config.DB_PATH)
+rows = [i for i in storage.fetch_enriched(conn) if i['analyzed'] and i['status'] != 'rejected']
+for r in sorted(rows, key=lambda i: i['score'] or 0, reverse=True)[:5]:
+    print(r['fb_id'], r['price_thb'], r['score'], (r['verdict'] or '')[:80])
 "
 ```
+
+`fetch_enriched` берётся не ради удобства: авто-реджекты AI нигде не
+хранятся, они пересчитываются из полей на чтении. Прямой SQL по
+`decisions` покажет в топ-5 объявление, отклонённое за «Животные
+запрещены».
 
 Решение по конкретному объекту принимает пользователь — он записывает
 его через `fb-rent reject <ID> --reason "..."`, `unreject`, `shortlist`.

@@ -42,7 +42,12 @@ from .browser import (
     login_flow,
     start_playwright,
 )
-from .extractors import extract_bedrooms, extract_property_type, parse_price
+from .extractors import (
+    clean_fb_title,
+    extract_bedrooms,
+    extract_property_type,
+    parse_price,
+)
 from .scraper_detail import scrape_detail
 from .scraper_list import scrape_list
 from .storage import (
@@ -65,7 +70,8 @@ def _merge_listing(list_card: dict[str, Any], detail: dict[str, Any] | None) -> 
 
     Detail fields override list-card fields where both are present, since
     the detail page carries the fuller/fresher copy (e.g. full description
-    vs. a truncated card snippet).
+    vs. a truncated card snippet). The title is the exception: it is taken
+    from the detail page only when the card gave us nothing usable.
     """
     merged: dict[str, Any] = dict(list_card)
     if detail:
@@ -74,6 +80,12 @@ def _merge_listing(list_card: dict[str, Any], detail: dict[str, Any] | None) -> 
                 merged[key] = detail[key]
         if detail.get("price_raw"):
             merged["price_raw"] = detail["price_raw"]
+        # The card title wins when it survives `clean_fb_title` — it is the
+        # seller's own wording. When it does not (a card carrying nothing but
+        # "Недавно опубликовано"), the detail page's <title> is the only real
+        # headline we have.
+        if detail.get("title") and not clean_fb_title(merged.get("title")):
+            merged["title"] = detail["title"]
     return merged
 
 
@@ -280,6 +292,7 @@ def scrape_cmd(
                     inserted += 1
                 else:
                     updated += 1
+            _sync_decisions(conn)
             csv_path = export_csv(conn, config.CSV_PATH)
             html_path = export_html(conn, config.HTML_PATH)
 
@@ -318,9 +331,7 @@ def export_cmd(csv_path: Path | None, html_path: Path | None) -> None:
     html_out = html_path if html_path is not None else config.HTML_PATH
     conn = _open_db()
     try:
-        # The decisions file is the source of truth; the table is a mirror the
-        # export JOINs against, so refresh it before rendering.
-        decisions.sync_to_db(conn)
+        _sync_decisions(conn)
         csv_written = export_csv(conn, csv_out)
         html_written = export_html(conn, html_out)
     finally:
@@ -376,6 +387,18 @@ def _open_db() -> sqlite3.Connection:
     return init_db(config.DB_PATH)
 
 
+def _sync_decisions(conn: sqlite3.Connection) -> None:
+    """Refresh the decisions mirror the exports JOIN against.
+
+    ``data/decisions.json`` is documented as hand-editable, so a typo in it
+    is a user error to report, not a traceback.
+    """
+    try:
+        decisions.sync_to_db(conn)
+    except ValueError as exc:
+        raise click.ClickException(f"{config.DECISIONS_PATH}: {exc}") from exc
+
+
 def _queue(
     conn: sqlite3.Connection,
     registry: ai_schema.Registry,
@@ -388,11 +411,16 @@ def _queue(
     asks for a re-analysis with `ai-field add --backfill`.
     """
     pending_rows, no_raw = fetch_pending(conn, registry)
-    backfilling = _analysis_version(_raw_registry(registry_path)) >= registry.schema_version
+    requested = _analysis_version(_raw_registry(registry_path))
 
     pending: list[dict[str, Any]] = []
     stale: list[dict[str, Any]] = []
     for row in pending_rows:
+        # A row is re-queued only up to the version the user asked to
+        # backfill to. Comparing per row (rather than the registry version
+        # against `analysis_version`) keeps an earlier `--backfill` alive
+        # when a later `ai-field add` runs without one.
+        backfilling = int(row.get("analysed_version") or 0) < requested
         if row.get("pending_reason") == "schema" and not backfilling:
             stale.append(row)
         else:
@@ -469,7 +497,10 @@ def ai_batch_cmd(
     limit: int, all_pending: bool, ids: tuple[str, ...], out_path: Path | None
 ) -> None:
     """Assemble the JSON batch of listings awaiting AI analysis."""
+    if limit <= 0 and not all_pending:
+        raise click.ClickException("--limit must be a positive number")
     registry = _load_registry()
+    missing_ids: list[str] = []
     conn = _open_db()
     try:
         pending, stale, no_raw = _queue(conn, registry)
@@ -478,16 +509,32 @@ def ai_batch_cmd(
         if ids:
             wanted = {str(i) for i in ids}
             # An explicit id wins over the stale/pending split: the user asked.
-            selected = [
-                row for row in pending + stale + no_raw
-                if str(row["fb_id"]) in wanted
-            ]
-            missing = wanted - {str(row["fb_id"]) for row in selected}
-            if missing:
+            # It also reaches past the queue entirely, so an already-analysed
+            # listing can be re-analysed on request.
+            queued = {str(row["fb_id"]): row for row in pending + stale}
+            selected = []
+            unusable: list[str] = []
+            for fb_id in sorted(wanted):
+                if fb_id in queued:
+                    selected.append(queued[fb_id])
+                    continue
+                if any(str(row["fb_id"]) == fb_id for row in no_raw):
+                    unusable.append(fb_id)
+                    continue
+                row = conn.execute(
+                    "SELECT * FROM listings WHERE fb_id = ?", (fb_id,)
+                ).fetchone()
+                if row is None:
+                    missing_ids.append(fb_id)
+                else:
+                    selected.append(dict(row))
+            if unusable:
                 click.echo(
-                    f"Not pending (already analysed or unknown): "
-                    f"{', '.join(sorted(missing))}"
+                    "No raw text to analyse (run `fb-rent scrape --refresh` "
+                    f"first): {', '.join(unusable)}"
                 )
+            if missing_ids:
+                click.echo(f"Unknown listing(s): {', '.join(missing_ids)}")
 
         if no_raw and not ids:
             click.echo(
@@ -501,14 +548,20 @@ def ai_batch_cmd(
             )
 
         if not selected:
-            click.echo("Nothing pending — every listing is up to date.")
+            click.echo(
+                "Nothing to analyse for the given --ids."
+                if ids
+                else "Nothing pending — every listing is up to date."
+            )
             return
 
         batch = ai_batch.build_batch(
             conn,
             registry,
-            ids=[str(row["fb_id"]) for row in selected],
-            limit=None if all_pending else limit,
+            listings=selected,
+            # An explicit --ids list is the user's own selection: capping it
+            # at --limit would drop listings they named.
+            limit=None if (all_pending or ids) else limit,
         )
     finally:
         conn.close()
@@ -739,6 +792,9 @@ def _write_registry(target: Path, raw: dict[str, Any]) -> None:
             ai_schema.load_registry(tmp_name)
         except ai_schema.RegistryError as exc:
             raise click.ClickException(f"refusing to write an invalid registry: {exc}")
+        # mkstemp creates 0600; os.replace would carry that onto a
+        # version-controlled file that was 0644.
+        os.chmod(tmp_name, 0o644)
         os.replace(tmp_name, target)
     except BaseException:
         Path(tmp_name).unlink(missing_ok=True)
@@ -757,7 +813,7 @@ def _record_decision(fb_id: str, status: str, reason: str | None) -> None:
 
     conn = _open_db()
     try:
-        decisions.sync_to_db(conn)
+        _sync_decisions(conn)
     finally:
         conn.close()
 

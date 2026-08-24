@@ -82,8 +82,18 @@ def test_price_33000_stays_active_but_warns():
 
 
 def test_sidebar_noise_data_quality_stays_active():
-    fields = wrap(pets="unclear", data_quality="sidebar_noise")
-    assert decide(fields, 22_000) == ("active", None)
+    fields = wrap(pets="unclear")
+    assert decide(fields, 22_000, "sidebar_noise") == ("active", None)
+
+
+def test_bad_data_quality_suppresses_a_rejection():
+    # The "no pets" line the AI read belonged to the sidebar, not the ad:
+    # such a row needs a re-scrape, never a rejection.
+    fields = wrap(pets="not_allowed")
+    assert decide(fields, 22_000, "sidebar_noise") == ("active", None)
+    assert decide(fields, 22_000, "missing") == ("active", None)
+    assert decide(fields, 22_000, "good") == ("rejected", REASON_PETS)
+    assert decide(fields, 22_000, None) == ("rejected", REASON_PETS)
 
 
 def test_empty_fields_stay_active():
@@ -162,8 +172,8 @@ def _perfect() -> dict:
 
 def test_score_is_bounded():
     assert score(_perfect()) == 100
-    assert 0 <= score({}) <= 100
-    assert score(wrap(pets="not_allowed", price_month_thb=90_000)) >= 0
+    assert score({}) == 50  # the baseline, not merely "somewhere in range"
+    assert score(wrap(pets="not_allowed", price_month_thb=90_000)) < score({})
 
 
 def test_unknown_fields_score_near_the_baseline():

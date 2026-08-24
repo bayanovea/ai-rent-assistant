@@ -24,7 +24,11 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from .browser import LoginRequiredError
-from .extractors import description_from_text_lines, parse_published_at
+from .extractors import (
+    clean_fb_title,
+    description_from_text_lines,
+    parse_published_at,
+)
 
 if TYPE_CHECKING:
     from playwright.sync_api import BrowserContext, Page
@@ -161,8 +165,10 @@ def scrape_detail(
 ) -> dict[str, Any] | None:
     """Fetch and parse a single marketplace listing detail page.
 
-    Returns a dict with ``url``, ``description``, ``published_at``,
-    ``price_raw`` and ``raw_json`` on success. Returns ``None`` if the
+    Returns a dict with ``url``, ``title``, ``description``,
+    ``published_at``, ``price_raw`` and ``raw_json`` on success. ``title``
+    is the page ``<title>`` with FB's chrome stripped, or ``None`` when
+    nothing survives that — the list card's own title is preferred anyway. Returns ``None`` if the
     listing has been removed / is unavailable.
 
     Raises
@@ -202,15 +208,17 @@ def scrape_detail(
         published_at = _extract_published_at(lines)
         price_raw = _extract_price_raw(lines)
 
+        raw_page_title = page.title() or None
         raw_json: dict[str, Any] = {
             "url": url,
             "final_url": page.url,
-            "title": page.title() or None,
+            "title": raw_page_title,
             "text_lines": lines[:200],
         }
 
         return {
             "url": url,
+            "title": clean_fb_title(raw_page_title),
             "description": description,
             "published_at": published_at,
             "price_raw": price_raw,

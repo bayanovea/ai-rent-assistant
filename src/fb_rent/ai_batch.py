@@ -84,26 +84,39 @@ def build_batch(
     limit: int | None = None,
     ids: list[str] | None = None,
     *,
+    listings: list[dict[str, Any]] | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
     """Assemble the JSON batch of listings awaiting analysis.
 
-    Only pending listings are included (see :func:`.storage.fetch_pending`);
-    ``ids`` narrows that queue further, ``limit`` caps it. ``requirements_md``
-    defaults to the contents of ``config/requirements.md``.
+    ``listings`` are the rows to put in the batch, already selected by the
+    caller — that is how the CLI honours an explicit ``--ids`` for a listing
+    the queue would otherwise skip. Without it the pending queue is read here
+    (see :func:`.storage.fetch_pending`), ``ids`` narrows it and ``limit``
+    caps it. ``requirements_md`` defaults to ``config/requirements.md``.
+
+    Rows carrying no ``source_hash`` (they never went through
+    ``fetch_pending``) get one computed here, so the hash always describes
+    what the AI is about to read.
     """
-    pending, _no_raw = storage.fetch_pending(conn, registry)
+    if listings is not None:
+        pending = list(listings)
+    else:
+        pending, _no_raw = storage.fetch_pending(conn, registry)
 
-    if ids is not None:
-        wanted = {str(i) for i in ids}
-        pending = [row for row in pending if str(row["fb_id"]) in wanted]
+        if ids is not None:
+            wanted = {str(i) for i in ids}
+            pending = [row for row in pending if str(row["fb_id"]) in wanted]
 
-    if limit is not None and limit > 0:
-        pending = pending[:limit]
+    if limit is not None:
+        pending = pending[: max(limit, 0)]
 
     items: list[dict[str, Any]] = []
     for listing in pending:
         text_lines = storage.text_lines_of(listing.get("raw_json"))
+        source = listing.get("source_hash") or ai_schema.source_hash(
+            {**listing, "text_lines": text_lines}
+        )
         items.append(
             {
                 "fb_id": listing["fb_id"],
@@ -114,7 +127,7 @@ def build_batch(
                 "listing_title": listing.get("title"),
                 "description": _clean_description(listing, text_lines),
                 "text_lines": text_lines,
-                "source_hash": listing["source_hash"],
+                "source_hash": source,
             }
         )
 
@@ -135,8 +148,17 @@ def write_batch(batch: dict[str, Any], out_dir: Path | str | None = None) -> Pat
     directory = Path(out_dir) if out_dir is not None else config.AI_DIR
     directory.mkdir(parents=True, exist_ok=True)
 
-    digits = re.sub(r"\D", "", str(batch.get("generated_at") or _now_iso()))[:14]
+    digits = re.sub(r"\D", "", str(batch.get("generated_at") or ""))[:14]
+    if len(digits) < 14:
+        # A caller-supplied `generated_at` that is not an ISO timestamp would
+        # otherwise collapse into `batch--.json`.
+        digits = re.sub(r"\D", "", _now_iso())[:14]
     path = directory / f"batch-{digits[:8]}-{digits[8:]}.json"
+    # Two batches within the same second must not silently overwrite.
+    suffix = 2
+    while path.exists():
+        path = directory / f"batch-{digits[:8]}-{digits[8:]}-{suffix}.json"
+        suffix += 1
     path.write_text(
         json.dumps(batch, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -161,7 +183,8 @@ def _validate_envelope(result: Any, registry: ai_schema.Registry) -> list[str]:
     if version < registry.schema_version:
         warnings.append(
             f"result was produced against schema_version={version}, registry is "
-            f"at {registry.schema_version}; these rows stay pending"
+            f"at {registry.schema_version}; these rows stay queued for the "
+            "fields added since"
         )
 
     if not isinstance(result.get("results"), list):
@@ -170,11 +193,38 @@ def _validate_envelope(result: Any, registry: ai_schema.Registry) -> list[str]:
     return warnings
 
 
+def _bad_enum_values(
+    entry: dict[str, Any], fields: dict[str, Any], registry: ai_schema.Registry
+) -> list[str]:
+    """Describe every enum field whose value the registry does not declare.
+
+    Keys are checked elsewhere; this catches the quieter failure — a value
+    like ``"not allowed"`` for ``pets``. Nothing raises on it downstream:
+    :func:`.rules.decide` simply fails to match, so a pets-forbidden listing
+    would stay active with a near-baseline score.
+    """
+    bad: list[str] = []
+    for key, raw in fields.items():
+        field_def = registry.field(key)
+        if field_def is None or field_def.get("type") != "enum":
+            continue
+        allowed = field_def.get("values") or []
+        value = rules.value_of(fields, key)
+        if rules.is_empty(value) or value in allowed:
+            continue
+        bad.append(
+            f"{entry['fb_id']}.{key}={value!r} (expected one of "
+            f"{', '.join(map(str, allowed))})"
+        )
+    return bad
+
+
 def _validate_results(
     results: list[Any], registry: ai_schema.Registry
 ) -> None:
     """Reject the whole file if any entry is unusable, before writing anything."""
     unknown: dict[str, list[str]] = {}
+    bad_values: list[str] = []
     for index, entry in enumerate(results):
         if not isinstance(entry, dict):
             raise BatchError(f"results[{index}] must be a JSON object")
@@ -188,6 +238,7 @@ def _validate_results(
             raise BatchError(f"results[{index}] ({entry['fb_id']}) has non-object fields")
         for key in registry.unknown_keys(fields.keys()):
             unknown.setdefault(key, []).append(str(entry["fb_id"]))
+        bad_values.extend(_bad_enum_values(entry, fields, registry))
 
     if unknown:
         listed = ", ".join(sorted(unknown))
@@ -195,6 +246,14 @@ def _validate_results(
             f"unknown field keys not in the registry: {listed}. "
             "Add them via `fb-rent ai-field add` or move them to "
             "proposed_new_fields."
+        )
+
+    if bad_values:
+        raise BatchError(
+            "values outside the registry's vocabulary: "
+            + "; ".join(bad_values)
+            + ". Use one of the declared values, or widen the field with "
+            "`fb-rent ai-field add`."
         )
 
 
@@ -216,7 +275,8 @@ def apply_results(
     A ``source_hash`` that no longer matches the listing is a warning, not an
     error: the listing may have been re-scraped between batch and apply. The
     reported hash is stored as-is, which leaves such a row pending for the
-    next round instead of silently marking stale analysis as fresh.
+    next round instead of silently marking stale analysis as fresh. The
+    result's own ``schema_version`` is stored for the same reason.
     """
     report = ApplyReport(dry_run=dry_run)
     report.warnings.extend(_validate_envelope(result, registry))
@@ -236,6 +296,7 @@ def apply_results(
         report.proposed_new_fields.append(proposal)
 
     model = result.get("model")
+    result_version = int(result["schema_version"])
     timestamp = now or _now_iso()
 
     for entry in results:
@@ -261,25 +322,37 @@ def apply_results(
                 "accepted, but the listing stays pending"
             )
 
-        status, reason = rules.decide(fields, listing.get("price_thb"))
+        data_quality = entry.get("data_quality")
+        status, reason = rules.decide(
+            fields, listing.get("price_thb"), data_quality
+        )
         if status == "rejected" and reason:
             report.rejected.append((fb_id, reason))
 
         if dry_run:
-            report.inserted += 1
+            exists = conn.execute(
+                "SELECT 1 FROM ai_analysis WHERE fb_id = ?", (fb_id,)
+            ).fetchone()
+            if exists:
+                report.updated += 1
+            else:
+                report.inserted += 1
             continue
 
         outcome = storage.upsert_ai_analysis(
             conn,
             {
                 "fb_id": fb_id,
-                "schema_version": registry.schema_version,
+                # The version the AI actually saw, not the registry's: a
+                # result produced before an `ai-field add` must leave the
+                # newer fields `c-stale` and the row queued for them.
+                "schema_version": result_version,
                 "analyzed_at": entry.get("analyzed_at") or timestamp,
                 "source_hash": reported_hash or current_hash,
                 "model": model,
                 "verdict": entry["verdict"],
                 "score": rules.score(fields),
-                "data_quality": entry.get("data_quality"),
+                "data_quality": data_quality,
                 "data_json": fields,
             },
         )

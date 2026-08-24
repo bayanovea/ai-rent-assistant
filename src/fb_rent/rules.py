@@ -73,15 +73,26 @@ def is_empty(value: Any) -> bool:
 
 
 def decide(
-    fields: dict[str, Any], price_thb: int | None = None
+    fields: dict[str, Any],
+    price_thb: int | None = None,
+    data_quality: str | None = None,
 ) -> tuple[str, str | None]:
     """Return ``("active" | "rejected", reason)`` for one listing.
 
     ``price_thb`` is the listing's own price; it falls back to the AI's
     ``price_month_thb`` when the scraper never captured one. Anything not
-    listed below stays active — condos, missing parking, weak internet and
-    unknown data quality are all flags for the verdict, not rejections.
+    listed below stays active — condos, missing parking and weak internet
+    are all flags for the verdict, not rejections.
+
+    ``data_quality`` other than ``good`` suppresses every rejection: the
+    text the AI read was the sidebar or was missing entirely, so its
+    "findings" are not evidence about this listing. Such a row needs a
+    ``scrape --refresh``, not a verdict. ``None`` means the analysis never
+    reported one and is treated as usable.
     """
+    if data_quality and data_quality != "good":
+        return "active", None
+
     if value_of(fields, "pets") == "not_allowed":
         return "rejected", REASON_PETS
 
@@ -101,8 +112,8 @@ def decide(
 def cell_class(
     field_key: str,
     value: Any,
-    field_def: dict[str, Any] | None = None,
-    row_schema_version: int = 0,
+    field_def: dict[str, Any] | None,
+    row_schema_version: int,
 ) -> str:
     """Return the CSS class for one table cell.
 

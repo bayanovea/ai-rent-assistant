@@ -27,6 +27,12 @@ pip install -e .
 playwright install chromium
 ```
 
+The `-e` is required, not a convenience: `config/ai_fields.json` and
+`config/requirements.md` are read from the checkout through a path relative to
+the package source and are not packaged into a wheel. After a plain
+`pip install .` every `ai-*` command and `fb-rent export` fail to find the
+field registry.
+
 ## Quickstart
 
 ```sh
@@ -42,8 +48,12 @@ effort):
 /analyze               # ai-status -> ai-batch -> read -> ai-apply -> export
 ```
 
-Open `../data/rentals.html` in a browser (sortable, searchable, paginated —
-Grid.js loaded from a CDN) or `../data/rentals.csv` in Numbers/Excel.
+Open `../data/rentals.html` in a browser: one self-contained file, no server
+and no internet needed. Click a header to sort, type in the search box to
+filter across every column, switch sets with the Active / Shortlist /
+Rejected / All tabs. `../data/rentals.csv` opens in Numbers/Excel, but it
+carries the scraped columns only — the AI fields, verdict, score and your
+decisions live in the HTML export.
 
 ## Local state
 
@@ -52,9 +62,10 @@ to this `scrapper/` package):
 
 - `browser-profile/` — persistent Chromium profile (cookies, localStorage)
 - `rentals.db` — SQLite database (source of truth)
-- `rentals.csv` — flat export, regenerated on every scrape
-- `rentals.html` — self-contained HTML table (Grid.js via CDN, needs internet
-  the first time), regenerated on every scrape
+- `rentals.csv` — flat export of the scraped `listings` columns only,
+  regenerated on every scrape
+- `rentals.html` — the full table: AI fields, verdict, score and decisions.
+  Self-contained, no CDN and no network; regenerated on every scrape
 - `ai/` — batches written by `fb-rent ai-batch` and the result files you hand
   back to `fb-rent ai-apply` (`batch-<ts>.json` / `result-<ts>.json`);
   disposable, they are just the transport between the CLI and the AI
@@ -66,8 +77,9 @@ to this `scrapper/` package):
 Editable configuration is version-controlled inside this package instead:
 
 - `config/ai_fields.json` — the field registry: every column the AI fills, its
-  type, allowed values and extraction prompt, plus `schema_version` /
-  `analysis_version`
+  type, allowed values and extraction prompt, plus `schema_version`. An
+  `analysis_version` key appears once `ai-field add` has run; while it is
+  absent it is read as equal to `schema_version`
 - `config/requirements.md` — what we are looking for, in prose. It is pasted
   verbatim into every batch, so changing priorities means editing this markdown,
   not the code.
@@ -144,7 +156,18 @@ In a Claude Code session, `/analyze` drives that whole loop for you (skill:
 
 Extraction is the AI's job; the *decision* is not. `rules.py` computes the
 `active` / `rejected` verdict and the score from the extracted fields, so the
-same facts always produce the same outcome.
+same facts always produce the same outcome. Exactly three conditions
+auto-reject: pets explicitly forbidden, a price above 35 000 THB (the hard
+ceiling above the 15 000–30 000 target), and an explicit studio. Everything
+else — a condo, no parking, an unmentioned living room — is a remark in the
+verdict, never a rejection.
+
+Alongside the fields the AI records `data_quality` per listing: `good` (it
+read the ad itself), `sidebar_noise` (Facebook's "Выбор дня" block landed in
+the text instead of the ad) or `missing` (no ad text at all). Anything other
+than `good` is amber in the export and means *re-scrape this one*
+(`fb-rent scrape --refresh`); it also suppresses the auto-rejections, because
+a verdict drawn from the wrong text is not evidence about this listing.
 
 ### `fb-rent ai-status`
 
@@ -211,6 +234,7 @@ fb-rent ai-field add --key balcony --label Balcony --type enum --values yes,no,u
 | `--prompt`   | Extraction instruction handed to the AI.                           |
 | `--after`    | Insert right after an existing key instead of at the end.          |
 | `--backfill` | Re-queue already-analysed listings so the AI fills the new field.  |
+| `--registry` | Registry file to read/modify (default `config/ai_fields.json`).    |
 
 Every `add` bumps `schema_version`. What `--backfill` changes is
 `analysis_version`:

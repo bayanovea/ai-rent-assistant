@@ -276,3 +276,130 @@ def test_apply_results_rejects_newer_schema_version(conn, registry):
 
     with pytest.raises(ai_batch.BatchError):
         ai_batch.apply_results(conn, registry, result)
+
+
+# --- schema versions, values and selection ------------------------------
+
+
+def _registry_with_extra_field(tmp_path, registry):
+    """A copy of the real registry with one more field, one version up."""
+    raw = json.loads(ai_schema.config.AI_FIELDS_PATH.read_text(encoding="utf-8"))
+    version = int(raw["schema_version"]) + 1
+    raw["schema_version"] = version
+    raw["fields"].append(
+        {
+            "key": "balcony",
+            "label": "Балкон",
+            "group": "amenity",
+            "type": "enum",
+            "values": ["yes", "no", "unclear"],
+            "added_in": version,
+            "prompt": "Есть ли балкон?",
+        }
+    )
+    target = tmp_path / "ai_fields.json"
+    target.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    return ai_schema.load_registry(target)
+
+
+def test_apply_results_stores_the_version_the_ai_saw(conn, tmp_path, registry):
+    """A result produced before `ai-field add` must not claim the new version."""
+    _add_listing(conn, "1")
+    newer = _registry_with_extra_field(tmp_path, registry)
+    result = _result("1")  # schema_version 1, built before `balcony` existed
+
+    report = ai_batch.apply_results(conn, newer, result)
+
+    assert any("stay queued" in w for w in report.warnings)
+    stored = conn.execute(
+        "SELECT schema_version FROM ai_analysis WHERE fb_id = '1'"
+    ).fetchone()["schema_version"]
+    assert stored == result["schema_version"]
+    # ... and the row is therefore still queued for the field it never saw.
+    pending, _no_raw = storage.fetch_pending(conn, newer)
+    assert [row["fb_id"] for row in pending] == ["1"]
+    assert pending[0]["pending_reason"] == "schema"
+
+
+def test_apply_results_rejects_values_outside_the_registry(conn, registry):
+    _add_listing(conn, "1")
+    result = _result("1", fields={"pets": {"v": "not allowed", "conf": "high"}})
+
+    with pytest.raises(ai_batch.BatchError) as exc:
+        ai_batch.apply_results(conn, registry, result)
+
+    assert "pets" in str(exc.value)
+    assert conn.execute("SELECT COUNT(*) FROM ai_analysis").fetchone()[0] == 0
+
+
+def test_apply_results_accepts_declared_values_and_empty_ones(conn, registry):
+    _add_listing(conn, "1")
+    result = _result(
+        "1", fields={"pets": {"v": "unclear"}, "parking": {"v": None}}
+    )
+
+    assert ai_batch.apply_results(conn, registry, result).inserted == 1
+
+
+def test_bad_data_quality_blocks_the_auto_rejection(conn, registry):
+    _add_listing(conn, "1")
+    result = _result(
+        "1",
+        data_quality="sidebar_noise",
+        fields={"pets": {"v": "not_allowed", "ev": "из сайдбара"}},
+    )
+
+    report = ai_batch.apply_results(conn, registry, result)
+
+    assert report.rejected == []
+    item = next(i for i in storage.fetch_enriched(conn) if i["fb_id"] == "1")
+    assert item["status"] == "active"
+
+
+def test_dry_run_counts_an_existing_analysis_as_an_update(conn, registry):
+    _add_listing(conn, "1")
+    ai_batch.apply_results(conn, registry, _result("1"))
+
+    report = ai_batch.apply_results(conn, registry, _result("1"), dry_run=True)
+
+    assert (report.inserted, report.updated) == (0, 1)
+
+
+def test_build_batch_takes_the_rows_the_caller_selected(conn, registry):
+    """`--ids` reaches past the queue, so the rows arrive pre-selected."""
+    _add_listing(conn, "1")
+    ai_batch.apply_results(conn, registry, _result("1"))
+    row = dict(conn.execute("SELECT * FROM listings WHERE fb_id = '1'").fetchone())
+
+    assert ai_batch.build_batch(conn, registry, "")["items"] == []
+    batch = ai_batch.build_batch(conn, registry, "", listings=[row])
+    assert [item["fb_id"] for item in batch["items"]] == ["1"]
+    # A row read straight from `listings` carries no hash; one is computed.
+    assert batch["items"][0]["source_hash"]
+
+
+def test_build_batch_limit_zero_selects_nothing(conn, registry):
+    _add_listing(conn, "1")
+    _add_listing(conn, "2")
+
+    assert ai_batch.build_batch(conn, registry, "", limit=0)["items"] == []
+    assert len(ai_batch.build_batch(conn, registry, "", limit=1)["items"]) == 1
+
+
+def test_write_batch_never_overwrites_a_batch_from_the_same_second(conn, registry, tmp_path):
+    _add_listing(conn, "1")
+    batch = ai_batch.build_batch(conn, registry, "", now="2026-08-25T10:00:00Z")
+
+    first = ai_batch.write_batch(batch, tmp_path / "ai")
+    second = ai_batch.write_batch(batch, tmp_path / "ai")
+
+    assert first != second
+    assert first.exists() and second.exists()
+
+
+def test_write_batch_falls_back_when_generated_at_is_not_a_timestamp(tmp_path):
+    path = ai_batch.write_batch({"generated_at": "today", "items": []}, tmp_path)
+
+    assert path.name.startswith("batch-")
+    assert path.name != "batch--.json"
+    assert len(path.stem.split("-")[1]) == 8

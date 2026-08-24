@@ -260,7 +260,8 @@ def fetch_pending(
     ``source_hash`` no longer matches the stored one (the text changed under
     it), or when it was analysed against an older ``schema_version`` than the
     registry now declares. Each pending dict carries its freshly computed
-    ``source_hash`` and a ``pending_reason`` of ``new`` / ``changed`` /
+    ``source_hash``, the ``analysed_version`` it was last analysed against
+    (``0`` when never) and a ``pending_reason`` of ``new`` / ``changed`` /
     ``schema``.
 
     Pending listings with neither a description nor any ``text_lines`` are
@@ -299,6 +300,9 @@ def fetch_pending(
 
         listing["source_hash"] = current_hash
         listing["pending_reason"] = reason
+        # Kept so the caller can tell a row analysed two field-additions ago
+        # from one analysed at the previous version.
+        listing["analysed_version"] = analysed_version or 0
 
         has_text = bool((listing.get("description") or "").strip()) or bool(
             text_lines_of(listing.get("raw_json"))
@@ -312,8 +316,8 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Return every listing joined with its AI analysis and user decision.
 
     ``data_json`` is unpacked into ``fields``; ``ai_status`` / ``ai_reason``
-    are recomputed from those fields by :mod:`.rules`, so a rule change takes
-    effect without re-running the AI. A user decision always wins: ``status``,
+    are recomputed from those fields and the row's ``data_quality`` by
+    :mod:`.rules`, so a rule change takes effect without re-running the AI. A user decision always wins: ``status``,
     ``reason`` and ``decided_by`` reflect the file-backed ``decisions`` table
     whenever it has a row for the listing.
     """
@@ -347,7 +351,9 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         item["analyzed"] = item.get("analyzed_at") is not None
 
         if item["analyzed"]:
-            ai_status, ai_reason = rules.decide(fields, item.get("price_thb"))
+            ai_status, ai_reason = rules.decide(
+                fields, item.get("price_thb"), item.get("data_quality")
+            )
         else:
             ai_status, ai_reason = "active", None
         item["ai_status"] = ai_status
@@ -662,9 +668,7 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
         },
         "price_thb": {
             "t": _display(price),
-            "c": rules.CLASS_NONE
-            if rules.is_empty(price)
-            else rules.cell_class("price_month_thb", price),
+            "c": rules.cell_class("price_month_thb", price, {"added_in": 1}, version),
         },
         "district": {"t": item.get("district") or "", "c": ""},
         "data_quality": {
