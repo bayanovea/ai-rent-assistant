@@ -166,11 +166,11 @@ fb-rent/
 - Create: `src/fb_rent/config.py`
 - Create: `README.md` (минимальный)
 
-- [ ] создать `pyproject.toml` с зависимостями: `playwright`, `click`, `python-dateutil`; dev: `pytest`
-- [ ] создать `src/fb_rent/config.py` с константами: `DB_PATH`, `CSV_PATH`, `BROWSER_PROFILE_DIR` (все под `~/.fb-rent/` для локального стора, с override через env `FB_RENT_HOME`)
-- [ ] создать `.gitignore` (`.venv/`, `__pycache__/`, `*.db`, `*.csv`, `~/.fb-rent/`, `.pytest_cache/`)
-- [ ] создать минимальный `README.md` с командой установки (`pip install -e . && playwright install chromium`)
-- [ ] прогнать `python -c "import fb_rent.config; print(fb_rent.config.DB_PATH)"` — должно работать
+- [x] создать `pyproject.toml` с зависимостями: `playwright`, `click`, `python-dateutil`; dev: `pytest`
+- [x] создать `src/fb_rent/config.py` с константами: `DB_PATH`, `CSV_PATH`, `BROWSER_PROFILE_DIR` (все под `~/.fb-rent/` для локального стора, с override через env `FB_RENT_HOME`)
+- [x] создать `.gitignore` (`.venv/`, `__pycache__/`, `*.db`, `*.csv`, `~/.fb-rent/`, `.pytest_cache/`)
+- [x] создать минимальный `README.md` с командой установки (`pip install -e . && playwright install chromium`)
+- [x] прогнать `python -c "import fb_rent.config; print(fb_rent.config.DB_PATH)"` — должно работать
 
 ### Task 2: URL builder
 

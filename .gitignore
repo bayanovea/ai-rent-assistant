@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtualenv
+.venv/
+venv/
+env/
+
+# Tests / caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local data
+*.db
+*.sqlite
+*.sqlite3
+*.csv
+
+# Local fb-rent home (if user placed it inside repo for testing)
+.fb-rent/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
