@@ -8,6 +8,7 @@ extracted from the marketplace URL).
 from __future__ import annotations
 
 import csv
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -94,6 +95,10 @@ def upsert_listing(
         "SELECT first_seen_at FROM listings WHERE fb_id = ?", (fb_id,)
     ).fetchone()
 
+    raw_json = listing.get("raw_json")
+    if raw_json is not None and not isinstance(raw_json, str):
+        raw_json = json.dumps(raw_json, ensure_ascii=False, default=str)
+
     fields = {
         "fb_id": fb_id,
         "url": listing.get("url"),
@@ -105,7 +110,7 @@ def upsert_listing(
         "property_type": listing.get("property_type"),
         "description": listing.get("description"),
         "published_at": listing.get("published_at"),
-        "raw_json": listing.get("raw_json"),
+        "raw_json": raw_json,
     }
 
     if existing is None:

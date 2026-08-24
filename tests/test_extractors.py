@@ -58,6 +58,21 @@ def test_parse_price_zero_rejected() -> None:
 
 
 @pytest.mark.parametrize(
+    "raw",
+    [
+        "THB 25.5",         # decimal price, not thousands
+        "25.5K THB",        # fractional-K should not silently truncate
+        "12,5 THB",         # EU decimal form
+        "฿ 3.75",           # single decimal
+    ],
+)
+def test_parse_price_rejects_decimals(raw: str) -> None:
+    # Historical bug: parse_price stripped '.' unconditionally, so "25.5"
+    # became 255. Reject decimals rather than pick a wrong integer.
+    assert parse_price(raw) is None
+
+
+@pytest.mark.parametrize(
     "title,description,expected",
     [
         ("2BR condo in Rawai", "", 2),

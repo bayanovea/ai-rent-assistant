@@ -61,11 +61,14 @@ def _card_text_lines(handle: "ElementHandle") -> list[str]:
 
 
 def _pick_price_line(lines: list[str]) -> str | None:
-    """First line that looks like a price (has THB/฿ or a digit run)."""
+    """First line that carries an explicit THB currency marker.
+
+    We deliberately do not fall back to "any 3-digit run" — that used to
+    misclassify phone numbers, sqm sizes, and posting-age counts as
+    prices, which then got persisted as bogus ``price_thb`` values.
+    """
     for line in lines:
         if re.search(r"฿|thb|baht|bt\.?", line, re.IGNORECASE):
-            return line
-        if re.search(r"\d{3}", line):
             return line
     return None
 

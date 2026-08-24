@@ -90,11 +90,13 @@ def _try_expand_description(page: "Page") -> None:
 
 
 def _extract_price_raw(lines: list[str]) -> str | None:
+    """First line that carries an explicit THB currency marker.
+
+    No "any 3-digit run" fallback — see scraper_list._pick_price_line for
+    the rationale (phone numbers / sqm bleed-through).
+    """
     for line in lines:
         if _PRICE_LINE_RE.search(line):
-            return line
-    for line in lines:
-        if re.search(r"\d{3}", line):
             return line
     return None
 
@@ -170,11 +172,11 @@ def scrape_detail(
 
         try:
             page.wait_for_selector('div[role="main"]', timeout=CONTENT_TIMEOUT_MS)
-        except Exception:  # noqa: BLE001 — Playwright's TimeoutError
+        except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
             if _detect_login_redirect(page):
                 raise LoginRequiredError(
                     "Facebook redirected to login. Run `fb-rent login` and retry."
-                )
+                ) from exc
             if _detect_unavailable(page):
                 return None
             # Main region never rendered — treat as unavailable rather

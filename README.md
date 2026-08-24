@@ -11,6 +11,8 @@ Design rationale, decisions, and the roadmap for future iterations live in
 
 ## Install
 
+Requires Python 3.11 or newer.
+
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate

@@ -68,7 +68,13 @@ def parse_price(raw: str | None) -> int | None:
     if not match:
         return None
 
-    digits = re.sub(r"[\s,.  ]", "", match.group(1))
+    number = match.group(1)
+    # Reject decimal-looking values like "25.5" or "12,5" (a separator
+    # followed by 1–2 trailing digits — i.e. not a thousands group).
+    if re.search(r"[.,]\d{1,2}(?!\d)", number):
+        return None
+
+    digits = re.sub(r"[\s,.  ]", "", number)
     if not digits:
         return None
     try:

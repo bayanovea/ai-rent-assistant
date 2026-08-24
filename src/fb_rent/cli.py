@@ -90,7 +90,11 @@ def login_cmd() -> None:
     playwright = start_playwright()
     context = None
     try:
-        context = launch_persistent(playwright, headless=False)
+        try:
+            context = launch_persistent(playwright, headless=False)
+        except Exception as exc:  # noqa: BLE001 — surface a friendly error
+            _echo_err(f"Failed to launch browser: {exc}")
+            sys.exit(2)
         ok = login_flow(context)
         if ok:
             click.echo("Login detected. Session saved to persistent profile.")

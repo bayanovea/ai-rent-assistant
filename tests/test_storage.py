@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 import pytest
@@ -147,3 +148,25 @@ def test_export_csv_creates_parent_dir(conn, tmp_path: Path):
     out = tmp_path / "nested" / "dir" / "rentals.csv"
     storage.export_csv(conn, out)
     assert out.exists()
+
+
+def test_upsert_serialises_dict_raw_json(conn):
+    # scraper_detail returns raw_json as a dict; sqlite3 cannot bind dicts
+    # directly, so the storage layer must serialise them to JSON text.
+    raw = {"url": "u", "text_lines": ["a", "b"], "title": "Villa"}
+    storage.upsert_listing(conn, _make_listing(fb_id="dict-raw", raw_json=raw))
+    row = conn.execute(
+        "SELECT raw_json FROM listings WHERE fb_id = ?", ("dict-raw",)
+    ).fetchone()
+    assert isinstance(row["raw_json"], str)
+    assert json.loads(row["raw_json"]) == raw
+
+
+def test_upsert_passes_through_string_raw_json(conn):
+    storage.upsert_listing(
+        conn, _make_listing(fb_id="str-raw", raw_json='{"a": 1}')
+    )
+    row = conn.execute(
+        "SELECT raw_json FROM listings WHERE fb_id = ?", ("str-raw",)
+    ).fetchone()
+    assert row["raw_json"] == '{"a": 1}'
