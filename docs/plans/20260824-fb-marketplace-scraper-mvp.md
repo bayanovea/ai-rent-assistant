@@ -237,13 +237,13 @@ fb-rent/
 **Files:**
 - Create: `src/fb_rent/scraper_list.py`
 
-- [ ] `scrape_list(context, url: str, max_items: int) -> list[dict]` — открывает `url`, ждёт загрузки карточек, скроллит вниз пока не наберёт `max_items` уникальных или не перестанут появляться новые (2 попытки без прироста → стоп)
-- [ ] для каждой карточки на списке извлекает: `fb_id` (из ссылки `/marketplace/item/{id}`), `url`, `title`, `price_raw`, `district` (обычно вторая строка на карточке), `cover_image_url`
-- [ ] селекторы: используем `role`/`aria-label` где можно (FB меняет CSS-классы часто), fallback на семантические `a[href*="/marketplace/item/"]`
-- [ ] при 0 карточках или detected login-redirect — бросает `LoginRequiredError` с понятным сообщением
-- [ ] DESIGN: осознанно без unit-тестов (нужен живой FB); проверим руками в Task 9
-- [ ] защита от бесконечного скролла: hard limit `max_items * 2` попыток скролла
-- [ ] MANUAL: подтвердить работу селекторов на живом FB (best-effort guess в коде — почти гарантированно потребуется итерация)
+- [x] `scrape_list(context, url: str, max_items: int) -> list[dict]` — открывает `url`, ждёт загрузки карточек, скроллит вниз пока не наберёт `max_items` уникальных или не перестанут появляться новые (2 попытки без прироста → стоп)
+- [x] для каждой карточки на списке извлекает: `fb_id` (из ссылки `/marketplace/item/{id}`), `url`, `title`, `price_raw`, `district` (обычно вторая строка на карточке), `cover_image_url`
+- [x] селекторы: используем `role`/`aria-label` где можно (FB меняет CSS-классы часто), fallback на семантические `a[href*="/marketplace/item/"]`
+- [x] при 0 карточках или detected login-redirect — бросает `LoginRequiredError` с понятным сообщением
+- [x] DESIGN: осознанно без unit-тестов (нужен живой FB); проверим руками в Task 9
+- [x] защита от бесконечного скролла: hard limit `max_items * 2` попыток скролла
+- [x] MANUAL: подтвердить работу селекторов на живом FB (best-effort guess в коде — почти гарантированно потребуется итерация) (skipped — requires live FB / human action)
 
 ### Task 7: Detail scraper
 
