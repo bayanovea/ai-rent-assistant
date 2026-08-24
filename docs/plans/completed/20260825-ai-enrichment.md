@@ -457,10 +457,10 @@ fb-rent export                       # имя прежнее, рендерит �
 **Files:**
 - Modify: `README.md`
 
-- [ ] добавить в `README.md` раздел про AI-обогащение: цикл `ai-batch → анализ → ai-apply → export`, описание всех новых команд с примерами, где живут `config/ai_fields.json`, `config/requirements.md`, `data/decisions.json` и `data/ai/`
-- [ ] описать, как расширять схему (`ai-field add`, смысл `--backfill`, что означает цвет `c-stale`) и как отклонять листинги вручную
-- [ ] отметить, что это iteration 2, и линкануть на этот plan-файл
-- [ ] переместить план: `mkdir -p docs/plans/completed && mv docs/plans/20260825-ai-enrichment.md docs/plans/completed/`
+- [x] добавить в `README.md` раздел про AI-обогащение: цикл `ai-batch → анализ → ai-apply → export`, описание всех новых команд с примерами, где живут `config/ai_fields.json`, `config/requirements.md`, `data/decisions.json` и `data/ai/`
+- [x] описать, как расширять схему (`ai-field add`, смысл `--backfill`, что означает цвет `c-stale`) и как отклонять листинги вручную
+- [x] отметить, что это iteration 2, и линкануть на этот plan-файл
+- [x] переместить план: `mkdir -p docs/plans/completed && mv docs/plans/20260825-ai-enrichment.md docs/plans/completed/`
 
 ## Post-Completion
 

@@ -1,13 +1,20 @@
 # fb-rent
 
-FB Marketplace Phuket rentals scraper — **iteration 1 (MVP)**.
+FB Marketplace Phuket rentals scraper — **iteration 2 (AI enrichment)**.
 
 Scrapes long-term rental listings from the [Phuket Property Rentals](https://www.facebook.com/marketplace/110729412288885/propertyrentals)
 category (15 000 – 30 000 THB) into a local SQLite database, with CSV and
 self-contained HTML exports for browsing in Numbers/Excel or a browser.
 
-Design rationale, decisions, and the roadmap for future iterations live in
-[`docs/plans/completed/20260824-fb-marketplace-scraper-mvp.md`](docs/plans/completed/20260824-fb-marketplace-scraper-mvp.md).
+Iteration 2 adds AI enrichment on top: an analysis loop that reads each
+listing's raw text, fills the table columns, writes a verdict per listing and
+auto-rejects the obvious misses — see [AI enrichment](#ai-enrichment) below.
+
+Design rationale, decisions, and the roadmap for future iterations live in the
+plan files:
+
+- iteration 1 (MVP): [`docs/plans/completed/20260824-fb-marketplace-scraper-mvp.md`](docs/plans/completed/20260824-fb-marketplace-scraper-mvp.md)
+- iteration 2 (AI enrichment): [`docs/plans/completed/20260825-ai-enrichment.md`](docs/plans/completed/20260825-ai-enrichment.md)
 
 ## Install
 
@@ -28,6 +35,13 @@ fb-rent scrape         # headless scrape, writes ../data/rentals.{db,csv,html}
 fb-rent export         # regenerate CSV+HTML from the DB without scraping
 ```
 
+Then run the analysis loop from a Claude Code session (Opus, high thinking
+effort):
+
+```
+/analyze               # ai-status -> ai-batch -> read -> ai-apply -> export
+```
+
 Open `../data/rentals.html` in a browser (sortable, searchable, paginated —
 Grid.js loaded from a CDN) or `../data/rentals.csv` in Numbers/Excel.
 
@@ -41,6 +55,22 @@ to this `scrapper/` package):
 - `rentals.csv` — flat export, regenerated on every scrape
 - `rentals.html` — self-contained HTML table (Grid.js via CDN, needs internet
   the first time), regenerated on every scrape
+- `ai/` — batches written by `fb-rent ai-batch` and the result files you hand
+  back to `fb-rent ai-apply` (`batch-<ts>.json` / `result-<ts>.json`);
+  disposable, they are just the transport between the CLI and the AI
+- `decisions.json` — your own verdicts (`reject` / `unreject` / `shortlist`)
+  with reasons. **The only irreplaceable file here**: the DB can be rebuilt by
+  re-scraping and re-analysing, your decisions cannot. They are mirrored into
+  the DB on every `export`, so wiping `rentals.db` loses nothing.
+
+Editable configuration is version-controlled inside this package instead:
+
+- `config/ai_fields.json` — the field registry: every column the AI fills, its
+  type, allowed values and extraction prompt, plus `schema_version` /
+  `analysis_version`
+- `config/requirements.md` — what we are looking for, in prose. It is pasted
+  verbatim into every batch, so changing priorities means editing this markdown,
+  not the code.
 
 Override the base path with the `FB_RENT_HOME` environment variable, e.g.
 `FB_RENT_HOME=/tmp/fb-rent-test fb-rent scrape`.
@@ -68,6 +98,7 @@ CSV and HTML.
 | `--days`          | `7`     | Filter to listings created in the last N days.           |
 | `--dry-run`       | off     | Print what would be written without touching the DB.     |
 | `--skip-details`  | off     | List cards only, skip per-item detail pages.             |
+| `--refresh`       | off     | Re-scrape detail pages for listings already in the DB.   |
 
 Detail requests are hard-capped at 60 per run to stay polite.
 
@@ -89,6 +120,126 @@ fb-rent export                              # writes ../data/rentals.{csv,html}
 fb-rent export --path /tmp/rentals.csv      # custom CSV destination
 fb-rent export --html-path /tmp/rentals.html # custom HTML destination
 ```
+
+## AI enrichment
+
+The scraper only gets you raw text. The enrichment loop turns that text into
+filled columns, a per-listing verdict and a score, so the search happens on one
+HTML page instead of 40 Facebook tabs.
+
+The "AI" here is Claude Code itself (Opus, high thinking effort) — there is no
+API client and no extra runtime dependency. The CLI's job is the contract:
+write a batch out, read a result back.
+
+```
+fb-rent ai-status                 # what is analysed / pending / stale / unusable
+fb-rent ai-batch --limit 25       # -> ../data/ai/batch-<ts>.json
+   ... the AI reads the batch + config/requirements.md and writes a result file
+fb-rent ai-apply <result.json>    # store fields, verdicts, auto-rejections
+fb-rent export                    # regenerate CSV + HTML
+```
+
+In a Claude Code session, `/analyze` drives that whole loop for you (skill:
+`.claude/skills/analyze/SKILL.md`).
+
+Extraction is the AI's job; the *decision* is not. `rules.py` computes the
+`active` / `rejected` verdict and the score from the extracted fields, so the
+same facts always produce the same outcome.
+
+### `fb-rent ai-status`
+
+Prints the registry version and field count, then the queue: how many listings
+are analysed, pending (with the reason — never analysed, description changed,
+registry grew), stale, and how many have no raw text at all. Listings in that
+last bucket are listed by `fb_id` — they need `fb-rent scrape --refresh` before
+there is anything to analyse.
+
+### `fb-rent ai-batch`
+
+Writes the JSON batch the AI reads: the requirements letter, the field registry
+and the raw text of each pending listing.
+
+| Flag       | Default | Description                                             |
+|------------|---------|---------------------------------------------------------|
+| `--limit`  | `25`    | Maximum number of listings in the batch.                |
+| `--all`    | off     | Include every pending listing, ignoring `--limit`.      |
+| `--ids`    | —       | Analyse only these `fb_id`s (repeatable).               |
+| `--out`    | —       | Write elsewhere (default `../data/ai/batch-<ts>.json`). |
+
+```sh
+fb-rent ai-batch --limit 25
+fb-rent ai-batch --all
+fb-rent ai-batch --ids 1234567890 --ids 9876543210   # re-analyse two by hand
+```
+
+Listings already analysed against the current registry are not returned again —
+the loop is idempotent, so re-running `ai-batch` after `ai-apply` yields an
+empty queue. A listing comes back only if its description changed or the
+registry grew and you asked for a backfill.
+
+### `fb-rent ai-apply`
+
+Reads the AI's result file, validates it against the registry, writes the
+fields into the `ai_analysis` table, applies `rules.py` and reports what
+happened: how many were applied, which were auto-rejected and why, which were
+skipped, and any new fields the AI proposed.
+
+```sh
+fb-rent ai-apply ../data/ai/result-20260825-141500.json --dry-run
+fb-rent ai-apply ../data/ai/result-20260825-141500.json
+```
+
+`--dry-run` validates and reports without touching the DB.
+
+### `fb-rent ai-field` — evolving the schema
+
+When the AI keeps seeing a useful signal that has no column, it proposes one in
+`proposed_new_fields`, and `ai-apply` prints the proposal. You add it:
+
+```sh
+fb-rent ai-field list
+fb-rent ai-field add --key balcony --label Balcony --type enum --values yes,no,unclear
+fb-rent ai-field add --key balcony --label Balcony --type enum --values yes,no,unclear --backfill
+```
+
+| Flag         | Description                                                        |
+|--------------|--------------------------------------------------------------------|
+| `--key`      | Key used inside the analysis `data_json`.                          |
+| `--label`    | Column heading in the HTML export.                                 |
+| `--type`     | `enum`, `int`, `text` or `date` (`--values` required for enum).     |
+| `--group`    | Column group (default `core`).                                     |
+| `--prompt`   | Extraction instruction handed to the AI.                           |
+| `--after`    | Insert right after an existing key instead of at the end.          |
+| `--backfill` | Re-queue already-analysed listings so the AI fills the new field.  |
+
+Every `add` bumps `schema_version`. What `--backfill` changes is
+`analysis_version`:
+
+- **without `--backfill`** — old rows keep their analysis and show a `c-stale`
+  cell (hatched grey) for the new field. That means *"the field did not exist
+  when this listing was analysed"* — as opposed to `c-none` (plain grey dash),
+  which means *"the AI looked and there was nothing to find"*. Nothing is
+  re-queued.
+- **with `--backfill`** — `analysis_version` catches up to `schema_version`,
+  every analysed listing becomes pending again, and the next `ai-batch` picks
+  them up so the new column gets filled for the whole table.
+
+### Your own decisions
+
+The AI's verdict is a suggestion. Yours wins, and unlike everything else it
+survives a DB wipe — it lives in `../data/decisions.json`, not in SQLite.
+
+```sh
+fb-rent reject 1234567890 --reason "агент не отвечает"
+fb-rent unreject 1234567890 --reason "перезвонили, животные ок"
+fb-rent shortlist 1234567890 --reason "поехать смотреть в четверг"
+fb-rent export                       # refresh the table
+```
+
+`reject` takes a listing out (overriding an AI `active`), `unreject` puts it
+back (overriding an AI rejection), `shortlist` marks it as worth contacting.
+The HTML export has an Active / Shortlist / Rejected / All tab strip, shows the
+reason on rejected rows, and marks shortlisted ones with a yellow bar.
 
 ## Troubleshooting
 
