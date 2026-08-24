@@ -226,11 +226,11 @@ fb-rent/
 **Files:**
 - Create: `src/fb_rent/browser.py`
 
-- [ ] `launch_persistent(headless: bool) -> BrowserContext` — использует `chromium.launch_persistent_context(user_data_dir=BROWSER_PROFILE_DIR)`, реалистичный `user_agent` (последний stable Chrome на macOS), `viewport 1280x900`, `locale='en-US'`
-- [ ] `is_logged_in(context) -> bool` — открывает `https://www.facebook.com/`, проверяет наличие селектора профиля / отсутствие форм логина
-- [ ] `login_flow(context)` — открывает `facebook.com/login` в headed режиме, ждёт event ручного логина (polling `is_logged_in` каждые 3 сек до 5 минут), выходит
-- [ ] DESIGN: тесты для этого модуля НЕ пишем осознанно — интеграция с живым браузером; проверяем руками через CLI в Task 8
-- [ ] MANUAL: `fb-rent login` открывает браузер, залогиниться руками, вторая команда работает headless
+- [x] `launch_persistent(headless: bool) -> BrowserContext` — использует `chromium.launch_persistent_context(user_data_dir=BROWSER_PROFILE_DIR)`, реалистичный `user_agent` (последний stable Chrome на macOS), `viewport 1280x900`, `locale='en-US'`
+- [x] `is_logged_in(context) -> bool` — открывает `https://www.facebook.com/`, проверяет наличие селектора профиля / отсутствие форм логина
+- [x] `login_flow(context)` — открывает `facebook.com/login` в headed режиме, ждёт event ручного логина (polling `is_logged_in` каждые 3 сек до 5 минут), выходит
+- [x] DESIGN: тесты для этого модуля НЕ пишем осознанно — интеграция с живым браузером; проверяем руками через CLI в Task 8
+- [x] MANUAL: `fb-rent login` открывает браузер, залогиниться руками, вторая команда работает headless (skipped — requires live FB / human action)
 
 ### Task 6: List scraper
 
