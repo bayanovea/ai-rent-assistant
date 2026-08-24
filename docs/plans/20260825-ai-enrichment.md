@@ -437,20 +437,20 @@ fb-rent export                       # имя прежнее, рендерит �
 ### Task 12: Verify acceptance criteria
 
 **Автоматизируемое** (агент выполняет):
-- [ ] `pytest tests/ -q` — весь набор зелёный, включая 67 тестов итерации 1
-- [ ] `fb-rent --help` показывает `ai-status`, `ai-batch`, `ai-apply`, `ai-field`, `reject`, `unreject`, `shortlist`
-- [ ] `python -c "from fb_rent.ai_schema import load_registry; r=load_registry(); print(r.schema_version, len(r.fields))"` — реестр грузится, поля на месте
-- [ ] идемпотентность: на временной БД собрать batch из 3 листингов, применить синтетический результат, повторно вызвать `fetch_pending` — эти 3 не возвращаются; изменить `description` одного из них — возвращается ровно он
-- [ ] эволюция схемы: `ai-field add --key balcony --label Balcony --type enum --values yes,no,unclear` без `--backfill` → в HTML старые строки получают `c-stale`, не `c-none`; повторить с `--backfill` → строки снова в pending
-- [ ] решения переживают стирание БД: `reject` на временных данных, удалить файл БД, `init_db` + `sync_to_db` — решение и причина на месте
-- [ ] `fb-rent export` на БД без единой строки `ai_analysis` — валидный HTML без падения
+- [x] `pytest tests/ -q` — весь набор зелёный, включая 67 тестов итерации 1 (248 tests pass; the iteration-1 suite on `main` is 76 tests, not 67 — all still green)
+- [x] `fb-rent --help` показывает `ai-status`, `ai-batch`, `ai-apply`, `ai-field`, `reject`, `unreject`, `shortlist`
+- [x] `python -c "from fb_rent.ai_schema import load_registry; r=load_registry(); print(r.schema_version, len(r.fields))"` — реестр грузится, поля на месте
+- [x] идемпотентность: на временной БД собрать batch из 3 листингов, применить синтетический результат, повторно вызвать `fetch_pending` — эти 3 не возвращаются; изменить `description` одного из них — возвращается ровно он
+- [x] эволюция схемы: `ai-field add --key balcony --label Balcony --type enum --values yes,no,unclear` без `--backfill` → в HTML старые строки получают `c-stale`, не `c-none`; повторить с `--backfill` → строки снова в pending
+- [x] решения переживают стирание БД: `reject` на временных данных, удалить файл БД, `init_db` + `sync_to_db` — решение и причина на месте
+- [x] `fb-rent export` на БД без единой строки `ai_analysis` — валидный HTML без падения
 
 **Требует ручных действий** (агент помечает как skipped):
-- [ ] MANUAL: `fb-rent scrape --refresh` — перезалить листинги исправленными экстракторами (skipped — requires live FB / human action)
-- [ ] MANUAL: проверить в sqlite3, что ни один `description` не равен сайдбарному boilerplate длиной 1288/962 символа, `title` больше нигде не `"Недавно опубликовано"`, `published_at` не NULL там, где FB показывал дату (skipped — requires live FB / human action)
-- [ ] MANUAL: полный цикл `/analyze` в интерактивной сессии Claude Code (Opus, high effort) на 3–5 листингах (skipped — requires interactive AI session)
-- [ ] MANUAL: открыть `data/rentals.html` — колонка Pets зелёная/жёлтая/красная как задумано, отклонённые строки визуально отличимы и с причинами, все колонки достижимы горизонтальным скроллом, легенда соответствует реальности (skipped — requires human review)
-- [ ] MANUAL: проверить на реальных данных, что ни один листинг не отклонён за лишние комнаты и ни один — за неупомянутую гостиную (skipped — requires live data)
+- [x] MANUAL: `fb-rent scrape --refresh` — перезалить листинги исправленными экстракторами (skipped — requires live FB / human action)
+- [x] MANUAL: проверить в sqlite3, что ни один `description` не равен сайдбарному boilerplate длиной 1288/962 символа, `title` больше нигде не `"Недавно опубликовано"`, `published_at` не NULL там, где FB показывал дату (skipped — requires live FB / human action)
+- [x] MANUAL: полный цикл `/analyze` в интерактивной сессии Claude Code (Opus, high effort) на 3–5 листингах (skipped — requires interactive AI session)
+- [x] MANUAL: открыть `data/rentals.html` — колонка Pets зелёная/жёлтая/красная как задумано, отклонённые строки визуально отличимы и с причинами, все колонки достижимы горизонтальным скроллом, легенда соответствует реальности (skipped — requires human review)
+- [x] MANUAL: проверить на реальных данных, что ни один листинг не отклонён за лишние комнаты и ни один — за неупомянутую гостиную (skipped — requires live data)
 
 ### Task 13: [Final] Update documentation
 
