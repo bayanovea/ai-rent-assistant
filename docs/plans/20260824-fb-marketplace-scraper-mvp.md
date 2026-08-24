@@ -214,12 +214,12 @@ fb-rent/
 - Create: `src/fb_rent/storage.py`
 - Create: `tests/test_storage.py`
 
-- [ ] `init_db(path: Path)` — создаёт таблицу и индексы из схемы выше, идемпотентно
-- [ ] `upsert_listing(conn, listing: dict) -> str` — insert или update по `fb_id`; возвращает `"inserted"` / `"updated"`; при update: обновляет `last_seen_at`, `price_thb`, `description`, `raw_json`, сохраняет `first_seen_at`
-- [ ] `export_csv(conn, path: Path)` — регенерирует CSV из БД, отсортировано по `last_seen_at DESC`; колонки в порядке: `price_thb`, `title`, `bedrooms`, `district`, `property_type`, `published_at`, `url`, `description`, `first_seen_at`, `last_seen_at`
-- [ ] написать `tests/test_storage.py` с in-memory SQLite (`":memory:"`): init создаёт таблицу, insert нового, upsert существующего сохраняет `first_seen_at`, export возвращает правильный порядок колонок
-- [ ] тесты на edge cases: NULL price, юникод в описании, дубликаты
-- [ ] `pytest tests/test_storage.py -v` — все зелёные
+- [x] `init_db(path: Path)` — создаёт таблицу и индексы из схемы выше, идемпотентно
+- [x] `upsert_listing(conn, listing: dict) -> str` — insert или update по `fb_id`; возвращает `"inserted"` / `"updated"`; при update: обновляет `last_seen_at`, `price_thb`, `description`, `raw_json`, сохраняет `first_seen_at`
+- [x] `export_csv(conn, path: Path)` — регенерирует CSV из БД, отсортировано по `last_seen_at DESC`; колонки в порядке: `price_thb`, `title`, `bedrooms`, `district`, `property_type`, `published_at`, `url`, `description`, `first_seen_at`, `last_seen_at`
+- [x] написать `tests/test_storage.py` с in-memory SQLite (`":memory:"`): init создаёт таблицу, insert нового, upsert существующего сохраняет `first_seen_at`, export возвращает правильный порядок колонок
+- [x] тесты на edge cases: NULL price, юникод в описании, дубликаты
+- [x] `pytest tests/test_storage.py -v` — все зелёные
 
 ### Task 5: Browser/session helper (Playwright)
 
