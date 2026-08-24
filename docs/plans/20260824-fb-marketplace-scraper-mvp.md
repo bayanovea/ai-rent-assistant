@@ -262,8 +262,8 @@ fb-rent/
 - Create: `src/fb_rent/cli.py`
 - Modify: `pyproject.toml` (добавить entry-point `fb-rent = fb_rent.cli:main`)
 
-- [ ] `fb-rent login` — вызывает `browser.login_flow`, печатает статус
-- [ ] `fb-rent scrape [--max 40] [--days 7] [--dry-run] [--skip-details]` — orchestrator:
+- [x] `fb-rent login` — вызывает `browser.login_flow`, печатает статус
+- [x] `fb-rent scrape [--max 40] [--days 7] [--dry-run] [--skip-details]` — orchestrator:
   - открывает persistent context (headless)
   - проверяет `is_logged_in`, при False — понятная ошибка «run `fb-rent login`»
   - строит URL через `url_builder`
@@ -271,10 +271,10 @@ fb-rent/
   - `--dry-run`: печатает что бы сделал, не пишет БД
   - `--skip-details`: только список без захода на карточки (быстрая инкрементальная проверка)
   - в конце: `export_csv`, печатает summary «inserted: X, updated: Y, csv: /path/to/rentals.csv»
-- [ ] `fb-rent export [--path]` — только регенерация CSV
-- [ ] `fb-rent --help` печатает все команды с описанием
-- [ ] DESIGN: тесты на CLI НЕ пишем (тонкая обёртка); логика уже покрыта юнит-тестами нижних слоёв
-- [ ] прогнать `pip install -e .` и `fb-rent --help` — команды видны
+- [x] `fb-rent export [--path]` — только регенерация CSV
+- [x] `fb-rent --help` печатает все команды с описанием
+- [x] DESIGN: тесты на CLI НЕ пишем (тонкая обёртка); логика уже покрыта юнит-тестами нижних слоёв
+- [x] прогнать `pip install -e .` и `fb-rent --help` — команды видны
 
 ### Task 9: Verify acceptance criteria
 

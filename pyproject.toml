@@ -19,6 +19,9 @@ dev = [
     "pytest>=8.0",
 ]
 
+[project.scripts]
+fb-rent = "fb_rent.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
