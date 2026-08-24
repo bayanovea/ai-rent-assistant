@@ -394,14 +394,16 @@ fb-rent export                       # имя прежнее, рендерит �
 - Modify: `src/fb_rent/cli.py`
 - Create: `tests/test_cli_ai_field.py`
 
-- [ ] `fb-rent ai-status` — печатает analyzed / pending / stale / «нет сырых данных, нужен scrape --refresh» со счётчиками
-- [ ] `fb-rent ai-batch [--limit 25] [--all] [--ids ...] [--out PATH]` — собирает и пишет batch, печатает путь и количество; при нуле pending говорит об этом и выходит с кодом 0
-- [ ] `fb-rent ai-apply PATH [--dry-run]` — применяет результат, печатает отчёт: сколько принято, сколько авторежектнуто и по какой причине, какие новые поля предложены
-- [ ] `fb-rent ai-field list` и `fb-rent ai-field add --key --label --type [--values] [--group] [--after] [--backfill]` — добавляет поле в `config/ai_fields.json`; с `--backfill` поднимает `schema_version` и помечает существующие строки устаревшими, без него старые строки просто получат `c-stale`
-- [ ] `fb-rent reject ID --reason "..."`, `fb-rent unreject ID`, `fb-rent shortlist ID [--reason]` — пишут в `data/decisions.json` через `decisions.py`
-- [ ] DESIGN: тесты на тонкие CLI-обёртки не пишем — логика покрыта юнит-тестами нижних слоёв; исключение — `ai-field add`, где есть реальная мутация реестра
-- [ ] написать `tests/test_cli_ai_field.py`: `ai-field add` на копии реестра добавляет поле с корректным `added_in`, `--after` ставит поле в нужную позицию, дубликат ключа → ошибка, `--backfill` поднимает `schema_version`
-- [ ] прогнать `pytest tests/ -q` и `fb-rent --help` — новые команды видны
+- [x] `fb-rent ai-status` — печатает analyzed / pending / stale / «нет сырых данных, нужен scrape --refresh» со счётчиками
+- [x] `fb-rent ai-batch [--limit 25] [--all] [--ids ...] [--out PATH]` — собирает и пишет batch, печатает путь и количество; при нуле pending говорит об этом и выходит с кодом 0
+- [x] `fb-rent ai-apply PATH [--dry-run]` — применяет результат, печатает отчёт: сколько принято, сколько авторежектнуто и по какой причине, какие новые поля предложены
+- [x] `fb-rent ai-field list` и `fb-rent ai-field add --key --label --type [--values] [--group] [--after] [--backfill]` — добавляет поле в `config/ai_fields.json`; с `--backfill` поднимает `schema_version` и помечает существующие строки устаревшими, без него старые строки просто получают `c-stale`
+  - ⚠️ уточнение механики: `schema_version` поднимается при **любом** добавлении поля (иначе `added_in` нового поля не может быть больше версии строки и `c-stale` недостижим — валидация реестра требует `added_in <= schema_version`). Разделяет два случая новый необязательный ключ реестра `analysis_version`: он догоняет `schema_version` только при `--backfill`, и именно он решает, попадают ли уже проанализированные строки обратно в очередь. Без `--backfill` они числятся `stale` (отдельный счётчик в `ai-status`, из batch исключены), с `--backfill` — снова `pending`. `ai_schema` лишний ключ игнорирует, менять слой хранения не потребовалось
+  - ⚠️ у `ai-field list/add` есть опция `--registry PATH` (по умолчанию `config/ai_fields.json`) — иначе тесты мутировали бы реальный реестр
+- [x] `fb-rent reject ID --reason "..."`, `fb-rent unreject ID`, `fb-rent shortlist ID [--reason]` — пишут в `data/decisions.json` через `decisions.py`
+- [x] DESIGN: тесты на тонкие CLI-обёртки не пишем — логика покрыта юнит-тестами нижних слоёв; исключение — `ai-field add`, где есть реальная мутация реестра
+- [x] написать `tests/test_cli_ai_field.py`: `ai-field add` на копии реестра добавляет поле с корректным `added_in`, `--after` ставит поле в нужную позицию, дубликат ключа → ошибка, `--backfill` поднимает `schema_version`
+- [x] прогнать `pytest tests/ -q` и `fb-rent --help` — новые команды видны
 
 ### Task 10: Переписанный HTML-экспорт
 

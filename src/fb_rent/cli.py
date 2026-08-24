@@ -12,19 +12,29 @@ storage layers into three commands:
   by regenerating the CSV and HTML exports.
 - ``fb-rent export`` — regenerates the CSV and HTML exports from the
   current DB without touching the network. Useful for verification.
+
+The ``ai-*`` commands drive the enrichment loop: ``ai-status`` reports what
+is waiting, ``ai-batch`` writes the file the AI reads, ``ai-apply`` reads
+back what it extracted, and ``ai-field`` evolves the registry. ``reject`` /
+``unreject`` / ``shortlist`` record the user's own verdicts, which live in
+``data/decisions.json`` and outrank anything the AI decided.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import random
+import sqlite3
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
 import click
 
-from . import config
+from . import ai_batch, ai_schema, config, decisions
 from .browser import (
     LoginRequiredError,
     is_logged_in,
@@ -35,7 +45,14 @@ from .browser import (
 from .extractors import extract_bedrooms, extract_property_type, parse_price
 from .scraper_detail import scrape_detail
 from .scraper_list import scrape_list
-from .storage import export_csv, export_html, init_db, known_fb_ids, upsert_listing
+from .storage import (
+    export_csv,
+    export_html,
+    fetch_pending,
+    init_db,
+    known_fb_ids,
+    upsert_listing,
+)
 from .url_builder import build_marketplace_url
 
 
@@ -299,15 +316,478 @@ def export_cmd(csv_path: Path | None, html_path: Path | None) -> None:
     """Regenerate the CSV and HTML exports from the local SQLite DB."""
     csv_out = csv_path if csv_path is not None else config.CSV_PATH
     html_out = html_path if html_path is not None else config.HTML_PATH
-    config.ensure_home()
-    conn = init_db(config.DB_PATH)
+    conn = _open_db()
     try:
+        # The decisions file is the source of truth; the table is a mirror the
+        # export JOINs against, so refresh it before rendering.
+        decisions.sync_to_db(conn)
         csv_written = export_csv(conn, csv_out)
         html_written = export_html(conn, html_out)
     finally:
         conn.close()
     click.echo(f"CSV written:  {csv_written}")
     click.echo(f"HTML written: {html_written}")
+
+
+
+# --- AI enrichment -------------------------------------------------------
+
+# Registry versions serve two different questions. `schema_version` grows on
+# every `ai-field add`, which is what colours old rows' empty cells `c-stale`
+# (the field did not exist when they were analysed). `analysis_version` only
+# catches up when the user asks for `--backfill`, and that is what decides
+# whether those rows are actually re-queued or left alone with their dash.
+_ANALYSIS_VERSION_KEY = "analysis_version"
+
+
+def _registry_path(path: Path | None) -> Path:
+    return path if path is not None else config.AI_FIELDS_PATH
+
+
+def _load_registry(path: Path | None = None) -> ai_schema.Registry:
+    """Load the field registry, turning a bad file into a CLI error."""
+    try:
+        return ai_schema.load_registry(_registry_path(path))
+    except ai_schema.RegistryError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _raw_registry(path: Path | None = None) -> dict[str, Any]:
+    """Return the registry file as plain JSON, comments of the format intact."""
+    target = _registry_path(path)
+    try:
+        return json.loads(target.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise click.ClickException(f"field registry not found: {target}") from exc
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"field registry is not valid JSON: {exc}") from exc
+
+
+def _analysis_version(raw: dict[str, Any]) -> int:
+    """Version at which a re-analysis was last requested (defaults to current)."""
+    value = raw.get(_ANALYSIS_VERSION_KEY)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return int(raw.get("schema_version") or 1)
+
+
+def _open_db() -> sqlite3.Connection:
+    config.ensure_home()
+    return init_db(config.DB_PATH)
+
+
+def _queue(
+    conn: sqlite3.Connection,
+    registry: ai_schema.Registry,
+    registry_path: Path | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split the analysis queue into ``(pending, stale, no_raw)``.
+
+    Listings pending only because the registry grew are "stale" — they get a
+    `c-stale` cell in the export but are left out of the batch until the user
+    asks for a re-analysis with `ai-field add --backfill`.
+    """
+    pending_rows, no_raw = fetch_pending(conn, registry)
+    backfilling = _analysis_version(_raw_registry(registry_path)) >= registry.schema_version
+
+    pending: list[dict[str, Any]] = []
+    stale: list[dict[str, Any]] = []
+    for row in pending_rows:
+        if row.get("pending_reason") == "schema" and not backfilling:
+            stale.append(row)
+        else:
+            pending.append(row)
+    return pending, stale, no_raw
+
+
+@main.command("ai-status")
+def ai_status_cmd() -> None:
+    """Report how many listings are analysed, pending, stale or unusable."""
+    registry = _load_registry()
+    conn = _open_db()
+    try:
+        analyzed = conn.execute("SELECT COUNT(*) FROM ai_analysis").fetchone()[0]
+        pending, stale, no_raw = _queue(conn, registry)
+    finally:
+        conn.close()
+
+    reasons: dict[str, int] = {}
+    for row in pending:
+        reason = str(row.get("pending_reason"))
+        reasons[reason] = reasons.get(reason, 0) + 1
+    detail = ", ".join(f"{k}: {v}" for k, v in sorted(reasons.items()))
+
+    click.echo(f"Registry: schema_version={registry.schema_version}, "
+               f"{len(registry.fields)} fields")
+    click.echo(f"Analyzed: {analyzed}")
+    click.echo(f"Pending:  {len(pending)}" + (f" ({detail})" if detail else ""))
+    click.echo(
+        f"Stale:    {len(stale)}"
+        + (" (new fields added without --backfill)" if stale else "")
+    )
+    click.echo(f"No raw data: {len(no_raw)}")
+    if no_raw:
+        click.echo(
+            "  These listings have neither a description nor text lines — "
+            "run `fb-rent scrape --refresh` before analysing them:"
+        )
+        for row in no_raw[:10]:
+            click.echo(f"    - {row['fb_id']} {row.get('url') or ''}")
+        if len(no_raw) > 10:
+            click.echo(f"    ... and {len(no_raw) - 10} more")
+
+
+@main.command("ai-batch")
+@click.option(
+    "--limit",
+    type=int,
+    default=25,
+    show_default=True,
+    help="Maximum number of listings to put in the batch.",
+)
+@click.option(
+    "--all",
+    "all_pending",
+    is_flag=True,
+    default=False,
+    help="Include every pending listing, ignoring --limit.",
+)
+@click.option(
+    "--ids",
+    "ids",
+    multiple=True,
+    help="Analyse only these fb_ids (repeatable); overrides the queue order.",
+)
+@click.option(
+    "--out",
+    "out_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help=f"Write the batch to this file (default: {config.AI_DIR}/batch-<ts>.json).",
+)
+def ai_batch_cmd(
+    limit: int, all_pending: bool, ids: tuple[str, ...], out_path: Path | None
+) -> None:
+    """Assemble the JSON batch of listings awaiting AI analysis."""
+    registry = _load_registry()
+    conn = _open_db()
+    try:
+        pending, stale, no_raw = _queue(conn, registry)
+
+        selected = list(pending)
+        if ids:
+            wanted = {str(i) for i in ids}
+            # An explicit id wins over the stale/pending split: the user asked.
+            selected = [
+                row for row in pending + stale + no_raw
+                if str(row["fb_id"]) in wanted
+            ]
+            missing = wanted - {str(row["fb_id"]) for row in selected}
+            if missing:
+                click.echo(
+                    f"Not pending (already analysed or unknown): "
+                    f"{', '.join(sorted(missing))}"
+                )
+
+        if no_raw and not ids:
+            click.echo(
+                f"{len(no_raw)} listing(s) have no raw text — "
+                "run `fb-rent scrape --refresh` to make them analysable."
+            )
+        if stale and not ids:
+            click.echo(
+                f"{len(stale)} listing(s) are stale (registry grew since they were "
+                "analysed). Re-add the field with --backfill to re-analyse them."
+            )
+
+        if not selected:
+            click.echo("Nothing pending — every listing is up to date.")
+            return
+
+        batch = ai_batch.build_batch(
+            conn,
+            registry,
+            ids=[str(row["fb_id"]) for row in selected],
+            limit=None if all_pending else limit,
+        )
+    finally:
+        conn.close()
+
+    if out_path is not None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps(batch, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        written = out_path
+    else:
+        written = ai_batch.write_batch(batch)
+
+    click.echo(f"Batch written: {written} ({len(batch['items'])} listing(s))")
+
+
+@main.command("ai-apply")
+@click.argument(
+    "path", type=click.Path(exists=True, dir_okay=False, path_type=Path)
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Validate and report without writing anything to the DB.",
+)
+def ai_apply_cmd(path: Path, dry_run: bool) -> None:
+    """Apply an AI result file to the local database."""
+    registry = _load_registry()
+    try:
+        result = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"{path} is not valid JSON: {exc}") from exc
+
+    conn = _open_db()
+    try:
+        try:
+            report = ai_batch.apply_results(
+                conn, registry, result, dry_run=dry_run
+            )
+        except ai_batch.BatchError as exc:
+            raise click.ClickException(str(exc)) from exc
+    finally:
+        conn.close()
+
+    prefix = "Dry-run: would apply" if dry_run else "Applied"
+    click.echo(
+        f"{prefix} {report.applied} analysis/analyses "
+        f"(inserted: {report.inserted}, updated: {report.updated})"
+    )
+
+    if report.rejected:
+        click.echo(f"Auto-rejected {len(report.rejected)}:")
+        for fb_id, reason in report.rejected:
+            click.echo(f"  - {fb_id}: {reason}")
+
+    if report.skipped:
+        click.echo(f"Skipped {len(report.skipped)}: {', '.join(report.skipped)}")
+
+    if report.proposed_new_fields:
+        click.echo(f"Proposed new fields ({len(report.proposed_new_fields)}):")
+        for proposal in report.proposed_new_fields:
+            why = proposal.get("why") or ""
+            click.echo(
+                f"  - {proposal.get('key')} ({proposal.get('type', 'text')}): "
+                f"{proposal.get('label', '')}" + (f" — {why}" if why else "")
+            )
+        click.echo("  Add one with `fb-rent ai-field add --key ... [--backfill]`.")
+
+    for warning in report.warnings:
+        _echo_err(f"warning: {warning}")
+
+
+@main.group("ai-field")
+def ai_field_group() -> None:
+    """Inspect and extend the AI field registry (config/ai_fields.json)."""
+
+
+@ai_field_group.command("list")
+@click.option(
+    "--registry",
+    "registry_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help=f"Registry file to read (default: {config.AI_FIELDS_PATH}).",
+)
+def ai_field_list_cmd(registry_path: Path | None) -> None:
+    """Print every field in the registry."""
+    registry = _load_registry(registry_path)
+    raw = _raw_registry(registry_path)
+    click.echo(
+        f"schema_version: {registry.schema_version} "
+        f"(analysis_version: {_analysis_version(raw)})"
+    )
+    for field in registry.fields:
+        values = field.get("values")
+        suffix = f" [{', '.join(values)}]" if values else ""
+        click.echo(
+            f"  {field['key']:<20} {field.get('group', ''):<9} "
+            f"{field['type']:<5} v{field['added_in']}  {field['label']}{suffix}"
+        )
+
+
+@ai_field_group.command("add")
+@click.option("--key", required=True, help="Field key used in data_json.")
+@click.option("--label", required=True, help="Column heading in the HTML export.")
+@click.option(
+    "--type",
+    "ftype",
+    required=True,
+    type=click.Choice(sorted(ai_schema.KNOWN_TYPES)),
+    help="Field type.",
+)
+@click.option(
+    "--values",
+    default=None,
+    help="Comma-separated allowed values (required for --type enum).",
+)
+@click.option("--group", default="core", show_default=True, help="Column group.")
+@click.option("--prompt", default=None, help="Extraction instruction for the AI.")
+@click.option(
+    "--after",
+    default=None,
+    help="Insert the new field right after this existing key.",
+)
+@click.option(
+    "--backfill",
+    is_flag=True,
+    default=False,
+    help="Re-queue already-analysed listings so the AI fills the new field "
+    "(without it they simply show a c-stale dash).",
+)
+@click.option(
+    "--registry",
+    "registry_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help=f"Registry file to modify (default: {config.AI_FIELDS_PATH}).",
+)
+def ai_field_add_cmd(
+    key: str,
+    label: str,
+    ftype: str,
+    values: str | None,
+    group: str,
+    prompt: str | None,
+    after: str | None,
+    backfill: bool,
+    registry_path: Path | None,
+) -> None:
+    """Add a field to the registry, bumping its schema_version."""
+    target = _registry_path(registry_path)
+    raw = _raw_registry(registry_path)
+    fields = raw.get("fields")
+    if not isinstance(fields, list):
+        raise click.ClickException("registry has no 'fields' list")
+
+    if any(isinstance(f, dict) and f.get("key") == key for f in fields):
+        raise click.ClickException(f"field {key!r} already exists in {target}")
+
+    value_list = [v.strip() for v in (values or "").split(",") if v.strip()]
+    if ftype == "enum" and not value_list:
+        raise click.ClickException("--type enum needs a non-empty --values list")
+
+    # Every addition bumps the version: that is what tells the export "this
+    # field did not exist when the older rows were analysed".
+    new_version = int(raw.get("schema_version") or 1) + 1
+    field: dict[str, Any] = {
+        "key": key,
+        "label": label,
+        "group": group,
+        "type": ftype,
+        "added_in": new_version,
+    }
+    if value_list:
+        field["values"] = value_list
+    if prompt:
+        field["prompt"] = prompt
+
+    if after is not None:
+        position = next(
+            (
+                i + 1
+                for i, f in enumerate(fields)
+                if isinstance(f, dict) and f.get("key") == after
+            ),
+            None,
+        )
+        if position is None:
+            raise click.ClickException(f"--after: no such field {after!r}")
+        fields.insert(position, field)
+    else:
+        fields.append(field)
+
+    # Read the old analysis version before the bump: without --backfill it
+    # stays where it is, which is what keeps analysed rows out of the queue.
+    previous_analysis = _analysis_version(raw)
+    raw["schema_version"] = new_version
+    raw[_ANALYSIS_VERSION_KEY] = new_version if backfill else previous_analysis
+
+    _write_registry(target, raw)
+
+    click.echo(
+        f"Added {key!r} to {target} (schema_version {new_version - 1} -> "
+        f"{new_version})"
+    )
+    if backfill:
+        click.echo(
+            "Backfill requested: already-analysed listings are pending again — "
+            "run `fb-rent ai-batch`."
+        )
+    else:
+        click.echo(
+            "Existing rows keep their analysis and show a c-stale dash for this "
+            "field. Re-run with --backfill to re-analyse them."
+        )
+
+
+def _write_registry(target: Path, raw: dict[str, Any]) -> None:
+    """Validate ``raw`` as a registry, then replace ``target`` atomically."""
+    payload = json.dumps(raw, ensure_ascii=False, indent=2) + "\n"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(target.parent), prefix=".ai_fields-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+        try:
+            ai_schema.load_registry(tmp_name)
+        except ai_schema.RegistryError as exc:
+            raise click.ClickException(f"refusing to write an invalid registry: {exc}")
+        os.replace(tmp_name, target)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
+# --- User decisions ------------------------------------------------------
+
+
+def _record_decision(fb_id: str, status: str, reason: str | None) -> None:
+    """Write one decision to the JSON file and mirror it into the DB."""
+    try:
+        entry = decisions.save_decision(None, fb_id, status, reason)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    conn = _open_db()
+    try:
+        decisions.sync_to_db(conn)
+    finally:
+        conn.close()
+
+    suffix = f" — {entry['reason']}" if entry.get("reason") else ""
+    click.echo(f"{fb_id}: {status}{suffix}")
+    click.echo(f"Saved to {config.DECISIONS_PATH}. Run `fb-rent export` to refresh the table.")
+
+
+@main.command("reject")
+@click.argument("fb_id")
+@click.option("--reason", default=None, help="Why this listing is out.")
+def reject_cmd(fb_id: str, reason: str | None) -> None:
+    """Reject a listing; survives DB wipes and overrides the AI verdict."""
+    _record_decision(fb_id, "rejected", reason)
+
+
+@main.command("unreject")
+@click.argument("fb_id")
+@click.option("--reason", default=None, help="Why it is back in the running.")
+def unreject_cmd(fb_id: str, reason: str | None) -> None:
+    """Put a listing back into the active set, overriding an AI rejection."""
+    _record_decision(fb_id, "active", reason)
+
+
+@main.command("shortlist")
+@click.argument("fb_id")
+@click.option("--reason", default=None, help="What makes it a candidate.")
+def shortlist_cmd(fb_id: str, reason: str | None) -> None:
+    """Mark a listing as a candidate worth contacting."""
+    _record_decision(fb_id, "shortlist", reason)
 
 
 if __name__ == "__main__":
