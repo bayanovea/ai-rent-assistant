@@ -368,12 +368,12 @@ fb-rent export                       # имя прежнее, рендерит �
 - Create: `src/fb_rent/decisions.py`
 - Create: `tests/test_decisions.py`
 
-- [ ] `load_decisions(path) -> dict[str, dict]` / `save_decision(path, fb_id, status, reason)` — работа с `data/decisions.json`, атомарная запись через temp-файл + rename, отсутствующий файл = пустой словарь
-- [ ] `sync_to_db(conn, decisions)` — заливает содержимое файла в таблицу `decisions` (файл — source of truth, таблица — зеркало для JOIN)
-- [ ] валидация `status` — только `rejected` / `active` / `shortlist`, иначе `ValueError`
-- [ ] написать тесты: запись и чтение по кругу, перезапись существующего решения, некорректный статус, отсутствующий файл, `sync_to_db` наполняет таблицу
-- [ ] написать тест «переживает стирание БД»: сохранить решение, создать БД заново через `init_db`, вызвать `sync_to_db` — решение и его причина на месте
-- [ ] прогнать `pytest tests/ -q` — все зелёные
+- [x] `load_decisions(path) -> dict[str, dict]` / `save_decision(path, fb_id, status, reason)` — работа с `data/decisions.json`, атомарная запись через temp-файл + rename, отсутствующий файл = пустой словарь
+- [x] `sync_to_db(conn, decisions)` — заливает содержимое файла в таблицу `decisions` (файл — source of truth, таблица — зеркало для JOIN)
+- [x] валидация `status` — только `rejected` / `active` / `shortlist`, иначе `ValueError`
+- [x] написать тесты: запись и чтение по кругу, перезапись существующего решения, некорректный статус, отсутствующий файл, `sync_to_db` наполняет таблицу
+- [x] написать тест «переживает стирание БД»: сохранить решение, создать БД заново через `init_db`, вызвать `sync_to_db` — решение и его причина на месте
+- [x] прогнать `pytest tests/ -q` — все зелёные
 
 ### Task 8: Сборка batch и приём результатов
 

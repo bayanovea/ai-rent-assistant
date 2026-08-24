@@ -1,0 +1,152 @@
+"""Tests for the file-backed user decisions store."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from fb_rent import decisions as dec
+from fb_rent import storage
+
+
+@pytest.fixture()
+def path(tmp_path: Path) -> Path:
+    return tmp_path / "decisions.json"
+
+
+def test_missing_file_is_empty(path: Path):
+    assert dec.load_decisions(path) == {}
+
+
+def test_save_and_load_round_trip(path: Path):
+    dec.save_decision(path, "123", "rejected", "Нет зелёной зоны")
+
+    loaded = dec.load_decisions(path)
+    assert set(loaded) == {"123"}
+    assert loaded["123"]["status"] == "rejected"
+    assert loaded["123"]["reason"] == "Нет зелёной зоны"
+    assert loaded["123"]["decided_at"].endswith("Z")
+
+
+def test_save_keeps_other_decisions(path: Path):
+    dec.save_decision(path, "123", "rejected", "далеко")
+    dec.save_decision(path, "456", "shortlist")
+
+    loaded = dec.load_decisions(path)
+    assert loaded["123"]["status"] == "rejected"
+    assert loaded["456"]["status"] == "shortlist"
+    assert loaded["456"]["reason"] is None
+
+
+def test_save_overwrites_existing_decision(path: Path):
+    dec.save_decision(path, "123", "rejected", "поспешил")
+    dec.save_decision(path, "123", "active", "передумал")
+
+    loaded = dec.load_decisions(path)
+    assert len(loaded) == 1
+    assert loaded["123"]["status"] == "active"
+    assert loaded["123"]["reason"] == "передумал"
+
+
+def test_invalid_status_rejected(path: Path):
+    with pytest.raises(ValueError, match="unknown decision status"):
+        dec.save_decision(path, "123", "maybe")
+    assert not path.exists()
+
+
+def test_file_is_readable_json(path: Path):
+    dec.save_decision(path, "123", "shortlist", "домик с садом")
+
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw["123"]["reason"] == "домик с садом"
+    # not escaped into \uXXXX — the file is meant to be hand-editable
+    assert "домик" in path.read_text(encoding="utf-8")
+
+
+def test_load_rejects_non_object_file(path: Path):
+    path.write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        dec.load_decisions(path)
+
+
+def test_sync_to_db_fills_table(path: Path):
+    conn = storage.init_db(":memory:")
+    dec.save_decision(path, "123", "rejected", "шумно")
+    dec.save_decision(path, "456", "shortlist")
+
+    written = dec.sync_to_db(conn, path=path)
+    assert written == 2
+
+    rows = {r["fb_id"]: dict(r) for r in conn.execute("SELECT * FROM decisions")}
+    assert rows["123"]["status"] == "rejected"
+    assert rows["123"]["reason"] == "шумно"
+    assert rows["456"]["status"] == "shortlist"
+    conn.close()
+
+
+def test_sync_to_db_drops_rows_removed_from_file(path: Path):
+    conn = storage.init_db(":memory:")
+    dec.save_decision(path, "123", "rejected", "шумно")
+    dec.sync_to_db(conn, path=path)
+
+    dec.sync_to_db(conn, {})
+    assert conn.execute("SELECT COUNT(*) FROM decisions").fetchone()[0] == 0
+    conn.close()
+
+
+def test_sync_to_db_rejects_invalid_status(path: Path):
+    conn = storage.init_db(":memory:")
+    with pytest.raises(ValueError, match="unknown decision status"):
+        dec.sync_to_db(conn, {"123": {"status": "maybe"}})
+    conn.close()
+
+
+def test_decision_survives_database_wipe(tmp_path: Path, path: Path):
+    db_path = tmp_path / "rentals.db"
+    conn = storage.init_db(db_path)
+    dec.save_decision(path, "123", "rejected", "нельзя с собакой")
+    dec.sync_to_db(conn, path=path)
+    conn.close()
+
+    # the database is disposable — only the JSON file is not
+    db_path.unlink()
+    conn = storage.init_db(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM decisions").fetchone()[0] == 0
+
+    dec.sync_to_db(conn, path=path)
+    row = conn.execute("SELECT * FROM decisions WHERE fb_id = '123'").fetchone()
+    assert row["status"] == "rejected"
+    assert row["reason"] == "нельзя с собакой"
+    conn.close()
+
+
+def test_sync_to_db_feeds_fetch_enriched(path: Path):
+    conn = storage.init_db(":memory:")
+    conn.execute(
+        """
+        INSERT INTO listings (fb_id, url, title, first_seen_at, last_seen_at)
+        VALUES ('123', 'https://example.com/123', 'Villa', '2026-08-01T00:00:00Z',
+                '2026-08-01T00:00:00Z')
+        """
+    )
+    conn.commit()
+
+    dec.save_decision(path, "123", "shortlist", "смотрим в субботу")
+    dec.sync_to_db(conn, path=path)
+
+    row = storage.fetch_enriched(conn)[0]
+    assert row["status"] == "shortlist"
+    assert row["reason"] == "смотрим в субботу"
+    assert row["decided_by"] == "user"
+    conn.close()
+
+
+def test_default_path_used_when_none(monkeypatch, tmp_path: Path):
+    target = tmp_path / "nested" / "decisions.json"
+    monkeypatch.setattr(dec.config, "DECISIONS_PATH", target)
+
+    dec.save_decision(None, "123", "active")
+    assert target.exists()
+    assert dec.load_decisions(None)["123"]["status"] == "active"
