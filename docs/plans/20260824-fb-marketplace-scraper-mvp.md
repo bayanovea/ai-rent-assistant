@@ -279,19 +279,19 @@ fb-rent/
 ### Task 9: Verify acceptance criteria
 
 **Автоматизируемое** (агент выполняет):
-- [ ] `pytest tests/ -v` — все юнит-тесты зелёные
-- [ ] `fb-rent --help` — команды видны, `fb-rent scrape --help` показывает все флаги
-- [ ] `fb-rent scrape --max 5 --dry-run` без залогиненной сессии — печатает понятную ошибку «run `fb-rent login`», не крашится stacktrace'ом
-- [ ] `fb-rent export --path /tmp/empty.csv` на пустой БД — создаёт CSV с заголовком, без строк, exit code 0
+- [x] `pytest tests/ -v` — все юнит-тесты зелёные (67 passed)
+- [x] `fb-rent --help` — команды видны, `fb-rent scrape --help` показывает все флаги
+- [x] `fb-rent scrape --max 5 --dry-run` без залогиненной сессии — печатает понятную ошибку «run `fb-rent login`», не крашится stacktrace'ом (exit=3, friendly message)
+- [x] `fb-rent export --path /tmp/empty.csv` на пустой БД — создаёт CSV с заголовком, без строк, exit code 0
 
 **Требует ручных действий** (агент помечает как skipped):
-- [ ] MANUAL: `fb-rent login` — залогиниться руками, увидеть success сообщение
-- [ ] MANUAL: `fb-rent scrape --max 5 --dry-run` — печатает список из 5 листингов без записи
-- [ ] MANUAL: `fb-rent scrape --max 10` — реальный запуск, в БД ~10 записей, CSV сгенерирован
-- [ ] MANUAL: открыть `rentals.csv` в Numbers/Excel — колонки читаемы, поля заполнены (NULL допустим для heuristic-полей)
-- [ ] MANUAL: цены всех записей в диапазоне 15000-30000 THB (или NULL если не распарсили)
-- [ ] MANUAL: повторный `fb-rent scrape --max 10` — `updated > 0`, `inserted` может быть 0, дубликатов нет
-- [ ] MANUAL: `fb-rent scrape --max 60` — прогон на большем объёме, замерить время; не должно быть банов/капчи
+- [x] MANUAL: `fb-rent login` — залогиниться руками, увидеть success сообщение (skipped — requires live FB / human action)
+- [x] MANUAL: `fb-rent scrape --max 5 --dry-run` — печатает список из 5 листингов без записи (skipped — requires live FB / human action)
+- [x] MANUAL: `fb-rent scrape --max 10` — реальный запуск, в БД ~10 записей, CSV сгенерирован (skipped — requires live FB / human action)
+- [x] MANUAL: открыть `rentals.csv` в Numbers/Excel — колонки читаемы, поля заполнены (NULL допустим для heuristic-полей) (skipped — requires live FB / human action)
+- [x] MANUAL: цены всех записей в диапазоне 15000-30000 THB (или NULL если не распарсили) (skipped — requires live FB / human action)
+- [x] MANUAL: повторный `fb-rent scrape --max 10` — `updated > 0`, `inserted` может быть 0, дубликатов нет (skipped — requires live FB / human action)
+- [x] MANUAL: `fb-rent scrape --max 60` — прогон на большем объёме, замерить время; не должно быть банов/капчи (skipped — requires live FB / human action)
 
 ### Task 10: [Final] Update documentation
 
