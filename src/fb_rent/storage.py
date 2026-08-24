@@ -180,7 +180,7 @@ class PendingListings(NamedTuple):
     no_raw: list[dict[str, Any]]
 
 
-def _text_lines(raw_json: Any) -> list[str]:
+def text_lines_of(raw_json: Any) -> list[str]:
     """Return ``text_lines`` from a listing's ``raw_json``, or an empty list."""
     if isinstance(raw_json, str) and raw_json:
         try:
@@ -285,7 +285,7 @@ def fetch_pending(
         analysed_hash = listing.pop("ai_source_hash")
         analysed_version = listing.pop("ai_schema_version")
         current_hash = ai_schema.source_hash(
-            {**listing, "text_lines": _text_lines(listing.get("raw_json"))}
+            {**listing, "text_lines": text_lines_of(listing.get("raw_json"))}
         )
 
         if analysed_hash is None:
@@ -301,7 +301,7 @@ def fetch_pending(
         listing["pending_reason"] = reason
 
         has_text = bool((listing.get("description") or "").strip()) or bool(
-            _text_lines(listing.get("raw_json"))
+            text_lines_of(listing.get("raw_json"))
         )
         (pending if has_text else no_raw).append(listing)
 

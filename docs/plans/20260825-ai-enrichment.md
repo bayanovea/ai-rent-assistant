@@ -381,12 +381,12 @@ fb-rent export                       # имя прежнее, рендерит �
 - Create: `src/fb_rent/ai_batch.py`
 - Create: `tests/test_ai_batch.py`
 
-- [ ] `build_batch(conn, registry, requirements_md, limit, ids=None) -> dict` — формирует JSON batch по формату из Technical Details; в каждый item кладёт `description` (через `description_from_text_lines`, если колонка испорчена) и `text_lines`, плюс `source_hash`
-- [ ] `write_batch(batch, out_dir) -> Path` — пишет `data/ai/batch-<ts>.json`, создаёт директорию при необходимости
-- [ ] `apply_results(conn, registry, result: dict) -> ApplyReport` — валидирует `schema_version`, отвергает с ошибкой любой ключ в `fields`, которого нет в реестре (перечислив их), считает `decide`/`score` через `rules`, вызывает `upsert_ai_analysis`; возвращает счётчики и список `proposed_new_fields`
-- [ ] при несовпадении `source_hash` в результате с текущим в БД — предупреждение в отчёт, запись всё равно принимается (данные могли обновиться между batch и apply)
-- [ ] написать тесты: batch содержит только pending и не больше `limit`, испорченный `description` подменяется текстом из `text_lines`, `apply_results` кладёт строку в `ai_analysis`, неизвестный ключ поля → ошибка со списком ключей, `proposed_new_fields` пробрасываются в отчёт, несовпадение `source_hash` даёт предупреждение но не ошибку
-- [ ] прогнать `pytest tests/ -q` — все зелёные
+- [x] `build_batch(conn, registry, requirements_md, limit, ids=None) -> dict` — формирует JSON batch по формату из Technical Details; в каждый item кладёт `description` (через `description_from_text_lines`, если колонка испорчена) и `text_lines`, плюс `source_hash`
+- [x] `write_batch(batch, out_dir) -> Path` — пишет `data/ai/batch-<ts>.json`, создаёт директорию при необходимости
+- [x] `apply_results(conn, registry, result: dict) -> ApplyReport` — валидирует `schema_version`, отвергает с ошибкой любой ключ в `fields`, которого нет в реестре (перечислив их), считает `decide`/`score` через `rules`, вызывает `upsert_ai_analysis`; возвращает счётчики и список `proposed_new_fields`
+- [x] при несовпадении `source_hash` в результате с текущим в БД — предупреждение в отчёт, запись всё равно принимается (данные могли обновиться между batch и apply)
+- [x] написать тесты: batch содержит только pending и не больше `limit`, испорченный `description` подменяется текстом из `text_lines`, `apply_results` кладёт строку в `ai_analysis`, неизвестный ключ поля → ошибка со списком ключей, `proposed_new_fields` пробрасываются в отчёт, несовпадение `source_hash` даёт предупреждение но не ошибку
+- [x] прогнать `pytest tests/ -q` — все зелёные
 
 ### Task 9: CLI-команды
 
