@@ -181,6 +181,15 @@ def test_export_html_empty_db(conn, tmp_path: Path):
     assert "const DATA = [];" in text
 
 
+def _inline_payload(text: str, name: str):
+    """Extract and decode one ``const <name> = ...;`` payload from the export."""
+    marker = "const " + name + " = "
+    start = text.index(marker) + len(marker)
+    end = text.index(";\n", start)
+    raw = text[start:end].replace("<\\/", "</").replace("<\\!--", "<!--")
+    return json.loads(raw)
+
+
 def test_export_html_embeds_rows_sorted(conn, tmp_path: Path):
     storage.upsert_listing(
         conn, _make_listing(fb_id="a", title="First"), now="2026-08-24T09:00:00Z"
@@ -196,12 +205,8 @@ def test_export_html_embeds_rows_sorted(conn, tmp_path: Path):
     text = out.read_text(encoding="utf-8")
 
     assert "fb-rent — 3 listings" in text
-    # Data payload is embedded as a JSON array; extract and verify order.
-    marker = "const DATA = "
-    start = text.index(marker) + len(marker)
-    end = text.index(";", start)
-    data = json.loads(text[start:end])
-    assert [row[0] for row in data] == ["b", "c", "a"]
+    data = _inline_payload(text, "DATA")
+    assert [row["fb_id"] for row in data] == ["b", "c", "a"]
 
 
 def test_export_html_neutralises_script_breakout(conn, tmp_path: Path):
@@ -431,3 +436,119 @@ def test_fetch_enriched_user_decision_overrides_ai(conn):
     # the AI verdict stays visible next to it
     assert row["ai_status"] == "rejected"
     assert row["ai_reason"] == rules.REASON_PETS
+
+
+# --- HTML export against the AI field registry --------------------------
+
+
+def test_export_html_colours_pets_and_marks_rejected(conn, tmp_path: Path):
+    # Three synthetic listings, one per pets state: the export must colour
+    # them green / yellow / red and strike the rejected one out with its
+    # reason and who rejected it.
+    registry = ai_schema.load_registry()
+    cases = {"lgood": "allowed", "lwarn": "unclear", "lbad": "not_allowed"}
+    for fb_id, pets in cases.items():
+        storage.upsert_listing(conn, _make_listing(fb_id=fb_id))
+        storage.upsert_ai_analysis(
+            conn,
+            _make_analysis(
+                fb_id=fb_id,
+                schema_version=registry.schema_version,
+                data_json={
+                    "pets": {"v": pets, "conf": "high", "ev": "цитата: " + pets},
+                    "price_month_thb": {"v": 22000, "conf": "high", "ev": ""},
+                },
+            ),
+        )
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out, registry)
+    text = out.read_text(encoding="utf-8")
+
+    rows = {r["fb_id"]: r for r in _inline_payload(text, "DATA")}
+    assert rows["lgood"]["cells"]["pets"]["c"] == rules.CLASS_GOOD
+    assert rows["lwarn"]["cells"]["pets"]["c"] == rules.CLASS_WARN
+    assert rows["lbad"]["cells"]["pets"]["c"] == rules.CLASS_BAD
+    # every AI claim is traceable to the quote behind it
+    assert rows["lgood"]["cells"]["pets"]["ev"] == "цитата: allowed"
+
+    assert rows["lgood"]["status"] == "active"
+    assert rows["lbad"]["status"] == "rejected"
+    assert rows["lbad"]["decided_by"] == "ai"
+    assert rows["lbad"]["cells"]["reason"]["t"] == rules.REASON_PETS
+
+    for needle in (rules.CLASS_GOOD, rules.CLASS_WARN, rules.CLASS_BAD,
+                   rules.CLASS_STALE, rules.CLASS_NONE, "row-rejected"):
+        assert needle in text
+    assert rules.REASON_PETS in text
+
+    # Every registry field is reachable as a column, plus the fixed Reason one.
+    labels = [c["label"] for c in _inline_payload(text, "COLUMNS")]
+    for field in registry.fields:
+        assert field["label"] in labels
+    assert "Reason" in labels
+    assert len(labels) == len(storage._BASE_COLUMNS) + len(registry.fields)
+
+
+def test_export_html_marks_user_rejection_as_user(conn, tmp_path: Path):
+    storage.upsert_listing(conn, _make_listing(fb_id="mine"))
+    conn.execute(
+        "INSERT INTO decisions (fb_id, status, reason, decided_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("mine", "rejected", "Слишком далеко от школы", "2026-08-25T12:00:00Z"),
+    )
+    conn.commit()
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out)
+    text = out.read_text(encoding="utf-8")
+
+    row = _inline_payload(text, "DATA")[0]
+    assert row["status"] == "rejected"
+    assert row["decided_by"] == "user"
+    assert row["cells"]["reason"]["t"] == "Слишком далеко от школы"
+    assert "Слишком далеко от школы" in text
+
+
+def test_export_html_stale_only_for_fields_added_after_analysis(conn, tmp_path: Path):
+    # `parking` arrives in schema v2; the row was analysed under v1, so its
+    # empty parking cell is hatched (c-stale), while the empty `pets` cell —
+    # a field that existed then — stays an ordinary grey dash.
+    registry = _registry(version=2, added_in=2)
+    storage.upsert_listing(conn, _make_listing(fb_id="old"))
+    storage.upsert_ai_analysis(
+        conn, _make_analysis(fb_id="old", schema_version=1, data_json={})
+    )
+    storage.upsert_listing(conn, _make_listing(fb_id="fresh"))
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out, registry)
+    rows = {
+        r["fb_id"]: r
+        for r in _inline_payload(out.read_text(encoding="utf-8"), "DATA")
+    }
+
+    assert rows["old"]["cells"]["parking"]["c"] == rules.CLASS_STALE
+    assert rows["old"]["cells"]["pets"]["c"] == rules.CLASS_NONE
+    # A listing that was never analysed has no stale cells at all: nothing
+    # was ever looked at, so hatching would claim more than we know.
+    assert rows["fresh"]["cells"]["parking"]["c"] == rules.CLASS_NONE
+
+
+def test_export_html_prices_coloured_against_budget(conn, tmp_path: Path):
+    registry = _registry()
+    storage.upsert_listing(conn, _make_listing(fb_id="cheap", price_thb=22000))
+    storage.upsert_listing(conn, _make_listing(fb_id="edge", price_thb=32000))
+    storage.upsert_listing(conn, _make_listing(fb_id="over", price_thb=40000))
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out, registry)
+    rows = {
+        r["fb_id"]: r
+        for r in _inline_payload(out.read_text(encoding="utf-8"), "DATA")
+    }
+
+    assert rows["cheap"]["cells"]["price_thb"]["c"] == rules.CLASS_PLAIN
+    assert rows["edge"]["cells"]["price_thb"]["c"] == rules.CLASS_WARN
+    assert rows["over"]["cells"]["price_thb"]["c"] == rules.CLASS_BAD
+    assert rows["cheap"]["cells"]["price_thb"]["t"] == "22 000"

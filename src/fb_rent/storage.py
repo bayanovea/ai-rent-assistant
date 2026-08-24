@@ -390,44 +390,72 @@ def export_csv(conn: sqlite3.Connection, path: Path | str) -> Path:
 
 
 _HTML_TEMPLATE = r"""<!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
 <meta charset="utf-8">
 <title>fb-rent listings</title>
-<link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet" />
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 1.5rem; color: #222; font-size: 12px; }
-  h1 { margin: 0 0 0.25rem; font-size: 1rem; }
-  .meta { color: #666; font-size: 0.75rem; margin-bottom: 1rem; }
-  .gridjs-table, .gridjs-search-input { font-size: 12px; }
-  .gridjs-td, .gridjs-th { padding: 6px 8px; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 1rem 1.25rem; color: #222; font-size: 12px; }
+  h1 { margin: 0 0 0.2rem; font-size: 1rem; }
+  .meta { color: #666; font-size: 0.75rem; margin-bottom: 0.6rem; }
+  .bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+  .tab { border: 1px solid #ccd; background: #fff; border-radius: 999px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #333; }
+  .tab:hover { background: #f2f5fb; }
+  .tab.on { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+  #q { border: 1px solid #ccd; border-radius: 4px; padding: 4px 8px; font-size: 12px; min-width: 220px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; font-size: 11px; color: #555; margin-bottom: 0.6rem; }
+  .legend span.sw { display: inline-block; width: 14px; height: 14px; border: 1px solid #bbb; border-radius: 3px; vertical-align: -3px; margin-right: 4px; }
+  .legend .item { white-space: nowrap; }
+  .wrap { overflow: auto; max-height: 78vh; border: 1px solid #dde; border-radius: 4px; }
+  table.rt { border-collapse: separate; border-spacing: 0; white-space: nowrap; }
+  .rt th, .rt td { border-bottom: 1px solid #eef0f4; border-right: 1px solid #f3f4f7; padding: 5px 8px; text-align: left; vertical-align: top; font-weight: normal; }
+  .rt th { position: sticky; top: 0; z-index: 2; background: #f7f8fb; font-weight: 600; cursor: pointer; user-select: none; box-shadow: 0 1px 0 #dde; }
+  .rt th:hover { background: #eef1f7; }
+  .rt th .grp { display: block; font-weight: normal; color: #99a; font-size: 10px; }
+  .rt td:first-child, .rt th:first-child { position: sticky; left: 0; z-index: 1; background: #fff; box-shadow: 1px 0 0 #dde; }
+  .rt th:first-child { z-index: 3; background: #f7f8fb; }
+  .rt tbody tr:hover td { background: #f9fbff; }
   .id-cell { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #1a73e8; text-decoration: none; }
   .id-cell:hover { text-decoration: underline; }
-  .price-cell { font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 3px; }
-  .br-cell { padding: 2px 6px; border-radius: 3px; text-align: center; }
-  .district-hot { background: #e6f4ea; color: #137333; padding: 2px 6px; border-radius: 3px; }
-  th, td { vertical-align: top; }
+  .verdict, .title-cell { display: inline-block; max-width: 320px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+  .who { color: #888; font-size: 10px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .c-good { background: #e6f4ea; color: #137333; }
+  .c-warn { background: #fef7e0; color: #8a6d00; }
+  .c-bad  { background: #fce8e6; color: #a50e0e; }
+  .c-stale { background: repeating-linear-gradient(45deg, #eef1f6, #eef1f6 4px, #dbe2ee 4px, #dbe2ee 8px); color: #55607a; }
+  .c-none { color: #c2c6cf; }
+  tr.row-rejected td { opacity: 0.55; text-decoration: line-through; }
+  tr.row-rejected td:first-child { border-left: 3px solid #d93025; opacity: 1; text-decoration: none; }
+  tr.row-shortlist td:first-child { border-left: 3px solid #f9ab00; }
+  .empty { padding: 1rem; color: #888; }
 </style>
 </head>
 <body>
 <h1>fb-rent — __ROW_COUNT__ listings</h1>
-<div class="meta">Generated __GENERATED_AT__ · sorted by first seen ↓ · click column headers to sort · click an ID to open the listing</div>
-<div id="grid"></div>
-<script src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
+<div class="meta">Сгенерировано __GENERATED_AT__ · реестр полей v__SCHEMA_VERSION__ · сортировка — клик по заголовку · ID открывает объявление · наведите на ячейку, чтобы увидеть цитату-основание</div>
+<div class="bar">
+  <button class="tab" data-tab="active"></button>
+  <button class="tab" data-tab="shortlist"></button>
+  <button class="tab" data-tab="rejected"></button>
+  <button class="tab" data-tab="all"></button>
+  <input id="q" type="search" placeholder="поиск по всем колонкам…">
+</div>
+<div class="legend">
+  <span class="item"><span class="sw c-good"></span>подходит (pets allowed, цена в бюджете)</span>
+  <span class="item"><span class="sw c-warn"></span>под вопросом (unclear, 30–35k ฿)</span>
+  <span class="item"><span class="sw c-bad"></span>стоп-фактор (животные запрещены, вне бюджета)</span>
+  <span class="item"><span class="sw c-stale"></span>поля не было на момент анализа — нужен ре-анализ</span>
+  <span class="item"><span class="sw c-none"></span>AI смотрел, информации нет</span>
+  <span class="item"><span class="sw" style="border-left:3px solid #d93025"></span>row-rejected — отклонено (AI или вами)</span>
+</div>
+<div class="wrap"><table class="rt"><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
+<div class="empty" id="empty" hidden>Ничего не найдено.</div>
 <script>
+const COLUMNS = __COLUMNS_JSON__;
 const DATA = __DATA_JSON__;
 
-const RU_MONTHS = ["Января","Февраля","Марта","Апреля","Мая","Июня",
-                   "Июля","Августа","Сентября","Октября","Ноября","Декабря"];
-
-const TYPE_EMOJI = {
-  villa:     "\u{1F3E1}",
-  condo:     "\u{1F3E2}",
-  townhouse: "\u{1F3D8}\u{FE0F}",
-  house:     "\u{1F3E0}",
-  apartment: "\u{1F3E2}",
-  studio:    "\u{1F3E2}",
-};
+const TAB_LABELS = { active: "Active", shortlist: "Shortlist", rejected: "Rejected", all: "All" };
 
 function esc(s) {
   return String(s == null ? "" : s)
@@ -435,136 +463,284 @@ function esc(s) {
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function formatPrice(v) {
-  if (v == null || v === "") return "";
-  const n = Number(v);
-  if (!Number.isFinite(n)) return String(v);
-  return n.toLocaleString("ru-RU").replace(/,/g, " ");
+function cellOf(row, key) {
+  return (row.cells && row.cells[key]) || { t: "", c: "" };
 }
 
-function formatDateRu(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return String(iso);
-  return d.getDate() + " " + RU_MONTHS[d.getMonth()];
+function haystack(row) {
+  if (row._hay == null) {
+    row._hay = COLUMNS.map(c => cellOf(row, c.key).t).join(" ").toLowerCase();
+  }
+  return row._hay;
 }
 
-function formatType(t) {
-  if (!t) return "";
-  const key = String(t).toLowerCase();
-  const emoji = TYPE_EMOJI[key];
-  return emoji ? emoji + " " + t : t;
+function inTab(row, tab) {
+  return tab === "all" ? true : row.status === tab;
 }
 
-// Row layout: [fb_id, url, price_thb, bedrooms, district, property_type, first_seen_at].
-const prices = DATA.map(r => Number(r[2])).filter(v => Number.isFinite(v) && v > 0);
-const priceMin = prices.length ? Math.min(...prices) : 0;
-const priceMax = prices.length ? Math.max(...prices) : 0;
+function tdHTML(row, col) {
+  const cell = cellOf(row, col.key);
+  const text = cell.t;
+  const empty = text == null || text === "";
+  const classes = ["cell"];
+  if (cell.c) classes.push(cell.c);
+  if (col.kind === "num") classes.push("num");
+  const title = cell.ev ? ' title="' + esc(cell.ev) + '"' : "";
 
-const brs = DATA.map(r => Number(r[3])).filter(v => Number.isFinite(v) && v > 0);
-const brMin = brs.length ? Math.min(...brs) : 0;
-const brMax = brs.length ? Math.max(...brs) : 0;
-
-function gradientBg(v, min, max) {
-  if (v == null || !Number.isFinite(Number(v)) || max <= min) return "";
-  const t = Math.max(0, Math.min(1, (Number(v) - min) / (max - min)));
-  const hue = 120 * (1 - t);
-  return "hsl(" + hue.toFixed(0) + ", 55%, 90%)";
+  let inner;
+  if (col.kind === "id") {
+    const label = esc(empty ? "—" : text);
+    inner = row.url
+      ? '<a class="id-cell" href="' + esc(row.url) + '" target="_blank" rel="noopener">' + label + '</a>'
+      : '<span class="id-cell">' + label + '</span>';
+  } else if (col.kind === "verdict" || col.kind === "title") {
+    const cls = col.kind === "verdict" ? "verdict" : "title-cell";
+    inner = empty ? '—' : '<span class="' + cls + '" title="' + esc(text) + '">' + esc(text) + '</span>';
+  } else if (col.kind === "reason") {
+    if (empty) {
+      inner = '—';
+    } else {
+      const who = row.decided_by === "user" ? "вы" : (row.decided_by === "ai" ? "AI" : "");
+      inner = esc(text) + (who ? ' <span class="who">(' + esc(who) + ')</span>' : "");
+    }
+  } else {
+    inner = empty ? '—' : esc(text);
+  }
+  return '<td class="' + classes.join(" ") + '"' + title + '>' + inner + '</td>';
 }
 
-function districtCell(d) {
-  if (!d) return gridjs.html("");
-  const isHot = /\b(bang|kathu)/i.test(d);
-  const cls = isHot ? "district-hot" : "";
-  return gridjs.html('<span class="' + cls + '">' + esc(d) + '</span>');
+function rowHTML(row) {
+  const cls = row.status === "rejected"
+    ? "row-rejected"
+    : (row.status === "shortlist" ? "row-shortlist" : "");
+  return '<tr class="' + cls + '">' + COLUMNS.map(c => tdHTML(row, c)).join("") + '</tr>';
 }
 
-new gridjs.Grid({
-  columns: [
-    { name: "ID", width: "160px",
-      formatter: (_c, row) => {
-        const id = row.cells[0].data;
-        const url = row.cells[1].data;
-        const label = esc(id);
-        if (!url) return gridjs.html('<span class="id-cell">' + label + '</span>');
-        return gridjs.html(
-          '<a class="id-cell" href="' + esc(url) + '" target="_blank" rel="noopener">' + label + '</a>'
-        );
-      } },
-    { name: "URL", hidden: true },
-    { name: "Price (THB)", sort: true, width: "110px",
-      formatter: (c) => {
-        const bg = gradientBg(c, priceMin, priceMax);
-        const style = bg ? ' style="background:' + bg + '"' : "";
-        return gridjs.html('<span class="price-cell"' + style + '>' + esc(formatPrice(c)) + '</span>');
-      } },
-    { name: "BR", sort: true, width: "60px",
-      formatter: (c) => {
-        if (c == null || c === "") return "";
-        const bg = gradientBg(c, brMin, brMax);
-        const style = bg ? ' style="background:' + bg + '"' : "";
-        return gridjs.html('<span class="br-cell"' + style + '>' + esc(c) + '</span>');
-      } },
-    { name: "District", sort: true, width: "140px",
-      formatter: districtCell },
-    { name: "Type", sort: true, width: "130px",
-      formatter: (c) => gridjs.html(esc(formatType(c))) },
-    { name: "First seen", sort: true, width: "120px",
-      formatter: (c) => esc(formatDateRu(c)) },
-  ],
-  data: DATA,
-  search: true,
-  sort: true,
-  pagination: { limit: 50 },
-  resizable: true,
-}).render(document.getElementById("grid"));
+let tab = "active";
+let sortKey = null;
+let sortDir = 1;
+
+function sortValue(row, key) {
+  const t = cellOf(row, key).t;
+  if (t == null || t === "") return null;
+  const n = Number(String(t).replace(/[\s ]/g, ""));
+  return Number.isFinite(n) ? n : String(t).toLowerCase();
+}
+
+function render() {
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  let rows = DATA.filter(r => inTab(r, tab) && (!q || haystack(r).indexOf(q) !== -1));
+
+  if (sortKey) {
+    rows = rows.slice().sort((a, b) => {
+      const x = sortValue(a, sortKey), y = sortValue(b, sortKey);
+      if (x === null && y === null) return 0;
+      if (x === null) return 1;
+      if (y === null) return -1;
+      if (typeof x === "number" && typeof y === "number") return (x - y) * sortDir;
+      return String(x).localeCompare(String(y), "ru") * sortDir;
+    });
+  }
+
+  document.getElementById("body").innerHTML = rows.map(rowHTML).join("");
+  document.getElementById("empty").hidden = rows.length > 0;
+
+  document.querySelectorAll(".tab").forEach(btn => {
+    const key = btn.dataset.tab;
+    const n = DATA.filter(r => inTab(r, key)).length;
+    btn.textContent = TAB_LABELS[key] + " (" + n + ")";
+    btn.classList.toggle("on", key === tab);
+  });
+}
+
+document.getElementById("head").innerHTML = COLUMNS.map(c => {
+  const grp = c.group ? '<span class="grp">' + esc(c.group) + '</span>' : "";
+  return '<th data-key="' + esc(c.key) + '">' + esc(c.label) + grp + '</th>';
+}).join("");
+
+document.querySelectorAll("#head th").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.key;
+    sortDir = key === sortKey ? -sortDir : 1;
+    sortKey = key;
+    render();
+  });
+});
+
+document.querySelectorAll(".tab").forEach(btn => {
+  btn.addEventListener("click", () => { tab = btn.dataset.tab; render(); });
+});
+
+document.getElementById("q").addEventListener("input", render);
+
+render();
 </script>
 </body>
 </html>
 """
 
-# Columns embedded in the HTML export (order matters — the JS template
-# indexes into each row by position).
-_HTML_COLUMNS: tuple[str, ...] = (
-    "fb_id",
-    "url",
-    "price_thb",
-    "bedrooms",
-    "district",
-    "property_type",
-    "first_seen_at",
+# Columns that come from the listing row itself rather than from the AI field
+# registry. ``kind`` is what the embedded JS switches on when rendering a cell.
+_BASE_COLUMNS: tuple[dict[str, str], ...] = (
+    {"key": "fb_id", "label": "ID", "kind": "id"},
+    {"key": "title", "label": "Заголовок", "kind": "title"},
+    {"key": "score", "label": "Score", "kind": "num"},
+    {"key": "verdict", "label": "Вердикт", "kind": "verdict"},
+    {"key": "reason", "label": "Reason", "kind": "reason"},
+    {"key": "price_thb", "label": "Цена FB ฿", "kind": "num"},
+    {"key": "district", "label": "Район FB", "kind": "text"},
+    {"key": "data_quality", "label": "Качество данных", "kind": "text"},
+    {"key": "first_seen_at", "label": "Первый показ", "kind": "text"},
 )
 
 
-def export_html(conn: sqlite3.Connection, path: Path | str) -> Path:
-    """Regenerate a self-contained HTML export from the database.
+def _format_number(value: Any) -> str:
+    """Render an integer with thin spaces between thousands (``16 000``)."""
+    return f"{value:,}".replace(",", " ")
 
-    Data is embedded as inline JSON; sorting/search/pagination are provided
-    by Grid.js loaded from a CDN. Open the file directly in a browser — no
-    local server required.
+
+def _display(value: Any) -> str:
+    """Render one field value as the text shown in its cell."""
+    if rules.is_empty(value):
+        return ""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, int):
+        return _format_number(value)
+    if isinstance(value, float):
+        return _format_number(int(value)) if value.is_integer() else str(value)
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(v) for v in value)
+    return str(value)
+
+
+def html_columns(registry: ai_schema.Registry) -> list[dict[str, Any]]:
+    """Return every export column: the fixed ones plus the registry's fields."""
+    columns: list[dict[str, Any]] = [dict(col) for col in _BASE_COLUMNS]
+    for field in registry.fields:
+        columns.append(
+            {
+                "key": field["key"],
+                "label": field.get("label") or field["key"],
+                "kind": "num" if field.get("type") == "int" else "field",
+                "group": field.get("group") or "",
+            }
+        )
+    return columns
+
+
+def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, Any]:
+    """Turn one :func:`fetch_enriched` item into a row for the HTML payload.
+
+    Every cell carries its text, its colour class from :func:`rules.cell_class`
+    and — where the AI supplied one — the quote backing the value, which the
+    page shows as a tooltip so any claim can be traced to the source text.
+    """
+    analyzed = bool(item.get("analyzed"))
+    fields = item.get("fields") or {}
+    # An unanalysed row has no schema version of its own. Pretending it is
+    # current keeps its blank cells plain grey: `c-stale` means "the field
+    # arrived after this row was analysed", which says nothing here.
+    version = (item.get("ai_schema_version") or 0) if analyzed else registry.schema_version
+
+    status = item.get("status") or "active"
+    reason = item.get("reason")
+    price = item.get("price_thb")
+    first_seen = item.get("first_seen_at") or ""
+
+    cells: dict[str, dict[str, Any]] = {
+        "fb_id": {"t": item.get("fb_id"), "c": ""},
+        "title": {"t": item.get("title") or "", "c": ""},
+        "score": {"t": _display(item.get("score")), "c": ""},
+        "verdict": {
+            "t": item.get("verdict") or "",
+            "c": "" if analyzed else rules.CLASS_NONE,
+        },
+        "reason": {
+            "t": reason or "",
+            "c": rules.CLASS_BAD if status == "rejected" and reason else "",
+        },
+        "price_thb": {
+            "t": _display(price),
+            "c": rules.CLASS_NONE
+            if rules.is_empty(price)
+            else rules.cell_class("price_month_thb", price),
+        },
+        "district": {"t": item.get("district") or "", "c": ""},
+        "data_quality": {
+            "t": item.get("data_quality") or "",
+            "c": rules.CLASS_WARN
+            if analyzed and item.get("data_quality") not in (None, "", "good")
+            else "",
+        },
+        "first_seen_at": {"t": str(first_seen)[:10], "c": ""},
+    }
+
+    for field in registry.fields:
+        key = field["key"]
+        value = rules.value_of(fields, key)
+        cell: dict[str, Any] = {
+            "t": _display(value),
+            "c": rules.cell_class(key, value, field, version),
+        }
+        raw = fields.get(key)
+        if isinstance(raw, dict) and raw.get("ev"):
+            cell["ev"] = str(raw["ev"])
+        cells[key] = cell
+
+    return {
+        "fb_id": item.get("fb_id"),
+        "url": item.get("url"),
+        "status": status,
+        "decided_by": item.get("decided_by"),
+        "analyzed": analyzed,
+        "cells": cells,
+    }
+
+
+def _inline_json(payload: Any) -> str:
+    """Serialise a payload for embedding inside the page's ``<script>`` block.
+
+    ``</`` and ``<!--`` are neutralised so no listing text can close the
+    script element or open an HTML comment.
+    """
+    return (
+        json.dumps(payload, ensure_ascii=False, default=str)
+        .replace("</", "<\\/")
+        .replace("<!--", "<\\!--")
+    )
+
+
+def export_html(
+    conn: sqlite3.Connection,
+    path: Path | str,
+    registry: ai_schema.Registry | None = None,
+) -> Path:
+    """Regenerate the self-contained HTML table from the database.
+
+    Every listing is rendered with every registry field, joined with its AI
+    analysis and the user's own verdict: cells are coloured by
+    :func:`rules.cell_class`, rejected rows are struck through and carry the
+    reason plus who rejected them, and the Active / Shortlist / Rejected / All
+    tabs filter the set. Data is embedded inline, so the file opens straight
+    from disk with no server and no network.
     """
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    query = (
-        f"SELECT {', '.join(_HTML_COLUMNS)} FROM listings "
-        "ORDER BY first_seen_at DESC"
-    )
-    rows = conn.execute(query).fetchall()
-    data = [[row[c] for c in _HTML_COLUMNS] for row in rows]
+    if registry is None:
+        registry = ai_schema.load_registry()
 
-    # Neutralise ``</script>`` and HTML comment starters inside string
-    # values so a malicious listing cannot break out of the <script> block.
-    data_json = (
-        json.dumps(data, ensure_ascii=False, default=str)
-        .replace("</", "<\\/")
-        .replace("<!--", "<\\!--")
-    )
+    columns = html_columns(registry)
+    data = [html_row(item, registry) for item in fetch_enriched(conn)]
+
     html = (
         _HTML_TEMPLATE
         .replace("__ROW_COUNT__", str(len(data)))
         .replace("__GENERATED_AT__", _now_iso())
-        .replace("__DATA_JSON__", data_json)
+        .replace("__SCHEMA_VERSION__", str(registry.schema_version))
+        .replace("__COLUMNS_JSON__", _inline_json(columns))
+        .replace("__DATA_JSON__", _inline_json(data))
     )
     out.write_text(html, encoding="utf-8")
     return out
