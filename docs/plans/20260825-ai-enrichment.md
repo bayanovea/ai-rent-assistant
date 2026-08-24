@@ -341,12 +341,12 @@ fb-rent export                       # имя прежнее, рендерит �
 - Create: `src/fb_rent/rules.py`
 - Create: `tests/test_rules.py`
 
-- [ ] `decide(fields: dict, price_thb: int | None) -> tuple[str, str | None]` — возвращает `("active"|"rejected", reason)`; ровно три условия реджекта: `pets == "not_allowed"`, `price > BUDGET_HARD_MAX_THB`, явная студия (`property_type == "studio"` или `bedrooms == 0`)
-- [ ] `cell_class(field_key, value, field_def, row_schema_version) -> str` — реализовать таблицу цветов: `c-good`/`c-warn`/`c-bad` для `pets`, пороги цены, `c-stale` когда `field_def["added_in"] > row_schema_version`, иначе `c-none` для пустых
-- [ ] `score(fields) -> int` — 0-100 соответствие критериям из `requirements.md`; лишние комнаты и наличие зелёной зоны/парковки/охраны повышают, отсутствие информации не штрафует сильно
-- [ ] написать тесты на каждое условие реджекта и, отдельными явными кейсами, на то что **НЕ** реджектится: 3 спальни (больше, чем просили) → active; `living_room` = `unclear` → active; `property_type` = `condo` → active; цена 33 000 → active с `c-warn`; `data_quality` = `sidebar_noise` → active
-- [ ] написать тесты на `cell_class`: `pets=allowed` → `c-good`, `pets=unclear` → `c-warn`, поле с `added_in=2` на строке со `schema_version=1` → `c-stale`, поле с `added_in=1` без значения → `c-none`
-- [ ] прогнать `pytest tests/ -q` — все зелёные
+- [x] `decide(fields: dict, price_thb: int | None) -> tuple[str, str | None]` — возвращает `("active"|"rejected", reason)`; ровно три условия реджекта: `pets == "not_allowed"`, `price > BUDGET_HARD_MAX_THB`, явная студия (`property_type == "studio"` или `bedrooms == 0`)
+- [x] `cell_class(field_key, value, field_def, row_schema_version) -> str` — реализовать таблицу цветов: `c-good`/`c-warn`/`c-bad` для `pets`, пороги цены, `c-stale` когда `field_def["added_in"] > row_schema_version`, иначе `c-none` для пустых
+- [x] `score(fields) -> int` — 0-100 соответствие критериям из `requirements.md`; лишние комнаты и наличие зелёной зоны/парковки/охраны повышают, отсутствие информации не штрафует сильно
+- [x] написать тесты на каждое условие реджекта и, отдельными явными кейсами, на то что **НЕ** реджектится: 3 спальни (больше, чем просили) → active; `living_room` = `unclear` → active; `property_type` = `condo` → active; цена 33 000 → active с `c-warn`; `data_quality` = `sidebar_noise` → active
+- [x] написать тесты на `cell_class`: `pets=allowed` → `c-good`, `pets=unclear` → `c-warn`, поле с `added_in=2` на строке со `schema_version=1` → `c-stale`, поле с `added_in=1` без значения → `c-none`
+- [x] прогнать `pytest tests/ -q` — все зелёные
 
 ### Task 6: Слой хранения для результатов AI
 
