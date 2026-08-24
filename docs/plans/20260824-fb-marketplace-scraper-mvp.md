@@ -26,6 +26,17 @@
 - **CRITICAL: update this plan file when scope changes during implementation**
 - run tests after each change
 
+## Autonomous Execution Notes (for ralphex / agent runs)
+
+Часть шагов требует живого залогиненного Facebook и **не может быть выполнена автономным агентом**. Конвенция:
+
+- Чекбоксы с префиксом `MANUAL:` — агент **пропускает и помечает** `[x] MANUAL: ... (skipped — requires live FB / human action)`. Не пытается выполнить, не блокирует прогресс.
+- Чекбоксы с префиксом `DESIGN:` — это фиксация проектного решения (например, «не пишем unit-тесты для Playwright-кода осознанно»). Агент **помечает** `[x] DESIGN: ...` без действий.
+- Всё остальное — автоматизируется как обычно: код + unit-тесты + `pytest`.
+- Список селекторов FB в Task 6/7 — best-effort guess; агент пишет по описанию, реальная проверка на живых данных остаётся человеку.
+
+Все `MANUAL:` пункты также перечислены в разделе Post-Completion — оттуда человек забирает список того, что нужно сделать руками после автономного прогона.
+
 ## Testing Strategy
 
 - **unit tests**: обязательны для чистых функций — `parse_price`, `extract_bedrooms`, `extract_property_type`, `build_marketplace_url`, БД insert/upsert/export.
@@ -218,8 +229,8 @@ fb-rent/
 - [ ] `launch_persistent(headless: bool) -> BrowserContext` — использует `chromium.launch_persistent_context(user_data_dir=BROWSER_PROFILE_DIR)`, реалистичный `user_agent` (последний stable Chrome на macOS), `viewport 1280x900`, `locale='en-US'`
 - [ ] `is_logged_in(context) -> bool` — открывает `https://www.facebook.com/`, проверяет наличие селектора профиля / отсутствие форм логина
 - [ ] `login_flow(context)` — открывает `facebook.com/login` в headed режиме, ждёт event ручного логина (polling `is_logged_in` каждые 3 сек до 5 минут), выходит
-- [ ] тесты для этого модуля НЕ пишем осознанно — интеграция с живым браузером; проверяем руками через CLI в Task 7
-- [ ] проверить руками (после Task 7): `fb-rent login` открывает браузер, логинишься, вторая команда работает headless
+- [ ] DESIGN: тесты для этого модуля НЕ пишем осознанно — интеграция с живым браузером; проверяем руками через CLI в Task 8
+- [ ] MANUAL: `fb-rent login` открывает браузер, залогиниться руками, вторая команда работает headless
 
 ### Task 6: List scraper
 
@@ -230,8 +241,9 @@ fb-rent/
 - [ ] для каждой карточки на списке извлекает: `fb_id` (из ссылки `/marketplace/item/{id}`), `url`, `title`, `price_raw`, `district` (обычно вторая строка на карточке), `cover_image_url`
 - [ ] селекторы: используем `role`/`aria-label` где можно (FB меняет CSS-классы часто), fallback на семантические `a[href*="/marketplace/item/"]`
 - [ ] при 0 карточках или detected login-redirect — бросает `LoginRequiredError` с понятным сообщением
-- [ ] осознанно без unit-тестов (нужен живой FB); проверим руками в Task 8
+- [ ] DESIGN: осознанно без unit-тестов (нужен живой FB); проверим руками в Task 9
 - [ ] защита от бесконечного скролла: hard limit `max_items * 2` попыток скролла
+- [ ] MANUAL: подтвердить работу селекторов на живом FB (best-effort guess в коде — почти гарантированно потребуется итерация)
 
 ### Task 7: Detail scraper
 
@@ -241,7 +253,8 @@ fb-rent/
 - [ ] `scrape_detail(context, url: str) -> dict` — открывает URL листинга, ждёт загрузки, кликает «See more» на описании если есть, извлекает: `description` (полное), `published_at` (сырой текст FB типа "Listed 3 days ago" — сохраняем как есть в первой итерации), `price_raw` (может отличаться от списка), `raw_json` (всё что смогли достать в dict)
 - [ ] rate limit: `random.uniform(3, 7)` сек перед каждым вызовом (не внутри — контролирует orchestrator)
 - [ ] обработка 404 / удалённого листинга: возвращает `None`, не крашится
-- [ ] осознанно без unit-тестов; ручная проверка в Task 8
+- [ ] DESIGN: осознанно без unit-тестов; ручная проверка в Task 9
+- [ ] MANUAL: подтвердить работу селекторов на живой карточке FB (best-effort guess в коде)
 
 ### Task 8: CLI orchestration
 
@@ -260,19 +273,25 @@ fb-rent/
   - в конце: `export_csv`, печатает summary «inserted: X, updated: Y, csv: /path/to/rentals.csv»
 - [ ] `fb-rent export [--path]` — только регенерация CSV
 - [ ] `fb-rent --help` печатает все команды с описанием
-- [ ] тесты на CLI НЕ пишем (тонкая обёртка); логика уже покрыта юнит-тестами нижних слоёв
+- [ ] DESIGN: тесты на CLI НЕ пишем (тонкая обёртка); логика уже покрыта юнит-тестами нижних слоёв
 - [ ] прогнать `pip install -e .` и `fb-rent --help` — команды видны
 
 ### Task 9: Verify acceptance criteria
 
+**Автоматизируемое** (агент выполняет):
 - [ ] `pytest tests/ -v` — все юнит-тесты зелёные
-- [ ] `fb-rent login` — залогиниться руками в браузере, увидеть success сообщение
-- [ ] `fb-rent scrape --max 5 --dry-run` — печатает список из 5 листингов без записи
-- [ ] `fb-rent scrape --max 10` — реальный запуск, в БД появляется ~10 записей, CSV сгенерирован
-- [ ] открыть `rentals.csv` в Numbers/Excel — колонки читаемы, все требуемые поля заполнены (кроме heuristic-полей где не смогли — там NULL допустимо)
-- [ ] цены всех записей в диапазоне 15000-30000 THB (или NULL если не распарсили)
-- [ ] повторный `fb-rent scrape --max 10` — статистика показывает `updated > 0`, `inserted` может быть 0, дубликатов в БД нет
-- [ ] `fb-rent scrape --max 60` — прогон на большем объёме, замерить время (для планирования Hermes-интервала); не должно быть банов/капчи
+- [ ] `fb-rent --help` — команды видны, `fb-rent scrape --help` показывает все флаги
+- [ ] `fb-rent scrape --max 5 --dry-run` без залогиненной сессии — печатает понятную ошибку «run `fb-rent login`», не крашится stacktrace'ом
+- [ ] `fb-rent export --path /tmp/empty.csv` на пустой БД — создаёт CSV с заголовком, без строк, exit code 0
+
+**Требует ручных действий** (агент помечает как skipped):
+- [ ] MANUAL: `fb-rent login` — залогиниться руками, увидеть success сообщение
+- [ ] MANUAL: `fb-rent scrape --max 5 --dry-run` — печатает список из 5 листингов без записи
+- [ ] MANUAL: `fb-rent scrape --max 10` — реальный запуск, в БД ~10 записей, CSV сгенерирован
+- [ ] MANUAL: открыть `rentals.csv` в Numbers/Excel — колонки читаемы, поля заполнены (NULL допустим для heuristic-полей)
+- [ ] MANUAL: цены всех записей в диапазоне 15000-30000 THB (или NULL если не распарсили)
+- [ ] MANUAL: повторный `fb-rent scrape --max 10` — `updated > 0`, `inserted` может быть 0, дубликатов нет
+- [ ] MANUAL: `fb-rent scrape --max 60` — прогон на большем объёме, замерить время; не должно быть банов/капчи
 
 ### Task 10: [Final] Update documentation
 
@@ -287,10 +306,14 @@ fb-rent/
 
 *Требует ручных действий или относится к будущим итерациям.*
 
-**Ручная валидация после Task 8**:
-- FB-логин через `fb-rent login` — 2FA (если включена) вводится в самом браузере руками
-- визуальный smoke-test CSV в Numbers/Excel: цены попадают в диапазон, описания читаемы, локация похожа на пхукетские районы (Rawai, Chalong, Kata, Patong и т.д.)
-- если после первого прогона селекторы FB не сработали — итерация над `scraper_list.py` / `scraper_detail.py` на реальных данных (это ожидаемая часть работы со скрапингом, не «баг»)
+**Что нужно сделать руками после автономного прогона** (собрано из всех `MANUAL:` пунктов выше):
+1. `fb-rent login` — залогиниться в открывшемся браузере (2FA, если включена, вводится тоже там); подтвердить что headless-режим потом видит сессию
+2. `fb-rent scrape --max 5 --dry-run` — smoke-check, что список карточек парсится
+3. `fb-rent scrape --max 10` — реальный прогон, проверить что БД и CSV заполнились
+4. Открыть `rentals.csv` в Numbers/Excel — визуально проверить цены (15000-30000 THB), поля, локации (Rawai/Chalong/Kata/Patong/…)
+5. Повторный `fb-rent scrape --max 10` — убедиться в дедупликации (updated > 0)
+6. `fb-rent scrape --max 60` — прогон на большем объёме, замерить время для планирования Hermes-интервала
+7. Если селекторы в `scraper_list.py` / `scraper_detail.py` не сработали — итерация на живых данных (ожидаемая часть работы, не «баг»)
 
 **Известные ограничения этой итерации** (fix в следующих):
 - `published_at` хранится как сырая строка FB типа "Listed 3 days ago" — парсинг в ISO дату отложен
