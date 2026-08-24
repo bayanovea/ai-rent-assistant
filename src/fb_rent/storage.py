@@ -160,45 +160,128 @@ def export_csv(conn: sqlite3.Connection, path: Path | str) -> Path:
     return out
 
 
-_HTML_TEMPLATE = """<!doctype html>
+_HTML_TEMPLATE = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <title>fb-rent listings</title>
 <link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet" />
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 1.5rem; color: #222; }
-  h1 { margin: 0 0 0.25rem; font-size: 1.15rem; }
-  .meta { color: #666; font-size: 0.85rem; margin-bottom: 1rem; }
-  .desc { max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 1.5rem; color: #222; font-size: 12px; }
+  h1 { margin: 0 0 0.25rem; font-size: 1rem; }
+  .meta { color: #666; font-size: 0.75rem; margin-bottom: 1rem; }
+  .gridjs-table, .gridjs-search-input { font-size: 12px; }
+  .gridjs-td, .gridjs-th { padding: 6px 8px; }
+  .id-cell { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #1a73e8; text-decoration: none; }
+  .id-cell:hover { text-decoration: underline; }
+  .price-cell { font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 3px; }
+  .br-cell { padding: 2px 6px; border-radius: 3px; text-align: center; }
+  .district-hot { background: #e6f4ea; color: #137333; padding: 2px 6px; border-radius: 3px; }
   th, td { vertical-align: top; }
 </style>
 </head>
 <body>
 <h1>fb-rent — __ROW_COUNT__ listings</h1>
-<div class="meta">Generated __GENERATED_AT__ · sorted by last seen ↓ · click column headers to sort · search box top-right</div>
+<div class="meta">Generated __GENERATED_AT__ · sorted by first seen ↓ · click column headers to sort · click an ID to open the listing</div>
 <div id="grid"></div>
 <script src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
 <script>
 const DATA = __DATA_JSON__;
+
+const RU_MONTHS = ["Января","Февраля","Марта","Апреля","Мая","Июня",
+                   "Июля","Августа","Сентября","Октября","Ноября","Декабря"];
+
+const TYPE_EMOJI = {
+  villa:     "\u{1F3E1}",
+  condo:     "\u{1F3E2}",
+  townhouse: "\u{1F3D8}\u{FE0F}",
+  house:     "\u{1F3E0}",
+  apartment: "\u{1F3E2}",
+  studio:    "\u{1F3E2}",
+};
+
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function formatPrice(v) {
+  if (v == null || v === "") return "";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  return n.toLocaleString("ru-RU").replace(/,/g, " ");
+}
+
+function formatDateRu(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  return d.getDate() + " " + RU_MONTHS[d.getMonth()];
+}
+
+function formatType(t) {
+  if (!t) return "";
+  const key = String(t).toLowerCase();
+  const emoji = TYPE_EMOJI[key];
+  return emoji ? emoji + " " + t : t;
+}
+
+// Row layout: [fb_id, url, price_thb, bedrooms, district, property_type, first_seen_at].
+const prices = DATA.map(r => Number(r[2])).filter(v => Number.isFinite(v) && v > 0);
+const priceMin = prices.length ? Math.min(...prices) : 0;
+const priceMax = prices.length ? Math.max(...prices) : 0;
+
+const brs = DATA.map(r => Number(r[3])).filter(v => Number.isFinite(v) && v > 0);
+const brMin = brs.length ? Math.min(...brs) : 0;
+const brMax = brs.length ? Math.max(...brs) : 0;
+
+function gradientBg(v, min, max) {
+  if (v == null || !Number.isFinite(Number(v)) || max <= min) return "";
+  const t = Math.max(0, Math.min(1, (Number(v) - min) / (max - min)));
+  const hue = 120 * (1 - t);
+  return "hsl(" + hue.toFixed(0) + ", 55%, 90%)";
+}
+
+function districtCell(d) {
+  if (!d) return gridjs.html("");
+  const isHot = /\b(bang|kathu)/i.test(d);
+  const cls = isHot ? "district-hot" : "";
+  return gridjs.html('<span class="' + cls + '">' + esc(d) + '</span>');
+}
+
 new gridjs.Grid({
   columns: [
-    { name: "Price (THB)", sort: true, width: "110px" },
-    { name: "Title" },
-    { name: "BR", sort: true, width: "60px" },
-    { name: "District", sort: true, width: "120px" },
-    { name: "Type", sort: true, width: "100px" },
-    { name: "Published", width: "130px" },
-    { name: "Link", width: "70px",
-      formatter: (c) => c ? gridjs.html('<a href="' + c + '" target="_blank" rel="noopener">open</a>') : "" },
-    { name: "Description",
-      formatter: (c) => {
-        const s = c == null ? "" : String(c);
-        const esc = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-        return gridjs.html('<div class="desc" title="' + esc + '">' + esc + '</div>');
+    { name: "ID", width: "160px",
+      formatter: (_c, row) => {
+        const id = row.cells[0].data;
+        const url = row.cells[1].data;
+        const label = esc(id);
+        if (!url) return gridjs.html('<span class="id-cell">' + label + '</span>');
+        return gridjs.html(
+          '<a class="id-cell" href="' + esc(url) + '" target="_blank" rel="noopener">' + label + '</a>'
+        );
       } },
-    { name: "First seen", sort: true, width: "170px" },
-    { name: "Last seen",  sort: true, width: "170px" },
+    { name: "URL", hidden: true },
+    { name: "Price (THB)", sort: true, width: "110px",
+      formatter: (c) => {
+        const bg = gradientBg(c, priceMin, priceMax);
+        const style = bg ? ' style="background:' + bg + '"' : "";
+        return gridjs.html('<span class="price-cell"' + style + '>' + esc(formatPrice(c)) + '</span>');
+      } },
+    { name: "BR", sort: true, width: "60px",
+      formatter: (c) => {
+        if (c == null || c === "") return "";
+        const bg = gradientBg(c, brMin, brMax);
+        const style = bg ? ' style="background:' + bg + '"' : "";
+        return gridjs.html('<span class="br-cell"' + style + '>' + esc(c) + '</span>');
+      } },
+    { name: "District", sort: true, width: "140px",
+      formatter: districtCell },
+    { name: "Type", sort: true, width: "130px",
+      formatter: (c) => gridjs.html(esc(formatType(c))) },
+    { name: "First seen", sort: true, width: "120px",
+      formatter: (c) => esc(formatDateRu(c)) },
   ],
   data: DATA,
   search: true,
@@ -211,6 +294,18 @@ new gridjs.Grid({
 </html>
 """
 
+# Columns embedded in the HTML export (order matters — the JS template
+# indexes into each row by position).
+_HTML_COLUMNS: tuple[str, ...] = (
+    "fb_id",
+    "url",
+    "price_thb",
+    "bedrooms",
+    "district",
+    "property_type",
+    "first_seen_at",
+)
+
 
 def export_html(conn: sqlite3.Connection, path: Path | str) -> Path:
     """Regenerate a self-contained HTML export from the database.
@@ -222,9 +317,12 @@ def export_html(conn: sqlite3.Connection, path: Path | str) -> Path:
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    query = f"SELECT {', '.join(CSV_COLUMNS)} FROM listings ORDER BY last_seen_at DESC"
+    query = (
+        f"SELECT {', '.join(_HTML_COLUMNS)} FROM listings "
+        "ORDER BY first_seen_at DESC"
+    )
     rows = conn.execute(query).fetchall()
-    data = [[row[c] for c in CSV_COLUMNS] for row in rows]
+    data = [[row[c] for c in _HTML_COLUMNS] for row in rows]
 
     # Neutralise ``</script>`` and HTML comment starters inside string
     # values so a malicious listing cannot break out of the <script> block.

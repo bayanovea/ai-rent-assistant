@@ -201,7 +201,7 @@ def test_export_html_embeds_rows_sorted(conn, tmp_path: Path):
     start = text.index(marker) + len(marker)
     end = text.index(";", start)
     data = json.loads(text[start:end])
-    assert [row[1] for row in data] == ["Second", "Third", "First"]
+    assert [row[0] for row in data] == ["b", "c", "a"]
 
 
 def test_export_html_neutralises_script_breakout(conn, tmp_path: Path):
@@ -211,7 +211,7 @@ def test_export_html_neutralises_script_breakout(conn, tmp_path: Path):
         conn,
         _make_listing(
             fb_id="xss",
-            description="pwn</script><script>alert(1)</script>",
+            district="pwn</script><script>alert(1)</script>",
         ),
     )
     out = tmp_path / "rentals.html"
