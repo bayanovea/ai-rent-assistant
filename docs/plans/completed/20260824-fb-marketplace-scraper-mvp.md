@@ -298,9 +298,9 @@ fb-rent/
 **Files:**
 - Modify: `README.md`
 
-- [ ] в `README.md` добавить: установку (venv, pip install, playwright install chromium), quickstart (login → scrape → csv), описание всех CLI команд с примерами, где живёт БД (`~/.fb-rent/rentals.db`), troubleshooting (session expired → re-login)
-- [ ] отметить в README что это iteration 1 и линкануть на этот plan файл для контекста будущих итераций
-- [ ] переместить этот plan файл: `mkdir -p docs/plans/completed && mv docs/plans/20260824-fb-marketplace-scraper-mvp.md docs/plans/completed/`
+- [x] в `README.md` добавить: установку (venv, pip install, playwright install chromium), quickstart (login → scrape → csv), описание всех CLI команд с примерами, где живёт БД (`~/.fb-rent/rentals.db`), troubleshooting (session expired → re-login)
+- [x] отметить в README что это iteration 1 и линкануть на этот plan файл для контекста будущих итераций
+- [x] переместить этот plan файл: `mkdir -p docs/plans/completed && mv docs/plans/20260824-fb-marketplace-scraper-mvp.md docs/plans/completed/`
 
 ## Post-Completion
 
