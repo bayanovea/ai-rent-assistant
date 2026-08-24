@@ -133,6 +133,12 @@ def upsert_listing(
     return "updated"
 
 
+def known_fb_ids(conn: sqlite3.Connection) -> set[str]:
+    """Return the set of ``fb_id`` values already present in the DB."""
+    rows = conn.execute("SELECT fb_id FROM listings").fetchall()
+    return {row["fb_id"] for row in rows}
+
+
 def export_csv(conn: sqlite3.Connection, path: Path | str) -> Path:
     """Regenerate the CSV export from the database.
 

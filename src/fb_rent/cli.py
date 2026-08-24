@@ -35,7 +35,7 @@ from .browser import (
 from .extractors import extract_bedrooms, extract_property_type, parse_price
 from .scraper_detail import scrape_detail
 from .scraper_list import scrape_list
-from .storage import export_csv, init_db, upsert_listing
+from .storage import export_csv, init_db, known_fb_ids, upsert_listing
 from .url_builder import build_marketplace_url
 
 
@@ -138,85 +138,123 @@ def login_cmd() -> None:
     default=False,
     help="Skip per-item detail pages (list-card fields only, no jitter).",
 )
-def scrape_cmd(max_items: int, days: int, dry_run: bool, skip_details: bool) -> None:
+@click.option(
+    "--refresh",
+    is_flag=True,
+    default=False,
+    help="Re-scrape detail pages for listings already in the DB "
+    "(by default, known fb_ids are skipped to save time).",
+)
+def scrape_cmd(
+    max_items: int,
+    days: int,
+    dry_run: bool,
+    skip_details: bool,
+    refresh: bool,
+) -> None:
     """Scrape the marketplace and upsert results into the local SQLite DB."""
     url = build_marketplace_url(days_since_listed=days)
     click.echo(f"URL: {url}")
     click.echo(
         f"Options: max={max_items} days={days} "
-        f"dry_run={dry_run} skip_details={skip_details}"
+        f"dry_run={dry_run} skip_details={skip_details} refresh={refresh}"
     )
 
-    playwright = start_playwright()
-    context = None
+    config.ensure_home()
+    conn = init_db(config.DB_PATH)
     try:
-        try:
-            context = launch_persistent(playwright, headless=True)
-        except Exception as exc:  # noqa: BLE001 — surface a friendly error
-            _echo_err(f"Failed to launch browser: {exc}")
-            sys.exit(2)
-
-        if not is_logged_in(context):
-            _echo_err(
-                "No active Facebook session. Run `fb-rent login` first."
+        seen_ids = set() if refresh else known_fb_ids(conn)
+        if seen_ids and not refresh:
+            click.echo(
+                f"Known listings in DB: {len(seen_ids)} "
+                "(details will be skipped for these; use --refresh to override)."
             )
-            sys.exit(3)
 
+        playwright = start_playwright()
+        context = None
         try:
-            cards = scrape_list(context, url, max_items=max_items)
-        except LoginRequiredError as exc:
-            _echo_err(str(exc))
-            sys.exit(3)
+            try:
+                context = launch_persistent(playwright, headless=True)
+            except Exception as exc:  # noqa: BLE001 — surface a friendly error
+                _echo_err(f"Failed to launch browser: {exc}")
+                sys.exit(2)
 
-        click.echo(f"Collected {len(cards)} list cards.")
+            if not is_logged_in(context):
+                _echo_err(
+                    "No active Facebook session. Run `fb-rent login` first."
+                )
+                sys.exit(3)
 
-        detail_cap = min(len(cards), config.DETAIL_REQUEST_CAP)
-        if skip_details:
-            detail_cap = 0
+            try:
+                cards = scrape_list(context, url, max_items=max_items)
+            except LoginRequiredError as exc:
+                _echo_err(str(exc))
+                sys.exit(3)
 
-        enriched: list[dict[str, Any]] = []
-        for idx, card in enumerate(cards):
-            if not card.get("url") or not card.get("title"):
+            click.echo(f"Collected {len(cards)} list cards.")
+
+            detail_cap = min(len(cards), config.DETAIL_REQUEST_CAP)
+            if skip_details:
+                detail_cap = 0
+
+            enriched: list[dict[str, Any]] = []
+            skipped_known = 0
+            with click.progressbar(
+                length=len(cards),
+                label="Scraping listings",
+                show_pos=True,
+                show_eta=True,
+                item_show_func=lambda c: str(c.get("fb_id")) if c else "",
+            ) as bar:
+                for idx, card in enumerate(cards):
+                    if not card.get("url") or not card.get("title"):
+                        click.echo(
+                            f"  [{idx + 1}/{len(cards)}] skipping card missing url/title: "
+                            f"fb_id={card.get('fb_id')}"
+                        )
+                        bar.update(1, card)
+                        continue
+                    detail: dict[str, Any] | None = None
+                    already_known = card["fb_id"] in seen_ids
+                    if already_known:
+                        skipped_known += 1
+                    elif idx < detail_cap:
+                        time.sleep(
+                            random.uniform(
+                                config.DETAIL_DELAY_MIN_SEC,
+                                config.DETAIL_DELAY_MAX_SEC,
+                            )
+                        )
+                        try:
+                            detail = scrape_detail(context, card["url"])
+                        except LoginRequiredError as exc:
+                            _echo_err(str(exc))
+                            sys.exit(3)
+                        if detail is None:
+                            click.echo(
+                                f"  [{idx + 1}/{len(cards)}] detail unavailable, "
+                                f"keeping list-card data: {card['url']}"
+                            )
+                    merged = _merge_listing(card, detail)
+                    enriched.append(_enrich(merged))
+                    bar.update(1, card)
+
+            if skipped_known:
                 click.echo(
-                    f"  [{idx + 1}/{len(cards)}] skipping card missing url/title: "
-                    f"fb_id={card.get('fb_id')}"
+                    f"Skipped detail fetch for {skipped_known} listing(s) already in DB."
                 )
-                continue
-            detail: dict[str, Any] | None = None
-            if idx < detail_cap:
-                time.sleep(
-                    random.uniform(
-                        config.DETAIL_DELAY_MIN_SEC,
-                        config.DETAIL_DELAY_MAX_SEC,
-                    )
-                )
-                try:
-                    detail = scrape_detail(context, card["url"])
-                except LoginRequiredError as exc:
-                    _echo_err(str(exc))
-                    sys.exit(3)
-                if detail is None:
+
+            if dry_run:
+                click.echo("Dry-run: skipping DB writes and CSV export.")
+                for item in enriched:
                     click.echo(
-                        f"  [{idx + 1}/{len(cards)}] detail unavailable, "
-                        f"keeping list-card data: {card['url']}"
+                        f"  - {item.get('fb_id')} | "
+                        f"{item.get('price_thb')} THB | "
+                        f"{item.get('title')!r}"
                     )
-            merged = _merge_listing(card, detail)
-            enriched.append(_enrich(merged))
+                click.echo(f"Would have processed {len(enriched)} listings.")
+                return
 
-        if dry_run:
-            click.echo("Dry-run: skipping DB writes and CSV export.")
-            for item in enriched:
-                click.echo(
-                    f"  - {item.get('fb_id')} | "
-                    f"{item.get('price_thb')} THB | "
-                    f"{item.get('title')!r}"
-                )
-            click.echo(f"Would have processed {len(enriched)} listings.")
-            return
-
-        config.ensure_home()
-        conn = init_db(config.DB_PATH)
-        try:
             inserted = 0
             updated = 0
             for item in enriched:
@@ -226,18 +264,19 @@ def scrape_cmd(max_items: int, days: int, dry_run: bool, skip_details: bool) -> 
                 else:
                     updated += 1
             csv_path = export_csv(conn, config.CSV_PATH)
-        finally:
-            conn.close()
 
-        click.echo(
-            f"Done. inserted: {inserted}, updated: {updated}, csv: {csv_path}"
-        )
-    finally:
-        try:
-            if context is not None:
-                context.close()
+            click.echo(
+                f"Done. inserted: {inserted}, updated: {updated}, "
+                f"skipped_known: {skipped_known}, csv: {csv_path}"
+            )
         finally:
-            playwright.stop()
+            try:
+                if context is not None:
+                    context.close()
+            finally:
+                playwright.stop()
+    finally:
+        conn.close()
 
 
 @main.command("export")
