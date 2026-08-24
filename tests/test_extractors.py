@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from fb_rent.extractors import (
+    clean_fb_title,
+    description_from_text_lines,
     extract_bedrooms,
     extract_property_type,
     parse_price,
+    parse_published_at,
 )
+from tests.fixtures import GOOD, SIDEBAR, load
 
 
 @pytest.mark.parametrize(
@@ -150,3 +156,187 @@ def test_extract_property_type_townhouse_not_shadowed_by_house() -> None:
 def test_extract_property_type_empty_inputs() -> None:
     assert extract_property_type("", "") == "unknown"
     assert extract_property_type(None, None) == "unknown"
+
+
+# --- description_from_text_lines ----------------------------------------
+
+
+def test_description_from_text_lines_good_fixture() -> None:
+    """«Хорошая» страница: срез после `Описание` — это само объявление."""
+    lines = load(GOOD)["text_lines"]
+    body = description_from_text_lines(lines)
+
+    assert body is not None
+    assert body.startswith("🏢 The Origin Kathu")
+    assert "Fully Equipped with Appliances" in body
+    assert body.endswith("[hidden information]")
+
+
+def test_description_from_text_lines_sidebar_fixture_skips_junk() -> None:
+    """«Плохая» страница: берём объявление, а НЕ сайдбар `Выбор дня`."""
+    lines = load(SIDEBAR)["text_lines"]
+    body = description_from_text_lines(lines)
+
+    assert body is not None
+    assert "House for rent in Wichit-Chalong" in body
+    assert "For rent 30,000/month" in body
+    # Сайдбар с чужими объявлениями идёт следом — его быть не должно.
+    assert "Выбор дня" not in body
+    assert "Korter" not in body
+
+
+@pytest.mark.parametrize("name", [GOOD, SIDEBAR])
+def test_description_from_text_lines_drops_chrome(name: str) -> None:
+    body = description_from_text_lines(load(name)["text_lines"])
+
+    assert body is not None
+    assert "Информация о продавце" not in body
+    assert not body.endswith("Ещё")
+    assert "Описание" not in body.splitlines()
+
+
+def test_description_from_text_lines_english_markers() -> None:
+    lines = [
+        "Marketplace",
+        "Description",
+        "Cosy townhouse in a gated village.",
+        "Pets welcome.",
+        "See more",
+        "Seller information",
+        "John Doe",
+    ]
+    assert description_from_text_lines(lines) == (
+        "Cosy townhouse in a gated village.\nPets welcome."
+    )
+
+
+def test_description_from_text_lines_without_seller_marker_runs_to_end() -> None:
+    lines = ["Описание", "Дом с садом.", "Парковка на 2 машины."]
+    assert description_from_text_lines(lines) == "Дом с садом.\nПарковка на 2 машины."
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        None,
+        [],
+        ["Marketplace", "16 000 ฿/месяц", "Отправить сообщение"],  # маркера нет
+        ["Описание", "Информация о продавце", "A. Example"],  # срез пустой
+        ["Описание", "Ещё", "Информация о продавце"],  # только «Ещё»
+    ],
+)
+def test_description_from_text_lines_none(lines: list[str] | None) -> None:
+    assert description_from_text_lines(lines) is None
+
+
+# --- clean_fb_title ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (
+            "(6) Marketplace — 1 Bed 1 Bath - Apartment | Facebook",
+            "1 Bed 1 Bath - Apartment",
+        ),
+        (
+            "(6) Marketplace — 2 ห้องนอน 2 ห้องน้ำ - บ้าน | Facebook",
+            "2 ห้องนอน 2 ห้องน้ำ - บ้าน",
+        ),
+        ("Marketplace | House for rent in Chalong | Facebook", "House for rent in Chalong"),
+        ("(12) Marketplace - Townhouse Pruksa Ville | Facebook", "Townhouse Pruksa Ville"),
+        ("Villa with pool", "Villa with pool"),  # уже чистый
+        ("  (3) Marketplace — Condo Kathu | Facebook  ", "Condo Kathu"),
+    ],
+)
+def test_clean_fb_title(raw: str, expected: str) -> None:
+    assert clean_fb_title(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        None,
+        "",
+        "   ",
+        "Недавно опубликовано",
+        "недавно опубликовано",
+        "Recently posted",
+        "Marketplace",
+        "(6) Marketplace | Facebook",  # ничего кроме chrome не осталось
+    ],
+)
+def test_clean_fb_title_junk(raw: str | None) -> None:
+    assert clean_fb_title(raw) is None
+
+
+def test_clean_fb_title_uses_real_fixture_titles() -> None:
+    assert clean_fb_title(load(GOOD)["title"]) == "1 Bed 1 Bath - Apartment"
+    assert clean_fb_title(load(SIDEBAR)["title"]) == "2 ห้องนอน 2 ห้องน้ำ - บ้าน"
+
+
+# --- parse_published_at --------------------------------------------------
+
+NOW = datetime(2026, 8, 25, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        # RU — то, что реально отдаёт FB в русской локали (nbsp внутри).
+        ("Опубликовано 12 часов назад", "2026-08-25T00:00:00Z"),
+        ("Опубликовано 1 час назад", "2026-08-25T11:00:00Z"),
+        ("Опубликовано 30 минут назад", "2026-08-25T11:30:00Z"),
+        ("Опубликовано 3 дня назад", "2026-08-22T12:00:00Z"),
+        ("Опубликовано 5 дней назад", "2026-08-20T12:00:00Z"),
+        ("Опубликовано 2 недели назад", "2026-08-11T12:00:00Z"),
+        ("Опубликовано 1 месяц назад", "2026-07-26T12:00:00Z"),
+        # EN — прежние шаблоны не сломаны.
+        ("Listed 3 days ago", "2026-08-22T12:00:00Z"),
+        ("Posted 2 weeks ago", "2026-08-11T12:00:00Z"),
+        ("5 minutes ago", "2026-08-25T11:55:00Z"),
+        ("Listed an hour ago", "2026-08-25T11:00:00Z"),
+        ("Listed 6 months ago", "2026-02-26T12:00:00Z"),
+    ],
+)
+def test_parse_published_at(raw: str, expected: str) -> None:
+    assert parse_published_at(raw, NOW) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        None,
+        "",
+        "   ",
+        "Отправить сообщение",
+        "Опубликовано вчера",  # без числа и без «назад» — формат неизвестен
+        "12 марта 2026",
+    ],
+)
+def test_parse_published_at_unknown_format(raw: str | None) -> None:
+    assert parse_published_at(raw, NOW) is None
+
+
+def test_parse_published_at_reads_real_fixture_line() -> None:
+    lines = load(GOOD)["text_lines"]
+    line = next(line for line in lines if line.startswith("Опубликовано"))
+    assert parse_published_at(line, NOW) == "2026-08-25T00:00:00Z"
+
+
+def test_parse_published_at_naive_now_treated_as_utc() -> None:
+    assert (
+        parse_published_at("Listed 1 day ago", datetime(2026, 8, 25, 12, 0, 0))
+        == "2026-08-24T12:00:00Z"
+    )
+
+
+def test_parse_published_at_defaults_to_now() -> None:
+    """Без `now` берётся текущее UTC-время — результат близок к нему."""
+    result = parse_published_at("Listed 1 day ago")
+    assert result is not None
+    parsed = datetime.strptime(result, "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=timezone.utc
+    )
+    delta = datetime.now(timezone.utc) - parsed
+    assert timedelta(hours=23, minutes=59) < delta < timedelta(hours=24, minutes=1)
