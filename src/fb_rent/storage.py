@@ -3,6 +3,13 @@
 The database is the source of truth; ``rentals.csv`` and ``rentals.html``
 are flat exports regenerated from it. Deduplication is done on ``fb_id``
 (the listing ID extracted from the marketplace URL).
+
+Three tables live here. ``listings`` is what the scraper writes;
+``ai_analysis`` is what the AI extracted from each listing, keyed by the
+same ``fb_id`` and carrying the ``source_hash`` that says whether the
+analysis still matches the text it was made from; ``decisions`` mirrors
+``data/decisions.json`` so a user verdict can be JOINed in — the file stays
+the source of truth, because only user decisions are irreplaceable.
 """
 
 from __future__ import annotations
@@ -12,7 +19,9 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
+
+from . import ai_schema, rules
 
 
 CSV_COLUMNS: tuple[str, ...] = (
@@ -46,6 +55,29 @@ CREATE TABLE IF NOT EXISTS listings (
 );
 """
 
+_AI_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ai_analysis (
+    fb_id          TEXT PRIMARY KEY,
+    schema_version INTEGER NOT NULL,
+    analyzed_at    TEXT NOT NULL,
+    source_hash    TEXT NOT NULL,
+    model          TEXT,
+    verdict        TEXT NOT NULL,
+    score          INTEGER,
+    data_quality   TEXT,
+    data_json      TEXT NOT NULL
+);
+"""
+
+_DECISIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS decisions (
+    fb_id      TEXT PRIMARY KEY,
+    status     TEXT NOT NULL,
+    reason     TEXT,
+    decided_at TEXT NOT NULL
+);
+"""
+
 _INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_last_seen ON listings(last_seen_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_price ON listings(price_thb);",
@@ -68,6 +100,8 @@ def init_db(path: Path | str) -> sqlite3.Connection:
         conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.execute(_SCHEMA)
+    conn.execute(_AI_SCHEMA)
+    conn.execute(_DECISIONS_SCHEMA)
     for stmt in _INDEXES:
         conn.execute(stmt)
     conn.commit()
@@ -137,6 +171,201 @@ def known_fb_ids(conn: sqlite3.Connection) -> set[str]:
     """Return the set of ``fb_id`` values already present in the DB."""
     rows = conn.execute("SELECT fb_id FROM listings").fetchall()
     return {row["fb_id"] for row in rows}
+
+
+class PendingListings(NamedTuple):
+    """Split of the analysis queue: work to do vs. work that cannot be done."""
+
+    pending: list[dict[str, Any]]
+    no_raw: list[dict[str, Any]]
+
+
+def _text_lines(raw_json: Any) -> list[str]:
+    """Return ``text_lines`` from a listing's ``raw_json``, or an empty list."""
+    if isinstance(raw_json, str) and raw_json:
+        try:
+            raw_json = json.loads(raw_json)
+        except json.JSONDecodeError:
+            return []
+    if isinstance(raw_json, dict):
+        lines = raw_json.get("text_lines")
+        if isinstance(lines, list):
+            return [str(line) for line in lines]
+    return []
+
+
+def upsert_ai_analysis(
+    conn: sqlite3.Connection,
+    row: dict[str, Any],
+    *,
+    now: str | None = None,
+) -> str:
+    """Insert or replace one AI analysis, keyed by ``fb_id``.
+
+    Returns ``"inserted"`` or ``"updated"``. ``data_json`` may be passed as a
+    dict and is serialised here; ``analyzed_at`` defaults to now.
+    """
+    fb_id = row.get("fb_id")
+    if not fb_id:
+        raise ValueError("ai analysis must include 'fb_id'")
+    for required in ("schema_version", "source_hash", "verdict"):
+        if row.get(required) in (None, ""):
+            raise ValueError(f"ai analysis must include {required!r}")
+
+    data_json = row.get("data_json")
+    if data_json is None:
+        data_json = {}
+    if not isinstance(data_json, str):
+        data_json = json.dumps(data_json, ensure_ascii=False, default=str)
+
+    fields = {
+        "fb_id": fb_id,
+        "schema_version": row["schema_version"],
+        "analyzed_at": row.get("analyzed_at") or now or _now_iso(),
+        "source_hash": row["source_hash"],
+        "model": row.get("model"),
+        "verdict": row["verdict"],
+        "score": row.get("score"),
+        "data_quality": row.get("data_quality"),
+        "data_json": data_json,
+    }
+
+    existing = conn.execute(
+        "SELECT fb_id FROM ai_analysis WHERE fb_id = ?", (fb_id,)
+    ).fetchone()
+
+    if existing is None:
+        cols = ", ".join(fields.keys())
+        placeholders = ", ".join(f":{k}" for k in fields.keys())
+        conn.execute(
+            f"INSERT INTO ai_analysis ({cols}) VALUES ({placeholders})", fields
+        )
+        conn.commit()
+        return "inserted"
+
+    assignments = ", ".join(f"{k} = :{k}" for k in fields.keys() if k != "fb_id")
+    conn.execute(
+        f"UPDATE ai_analysis SET {assignments} WHERE fb_id = :fb_id", fields
+    )
+    conn.commit()
+    return "updated"
+
+
+def fetch_pending(
+    conn: sqlite3.Connection, registry: ai_schema.Registry
+) -> PendingListings:
+    """Split listings into "needs analysis" and "has nothing to analyse".
+
+    A listing is pending when it has no ``ai_analysis`` row, when its
+    ``source_hash`` no longer matches the stored one (the text changed under
+    it), or when it was analysed against an older ``schema_version`` than the
+    registry now declares. Each pending dict carries its freshly computed
+    ``source_hash`` and a ``pending_reason`` of ``new`` / ``changed`` /
+    ``schema``.
+
+    Pending listings with neither a description nor any ``text_lines`` are
+    moved to ``no_raw`` instead: nothing to feed the AI, they need a
+    ``scrape --refresh`` first.
+    """
+    rows = conn.execute(
+        """
+        SELECT l.*, a.source_hash AS ai_source_hash,
+               a.schema_version AS ai_schema_version
+        FROM listings AS l
+        LEFT JOIN ai_analysis AS a ON a.fb_id = l.fb_id
+        ORDER BY l.last_seen_at DESC
+        """
+    ).fetchall()
+
+    pending: list[dict[str, Any]] = []
+    no_raw: list[dict[str, Any]] = []
+
+    for row in rows:
+        listing = dict(row)
+        analysed_hash = listing.pop("ai_source_hash")
+        analysed_version = listing.pop("ai_schema_version")
+        current_hash = ai_schema.source_hash(
+            {**listing, "text_lines": _text_lines(listing.get("raw_json"))}
+        )
+
+        if analysed_hash is None:
+            reason = "new"
+        elif analysed_hash != current_hash:
+            reason = "changed"
+        elif (analysed_version or 0) < registry.schema_version:
+            reason = "schema"
+        else:
+            continue
+
+        listing["source_hash"] = current_hash
+        listing["pending_reason"] = reason
+
+        has_text = bool((listing.get("description") or "").strip()) or bool(
+            _text_lines(listing.get("raw_json"))
+        )
+        (pending if has_text else no_raw).append(listing)
+
+    return PendingListings(pending=pending, no_raw=no_raw)
+
+
+def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Return every listing joined with its AI analysis and user decision.
+
+    ``data_json`` is unpacked into ``fields``; ``ai_status`` / ``ai_reason``
+    are recomputed from those fields by :mod:`.rules`, so a rule change takes
+    effect without re-running the AI. A user decision always wins: ``status``,
+    ``reason`` and ``decided_by`` reflect the file-backed ``decisions`` table
+    whenever it has a row for the listing.
+    """
+    rows = conn.execute(
+        """
+        SELECT l.*,
+               a.schema_version AS ai_schema_version,
+               a.analyzed_at, a.source_hash AS ai_source_hash, a.model,
+               a.verdict, a.score, a.data_quality, a.data_json,
+               d.status AS user_status, d.reason AS user_reason, d.decided_at
+        FROM listings AS l
+        LEFT JOIN ai_analysis AS a ON a.fb_id = l.fb_id
+        LEFT JOIN decisions AS d ON d.fb_id = l.fb_id
+        ORDER BY l.first_seen_at DESC
+        """
+    ).fetchall()
+
+    enriched: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        raw_fields = item.pop("data_json", None)
+        fields: dict[str, Any] = {}
+        if raw_fields:
+            try:
+                loaded = json.loads(raw_fields)
+            except json.JSONDecodeError:
+                loaded = None
+            if isinstance(loaded, dict):
+                fields = loaded
+        item["fields"] = fields
+        item["analyzed"] = item.get("analyzed_at") is not None
+
+        if item["analyzed"]:
+            ai_status, ai_reason = rules.decide(fields, item.get("price_thb"))
+        else:
+            ai_status, ai_reason = "active", None
+        item["ai_status"] = ai_status
+        item["ai_reason"] = ai_reason
+
+        user_status = item.get("user_status")
+        if user_status:
+            item["status"] = user_status
+            item["reason"] = item.get("user_reason")
+            item["decided_by"] = "user"
+        else:
+            item["status"] = ai_status
+            item["reason"] = ai_reason
+            item["decided_by"] = "ai" if ai_reason else None
+
+        enriched.append(item)
+
+    return enriched
 
 
 def export_csv(conn: sqlite3.Connection, path: Path | str) -> Path:

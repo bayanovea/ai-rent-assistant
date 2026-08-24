@@ -354,12 +354,13 @@ fb-rent export                       # имя прежнее, рендерит �
 - Modify: `src/fb_rent/storage.py`
 - Modify: `tests/test_storage.py`
 
-- [ ] в `init_db()` добавить `CREATE TABLE IF NOT EXISTS ai_analysis` и `decisions` по схеме из Technical Details, идемпотентно; существующая таблица `listings` не трогается
-- [ ] `upsert_ai_analysis(conn, row: dict) -> str` — insert/update по `fb_id`, возвращает `"inserted"`/`"updated"`
-- [ ] `fetch_pending(conn, registry) -> list[dict]` — листинги без строки в `ai_analysis`, либо с другим `source_hash`, либо со `schema_version` ниже текущей; исключить листинги без `description` и без `raw_json` и вернуть их отдельным списком «нет сырых данных»
-- [ ] `fetch_enriched(conn) -> list[dict]` — JOIN `listings` + `ai_analysis` + `decisions`, с распакованным `data_json`; решение пользователя перекрывает вердикт AI
-- [ ] написать тесты на in-memory SQLite: `init_db` создаёт три таблицы и повторный вызов не падает, upsert сохраняет и обновляет, `fetch_pending` корректно относит листинг к pending по каждому из трёх условий и отсеивает те, у которых нет сырых данных, `fetch_enriched` отдаёт решение пользователя поверх AI
-- [ ] прогнать `pytest tests/ -q` — все зелёные
+- [x] в `init_db()` добавить `CREATE TABLE IF NOT EXISTS ai_analysis` и `decisions` по схеме из Technical Details, идемпотентно; существующая таблица `listings` не трогается
+- [x] `upsert_ai_analysis(conn, row: dict) -> str` — insert/update по `fb_id`, возвращает `"inserted"`/`"updated"`
+- [x] `fetch_pending(conn, registry) -> PendingListings` (NamedTuple `pending` / `no_raw`, распаковывается как кортеж) — листинги без строки в `ai_analysis`, либо с другим `source_hash`, либо со `schema_version` ниже текущей; исключить листинги без `description` и без `raw_json` и вернуть их отдельным списком «нет сырых данных» (нет описания И нет `text_lines` в `raw_json`); у каждого pending-элемента свежий `source_hash` и `pending_reason` = `new`/`changed`/`schema`
+- [x] `fetch_enriched(conn) -> list[dict]` — JOIN `listings` + `ai_analysis` + `decisions`, с распакованным `data_json`; решение пользователя перекрывает вердикт AI
+  - ⚠️ в схеме `ai_analysis` из Technical Details нет колонок под статус/причину авторежекта, поэтому `ai_status`/`ai_reason` считаются на чтении через `rules.decide` — правила меняются без переанализа
+- [x] написать тесты на in-memory SQLite: `init_db` создаёт три таблицы и повторный вызов не падает, upsert сохраняет и обновляет, `fetch_pending` корректно относит листинг к pending по каждому из трёх условий и отсеивает те, у которых нет сырых данных, `fetch_enriched` отдаёт решение пользователя поверх AI
+- [x] прогнать `pytest tests/ -q` — все зелёные (201 passed)
 
 ### Task 7: Решения пользователя вне БД
 

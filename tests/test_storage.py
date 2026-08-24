@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from fb_rent import storage
+from fb_rent import ai_schema, rules, storage
 
 
 @pytest.fixture()
@@ -220,3 +220,214 @@ def test_export_html_neutralises_script_breakout(conn, tmp_path: Path):
     assert "</script><script>alert(1)</script>" not in text
     # The payload should be present in escaped form.
     assert "<\\/script>" in text
+
+
+# --- AI analysis / decisions tables ------------------------------------
+
+
+def _registry(version: int = 1, added_in: int = 1):
+    return ai_schema.Registry(
+        schema_version=version,
+        fields=(
+            {"key": "pets", "label": "Pets", "type": "enum",
+             "values": ["allowed", "not_allowed", "unclear"], "added_in": 1},
+            {"key": "parking", "label": "Parking", "type": "enum",
+             "values": ["yes", "no", "unclear"], "added_in": added_in},
+        ),
+    )
+
+
+def _make_analysis(**overrides):
+    base = {
+        "fb_id": "1234567890",
+        "schema_version": 1,
+        "analyzed_at": "2026-08-25T10:00:00Z",
+        "source_hash": "hash-a",
+        "model": "claude-opus-5 (claude-code)",
+        "verdict": "Дом в посёлке, про животных ни слова.",
+        "score": 62,
+        "data_quality": "good",
+        "data_json": {"pets": {"v": "unclear", "conf": "high", "ev": ""}},
+    }
+    base.update(overrides)
+    return base
+
+
+def test_init_db_creates_ai_tables_idempotently(tmp_path: Path):
+    db_path = tmp_path / "rentals.db"
+    storage.init_db(db_path).close()
+    conn = storage.init_db(db_path)  # second call must not raise
+    tables = {
+        r[0]
+        for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    assert {"listings", "ai_analysis", "decisions"} <= tables
+    conn.close()
+
+
+def test_init_db_keeps_existing_listings(tmp_path: Path):
+    db_path = tmp_path / "rentals.db"
+    conn = storage.init_db(db_path)
+    storage.upsert_listing(conn, _make_listing())
+    conn.close()
+
+    conn = storage.init_db(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0] == 1
+    conn.close()
+
+
+def test_upsert_ai_analysis_inserts_and_updates(conn):
+    assert storage.upsert_ai_analysis(conn, _make_analysis()) == "inserted"
+    assert (
+        storage.upsert_ai_analysis(
+            conn, _make_analysis(verdict="Пересмотрел: студия.", score=10)
+        )
+        == "updated"
+    )
+    rows = conn.execute("SELECT * FROM ai_analysis").fetchall()
+    assert len(rows) == 1
+    assert rows[0]["verdict"] == "Пересмотрел: студия."
+    assert rows[0]["score"] == 10
+    assert json.loads(rows[0]["data_json"])["pets"]["v"] == "unclear"
+
+
+def test_upsert_ai_analysis_requires_key_fields(conn):
+    with pytest.raises(ValueError):
+        storage.upsert_ai_analysis(conn, _make_analysis(fb_id=None))
+    with pytest.raises(ValueError):
+        storage.upsert_ai_analysis(conn, _make_analysis(verdict=""))
+
+
+def test_upsert_ai_analysis_accepts_serialised_data_json(conn):
+    storage.upsert_ai_analysis(
+        conn, _make_analysis(data_json='{"pets": {"v": "allowed"}}')
+    )
+    row = conn.execute("SELECT data_json FROM ai_analysis").fetchone()
+    assert json.loads(row["data_json"])["pets"]["v"] == "allowed"
+
+
+def test_fetch_pending_new_listing(conn):
+    storage.upsert_listing(conn, _make_listing())
+    pending, no_raw = storage.fetch_pending(conn, _registry())
+    assert no_raw == []
+    assert [p["fb_id"] for p in pending] == ["1234567890"]
+    assert pending[0]["pending_reason"] == "new"
+    assert pending[0]["source_hash"]
+
+
+def test_fetch_pending_skips_up_to_date_listing(conn):
+    listing = _make_listing()
+    storage.upsert_listing(conn, listing)
+    current = ai_schema.source_hash(dict(conn.execute(
+        "SELECT * FROM listings WHERE fb_id = ?", (listing["fb_id"],)
+    ).fetchone()))
+    storage.upsert_ai_analysis(conn, _make_analysis(source_hash=current))
+
+    pending, no_raw = storage.fetch_pending(conn, _registry())
+    assert pending == []
+    assert no_raw == []
+
+
+def test_fetch_pending_detects_changed_source_hash(conn):
+    storage.upsert_listing(conn, _make_listing())
+    storage.upsert_ai_analysis(conn, _make_analysis(source_hash="stale-hash"))
+
+    pending, _ = storage.fetch_pending(conn, _registry())
+    assert [p["pending_reason"] for p in pending] == ["changed"]
+
+
+def test_fetch_pending_detects_older_schema_version(conn):
+    listing = _make_listing()
+    storage.upsert_listing(conn, listing)
+    current = ai_schema.source_hash(dict(conn.execute(
+        "SELECT * FROM listings WHERE fb_id = ?", (listing["fb_id"],)
+    ).fetchone()))
+    storage.upsert_ai_analysis(
+        conn, _make_analysis(source_hash=current, schema_version=1)
+    )
+
+    pending, _ = storage.fetch_pending(conn, _registry(version=2, added_in=2))
+    assert [p["pending_reason"] for p in pending] == ["schema"]
+
+
+def test_fetch_pending_separates_listings_without_raw_data(conn):
+    storage.upsert_listing(
+        conn,
+        _make_listing(fb_id="no-raw", description=None, raw_json=None),
+    )
+    storage.upsert_listing(
+        conn,
+        _make_listing(
+            fb_id="only-text-lines",
+            description=None,
+            raw_json='{"text_lines": ["Описание", "Дом в посёлке"]}',
+        ),
+    )
+    storage.upsert_listing(conn, _make_listing(fb_id="has-description"))
+
+    pending, no_raw = storage.fetch_pending(conn, _registry())
+    assert [p["fb_id"] for p in no_raw] == ["no-raw"]
+    assert {p["fb_id"] for p in pending} == {"only-text-lines", "has-description"}
+
+
+def test_fetch_enriched_joins_analysis_and_fields(conn):
+    storage.upsert_listing(conn, _make_listing())
+    storage.upsert_ai_analysis(conn, _make_analysis())
+
+    rows = storage.fetch_enriched(conn)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["title"] == "Cozy 2BR villa in Rawai"
+    assert row["verdict"].startswith("Дом в посёлке")
+    assert row["score"] == 62
+    assert row["fields"]["pets"]["v"] == "unclear"
+    assert row["analyzed"] is True
+    assert row["status"] == "active"
+    assert row["decided_by"] is None
+
+
+def test_fetch_enriched_marks_unanalysed_listing(conn):
+    storage.upsert_listing(conn, _make_listing())
+
+    row = storage.fetch_enriched(conn)[0]
+    assert row["analyzed"] is False
+    assert row["fields"] == {}
+    assert row["verdict"] is None
+    assert row["status"] == "active"
+
+
+def test_fetch_enriched_auto_rejects_from_rules(conn):
+    storage.upsert_listing(conn, _make_listing())
+    storage.upsert_ai_analysis(
+        conn,
+        _make_analysis(data_json={"pets": {"v": "not_allowed", "ev": "no pets"}}),
+    )
+
+    row = storage.fetch_enriched(conn)[0]
+    assert row["status"] == "rejected"
+    assert row["reason"] == rules.REASON_PETS
+    assert row["decided_by"] == "ai"
+
+
+def test_fetch_enriched_user_decision_overrides_ai(conn):
+    storage.upsert_listing(conn, _make_listing())
+    storage.upsert_ai_analysis(
+        conn, _make_analysis(data_json={"pets": {"v": "not_allowed"}})
+    )
+    conn.execute(
+        "INSERT INTO decisions (fb_id, status, reason, decided_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("1234567890", "shortlist", "Хозяин сказал, что с собакой можно",
+         "2026-08-25T12:00:00Z"),
+    )
+    conn.commit()
+
+    row = storage.fetch_enriched(conn)[0]
+    assert row["status"] == "shortlist"
+    assert row["reason"] == "Хозяин сказал, что с собакой можно"
+    assert row["decided_by"] == "user"
+    # the AI verdict stays visible next to it
+    assert row["ai_status"] == "rejected"
+    assert row["ai_reason"] == rules.REASON_PETS
