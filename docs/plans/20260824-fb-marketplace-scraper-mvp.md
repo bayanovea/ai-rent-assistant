@@ -250,11 +250,11 @@ fb-rent/
 **Files:**
 - Create: `src/fb_rent/scraper_detail.py`
 
-- [ ] `scrape_detail(context, url: str) -> dict` — открывает URL листинга, ждёт загрузки, кликает «See more» на описании если есть, извлекает: `description` (полное), `published_at` (сырой текст FB типа "Listed 3 days ago" — сохраняем как есть в первой итерации), `price_raw` (может отличаться от списка), `raw_json` (всё что смогли достать в dict)
-- [ ] rate limit: `random.uniform(3, 7)` сек перед каждым вызовом (не внутри — контролирует orchestrator)
-- [ ] обработка 404 / удалённого листинга: возвращает `None`, не крашится
-- [ ] DESIGN: осознанно без unit-тестов; ручная проверка в Task 9
-- [ ] MANUAL: подтвердить работу селекторов на живой карточке FB (best-effort guess в коде)
+- [x] `scrape_detail(context, url: str) -> dict` — открывает URL листинга, ждёт загрузки, кликает «See more» на описании если есть, извлекает: `description` (полное), `published_at` (сырой текст FB типа "Listed 3 days ago" — сохраняем как есть в первой итерации), `price_raw` (может отличаться от списка), `raw_json` (всё что смогли достать в dict)
+- [x] rate limit: `random.uniform(3, 7)` сек перед каждым вызовом (не внутри — контролирует orchestrator)
+- [x] обработка 404 / удалённого листинга: возвращает `None`, не крашится
+- [x] DESIGN: осознанно без unit-тестов; ручная проверка в Task 9
+- [x] MANUAL: подтвердить работу селекторов на живой карточке FB (best-effort guess в коде) (skipped — requires live FB / human action)
 
 ### Task 8: CLI orchestration
 
