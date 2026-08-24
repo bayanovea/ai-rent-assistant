@@ -15,6 +15,17 @@ from pathlib import Path
 # <fb-rent-root>/data.
 _DEFAULT_HOME: Path = Path(__file__).resolve().parents[3] / "data"
 
+# Editable, version-controlled configuration lives in the repo itself (not in
+# FB_RENT_HOME): the AI field registry and the search requirements letter.
+REPO_ROOT: Path = Path(__file__).resolve().parents[2]
+CONFIG_DIR: Path = REPO_ROOT / "config"
+AI_FIELDS_PATH: Path = CONFIG_DIR / "ai_fields.json"
+REQUIREMENTS_PATH: Path = CONFIG_DIR / "requirements.md"
+
+# Hard budget ceiling: anything above this is auto-rejected by rules.py.
+# The soft target stays DEFAULT_MIN_PRICE..DEFAULT_MAX_PRICE.
+BUDGET_HARD_MAX_THB: int = 35_000
+
 # Marketplace defaults for the Phuket Property Rentals category.
 DEFAULT_CATEGORY_ID: str = "110729412288885"
 DEFAULT_MIN_PRICE: int = 15_000
@@ -41,6 +52,8 @@ DB_PATH: Path = FB_RENT_HOME / "rentals.db"
 CSV_PATH: Path = FB_RENT_HOME / "rentals.csv"
 HTML_PATH: Path = FB_RENT_HOME / "rentals.html"
 BROWSER_PROFILE_DIR: Path = FB_RENT_HOME / "browser-profile"
+AI_DIR: Path = FB_RENT_HOME / "ai"
+DECISIONS_PATH: Path = FB_RENT_HOME / "decisions.json"
 
 
 def ensure_home() -> Path:

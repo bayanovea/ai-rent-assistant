@@ -327,13 +327,13 @@ fb-rent export                       # имя прежнее, рендерит �
 - Create: `tests/test_ai_schema.py`
 - Modify: `src/fb_rent/config.py`
 
-- [ ] создать `config/ai_fields.json` со `schema_version: 1` и всеми полями из таблицы в Technical Details; у каждого поля `key`, `label`, `group`, `type`, `values` (для enum), `added_in: 1`, `prompt` — короткая инструкция для AI, что именно извлекать
-- [ ] создать `config/requirements.md`: текст письма агенту дословно (пара + небольшая собака, переезд 01.12.2026, год контракта, 15–30k THB, дом/таунхаус в посёлке, меблировка, 1 спальня + гостиная, кухня, зелёная зона, парковка, интернет) плюс чеклист приоритетов, где животные помечены как критерий №1
-- [ ] `src/fb_rent/ai_schema.py`: `load_registry(path) -> Registry` с валидацией (уникальность `key`, известный `type`, `values` непуст для enum, `added_in <= schema_version`), `field_keys()`, `schema_version`
-- [ ] `ai_schema.source_hash(listing: dict) -> str` — sha256 по `title | price_raw | district | description | len(text_lines)`, стабильный к порядку ключей
-- [ ] добавить в `config.py`: `AI_DIR = FB_RENT_HOME / "ai"`, `AI_FIELDS_PATH`, `REQUIREMENTS_PATH`, `BUDGET_HARD_MAX_THB = 35_000`
-- [ ] написать `tests/test_ai_schema.py`: реальный `config/ai_fields.json` загружается и валиден, дубль `key` → ошибка, enum без `values` → ошибка, `source_hash` детерминирован и меняется при смене описания
-- [ ] прогнать `pytest tests/ -q` — все зелёные
+- [x] создать `config/ai_fields.json` со `schema_version: 1` и всеми полями из таблицы в Technical Details; у каждого поля `key`, `label`, `group`, `type`, `values` (для enum), `added_in: 1`, `prompt` — короткая инструкция для AI, что именно извлекать
+- [x] создать `config/requirements.md`: текст письма агенту дословно (пара + небольшая собака, переезд 01.12.2026, год контракта, 15–30k THB, дом/таунхаус в посёлке, меблировка, 1 спальня + гостиная, кухня, зелёная зона, парковка, интернет) плюс чеклист приоритетов, где животные помечены как критерий №1
+- [x] `src/fb_rent/ai_schema.py`: `load_registry(path) -> Registry` с валидацией (уникальность `key`, известный `type`, `values` непуст для enum, `added_in <= schema_version`), `field_keys()`, `schema_version`
+- [x] `ai_schema.source_hash(listing: dict) -> str` — sha256 по `title | price_raw | district | description | len(text_lines)`, стабильный к порядку ключей
+- [x] добавить в `config.py`: `AI_DIR = FB_RENT_HOME / "ai"`, `AI_FIELDS_PATH`, `REQUIREMENTS_PATH`, `BUDGET_HARD_MAX_THB = 35_000`
+- [x] написать `tests/test_ai_schema.py`: реальный `config/ai_fields.json` загружается и валиден, дубль `key` → ошибка, enum без `values` → ошибка, `source_hash` детерминирован и меняется при смене описания
+- [x] прогнать `pytest tests/ -q` — все зелёные
 
 ### Task 5: Правила решений и цветовые классы
 
