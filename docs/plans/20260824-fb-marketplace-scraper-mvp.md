@@ -189,11 +189,11 @@ fb-rent/
 - Create: `src/fb_rent/url_builder.py`
 - Create: `tests/test_url_builder.py`
 
-- [ ] реализовать `build_marketplace_url(category_id, min_price, max_price, days_since_listed) -> str` в `src/fb_rent/url_builder.py` с дефолтами из config
-- [ ] URL-параметры: `minPrice`, `maxPrice`, `daysSinceListed`, `sortBy=creation_time_descend`, `exact=false`
-- [ ] написать `tests/test_url_builder.py`: дефолтный URL для Пхукета 15k-30k, кастомные диапазоны, крайние значения
-- [ ] тест на неверные аргументы (min > max — должно бросить `ValueError`)
-- [ ] `pytest tests/test_url_builder.py -v` — все зелёные
+- [x] реализовать `build_marketplace_url(category_id, min_price, max_price, days_since_listed) -> str` в `src/fb_rent/url_builder.py` с дефолтами из config
+- [x] URL-параметры: `minPrice`, `maxPrice`, `daysSinceListed`, `sortBy=creation_time_descend`, `exact=false`
+- [x] написать `tests/test_url_builder.py`: дефолтный URL для Пхукета 15k-30k, кастомные диапазоны, крайние значения
+- [x] тест на неверные аргументы (min > max — должно бросить `ValueError`)
+- [x] `pytest tests/test_url_builder.py -v` — все зелёные
 
 ### Task 3: Text extractors (price, bedrooms, property type)
 
