@@ -201,12 +201,12 @@ fb-rent/
 - Create: `src/fb_rent/extractors.py`
 - Create: `tests/test_extractors.py`
 
-- [ ] `parse_price(raw: str) -> int | None` — парсит строки типа `"THB25,000"`, `"฿15 000/month"`, `"20K THB"`, возвращает целое в THB или None
-- [ ] `extract_bedrooms(title: str, description: str) -> int | None` — regex по `2BR`, `2 bedrooms`, `studio` (=0), `1BR` и т.д.
-- [ ] `extract_property_type(title: str, description: str) -> str` — keyword match: `villa|condo|apartment|house|studio|townhouse`, дефолт `"unknown"`
-- [ ] написать `tests/test_extractors.py`: table-driven по 8-10 реальных примеров из FB (заранее скопируй руками пару листингов для fixtures)
-- [ ] edge cases: пустая строка, только цифры без валюты, "PRICE ON REQUEST", очень большие суммы, unicode-символы валют
-- [ ] `pytest tests/test_extractors.py -v` — все зелёные
+- [x] `parse_price(raw: str) -> int | None` — парсит строки типа `"THB25,000"`, `"฿15 000/month"`, `"20K THB"`, возвращает целое в THB или None
+- [x] `extract_bedrooms(title: str, description: str) -> int | None` — regex по `2BR`, `2 bedrooms`, `studio` (=0), `1BR` и т.д.
+- [x] `extract_property_type(title: str, description: str) -> str` — keyword match: `villa|condo|apartment|house|studio|townhouse`, дефолт `"unknown"`
+- [x] написать `tests/test_extractors.py`: table-driven по 8-10 реальных примеров из FB (заранее скопируй руками пару листингов для fixtures)
+- [x] edge cases: пустая строка, только цифры без валюты, "PRICE ON REQUEST", очень большие суммы, unicode-символы валют
+- [x] `pytest tests/test_extractors.py -v` — все зелёные
 
 ### Task 4: SQLite storage layer
 
