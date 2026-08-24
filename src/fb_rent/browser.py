@@ -80,16 +80,23 @@ def login_flow(context: "BrowserContext") -> bool:
     Returns True on success, False on timeout. The caller is expected to
     have launched the context with ``headless=False`` — this function only
     drives the login page, it does not re-launch the browser.
+
+    Polls context-level session state (via :func:`is_logged_in`) rather
+    than the URL of the login tab: the persistent context auto-opens a
+    default page, so the user may complete sign-in in a different tab.
+    Cookies are shared across tabs, so a context-level probe is the
+    reliable signal.
     """
     page = context.new_page()
     try:
         page.goto(FB_LOGIN, wait_until="domcontentloaded", timeout=30_000)
         deadline = time.monotonic() + LOGIN_POLL_TIMEOUT_SEC
         while time.monotonic() < deadline:
-            if "/login" not in page.url and page.locator(
-                'input[name="email"]'
-            ).first.count() == 0:
-                return True
+            try:
+                if is_logged_in(context):
+                    return True
+            except Exception:  # noqa: BLE001 — transient network/nav errors during login
+                pass
             time.sleep(LOGIN_POLL_INTERVAL_SEC)
         return False
     finally:

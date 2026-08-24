@@ -187,7 +187,10 @@ def scrape_list(
             for handle in handles:
                 if len(seen) >= max_items:
                     break
-                card = _extract_card(handle)
+                try:
+                    card = _extract_card(handle)
+                except Exception:  # noqa: BLE001 — stale/detached handles during FB rerender
+                    continue
                 if card is None:
                     continue
                 fb_id = card["fb_id"]

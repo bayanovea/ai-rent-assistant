@@ -102,9 +102,11 @@ def login_cmd() -> None:
             _echo_err("Timed out waiting for login. Re-run `fb-rent login`.")
             sys.exit(1)
     finally:
-        if context is not None:
-            context.close()
-        playwright.stop()
+        try:
+            if context is not None:
+                context.close()
+        finally:
+            playwright.stop()
 
 
 @main.command("scrape")
@@ -174,6 +176,12 @@ def scrape_cmd(max_items: int, days: int, dry_run: bool, skip_details: bool) -> 
 
         enriched: list[dict[str, Any]] = []
         for idx, card in enumerate(cards):
+            if not card.get("url") or not card.get("title"):
+                click.echo(
+                    f"  [{idx + 1}/{len(cards)}] skipping card missing url/title: "
+                    f"fb_id={card.get('fb_id')}"
+                )
+                continue
             detail: dict[str, Any] | None = None
             if idx < detail_cap:
                 time.sleep(
@@ -189,9 +197,9 @@ def scrape_cmd(max_items: int, days: int, dry_run: bool, skip_details: bool) -> 
                     sys.exit(3)
                 if detail is None:
                     click.echo(
-                        f"  [{idx + 1}/{len(cards)}] unavailable: {card['url']}"
+                        f"  [{idx + 1}/{len(cards)}] detail unavailable, "
+                        f"keeping list-card data: {card['url']}"
                     )
-                    continue
             merged = _merge_listing(card, detail)
             enriched.append(_enrich(merged))
 
@@ -225,9 +233,11 @@ def scrape_cmd(max_items: int, days: int, dry_run: bool, skip_details: bool) -> 
             f"Done. inserted: {inserted}, updated: {updated}, csv: {csv_path}"
         )
     finally:
-        if context is not None:
-            context.close()
-        playwright.stop()
+        try:
+            if context is not None:
+                context.close()
+        finally:
+            playwright.stop()
 
 
 @main.command("export")
