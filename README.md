@@ -23,17 +23,18 @@ playwright install chromium
 ## Quickstart
 
 ```sh
-fb-rent login          # one-time headed login, session persisted to ~/.fb-rent/
-fb-rent scrape         # headless scrape, writes ~/.fb-rent/rentals.{db,csv,html}
+fb-rent login          # one-time headed login, session persisted to ../data/
+fb-rent scrape         # headless scrape, writes ../data/rentals.{db,csv,html}
 fb-rent export         # regenerate CSV+HTML from the DB without scraping
 ```
 
-Open `~/.fb-rent/rentals.html` in a browser (sortable, searchable, paginated —
-Grid.js loaded from a CDN) or `~/.fb-rent/rentals.csv` in Numbers/Excel.
+Open `../data/rentals.html` in a browser (sortable, searchable, paginated —
+Grid.js loaded from a CDN) or `../data/rentals.csv` in Numbers/Excel.
 
 ## Local state
 
-Everything lives under `~/.fb-rent/`:
+Everything lives in the sibling `data/` directory (i.e. `../data/` relative
+to this `scrapper/` package):
 
 - `browser-profile/` — persistent Chromium profile (cookies, localStorage)
 - `rentals.db` — SQLite database (source of truth)
@@ -84,7 +85,7 @@ Regenerates the CSV and HTML from the current DB. Handy for reformatting after
 schema tweaks or verifying an empty DB produces a header-only CSV.
 
 ```sh
-fb-rent export                              # writes ~/.fb-rent/rentals.{csv,html}
+fb-rent export                              # writes ../data/rentals.{csv,html}
 fb-rent export --path /tmp/rentals.csv      # custom CSV destination
 fb-rent export --html-path /tmp/rentals.html # custom HTML destination
 ```

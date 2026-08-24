@@ -1,14 +1,19 @@
 """Runtime configuration and default paths for fb-rent.
 
-All local state (SQLite DB, CSV export, Playwright profile) lives under
-``~/.fb-rent/`` by default. Override the root via the ``FB_RENT_HOME``
-environment variable — useful for tests and isolated runs.
+All local state (SQLite DB, CSV export, Playwright profile) lives in the
+sibling ``data/`` directory next to the ``scrapper/`` package by default.
+Override the root via the ``FB_RENT_HOME`` environment variable — useful
+for tests and isolated runs.
 """
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
+
+# Repo layout: <fb-rent-root>/scrapper/src/fb_rent/config.py — data lives at
+# <fb-rent-root>/data.
+_DEFAULT_HOME: Path = Path(__file__).resolve().parents[3] / "data"
 
 # Marketplace defaults for the Phuket Property Rentals category.
 DEFAULT_CATEGORY_ID: str = "110729412288885"
@@ -28,7 +33,7 @@ def _home() -> Path:
     override = os.environ.get("FB_RENT_HOME")
     if override:
         return Path(override).expanduser().resolve()
-    return Path.home() / ".fb-rent"
+    return _DEFAULT_HOME
 
 
 FB_RENT_HOME: Path = _home()
