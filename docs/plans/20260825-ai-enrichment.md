@@ -310,12 +310,13 @@ fb-rent export                       # имя прежнее, рендерит �
 - Modify: `src/fb_rent/scraper_detail.py`
 - Modify: `src/fb_rent/scraper_list.py`
 
-- [ ] в `scraper_detail._extract_description()` (`scraper_detail.py:118`) сначала пробовать `description_from_text_lines(raw_json["text_lines"])`; на старую эвристику «самый длинный текстовый блок» откатываться, только если маркер не найден
-- [ ] в `scraper_detail` парсить `published_at` через обновлённый экстрактор и класть ISO-дату вместо NULL
-- [ ] в `scraper_list._pick_title()` использовать `clean_fb_title(raw_json["title"])`; если вернулся `None` — прежняя логика «первая не-ценовая строка»
-- [ ] DESIGN: unit-тесты для Playwright-модулей не пишем осознанно (сеть + живой FB = хрупко); поведение покрыто тестами экстракторов на фикстурах в Task 2
-- [ ] прогнать `pytest tests/ -q` — все зелёные
-- [ ] MANUAL: `fb-rent scrape --refresh` — перезалить 21 существующую строку корректным текстом (skipped — requires live FB / human action)
+- [x] в `scraper_detail._extract_description()` (`scraper_detail.py:118`) сначала пробовать `description_from_text_lines(raw_json["text_lines"])`; на старую эвристику «самый длинный текстовый блок» откатываться, только если маркер не найден
+- [x] в `scraper_detail` парсить `published_at` через обновлённый экстрактор и класть ISO-дату вместо NULL — `_extract_published_at()` теперь возвращает ISO-строку через `parse_published_at`, локальный EN-only `_PUBLISHED_RE` удалён
+- [x] в `scraper_list._pick_title()` использовать `clean_fb_title(raw_json["title"])`; если вернулся `None` — прежняя логика «первая не-ценовая строка»
+  - ⚠️ отклонение от формулировки: у карточки списка нет `raw_json["title"]` (это поле detail-страницы), поэтому `clean_fb_title` применяется к каждой не-ценовой строке карточки; первая, что пережила фильтр, становится заголовком, иначе — прежний фолбэк «первая не-ценовая строка». Эффект тот же: `"Недавно опубликовано"` больше не попадает в `title`, когда на карточке есть настоящий заголовок
+- [x] DESIGN: unit-тесты для Playwright-модулей не пишем осознанно (сеть + живой FB = хрупко); поведение покрыто тестами экстракторов на фикстурах в Task 2
+- [x] прогнать `pytest tests/ -q` — все зелёные (131 passed)
+- [x] MANUAL: `fb-rent scrape --refresh` — перезалить 21 существующую строку корректным текстом (skipped — requires live FB / human action)
 
 ### Task 4: Реестр полей и файл требований
 

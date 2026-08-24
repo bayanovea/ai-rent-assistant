@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from .browser import LoginRequiredError
+from .extractors import clean_fb_title
 
 if TYPE_CHECKING:
     from playwright.sync_api import BrowserContext, ElementHandle, Page
@@ -74,14 +75,26 @@ def _pick_price_line(lines: list[str]) -> str | None:
 
 
 def _pick_title(lines: list[str], price_line: str | None) -> str | None:
-    """First non-price line — FB usually renders title right below price."""
+    """First non-price line that says something about the property.
+
+    ``clean_fb_title`` strips FB chrome and rejects section headings like
+    "Недавно опубликовано", which iteration 1 stored as the title for
+    every single row. If no line survives that filter we fall back to the
+    old behaviour — the first non-price line, whatever it is — so a card
+    with an unusual layout still gets *some* title.
+    """
+    fallback: str | None = None
     for line in lines:
         if line == price_line:
             continue
         if re.fullmatch(r"[฿$€]?\s*\d[\d\s,.]*(?:k|K)?", line):
             continue
-        return line
-    return None
+        if fallback is None:
+            fallback = line
+        cleaned = clean_fb_title(line)
+        if cleaned:
+            return cleaned
+    return fallback
 
 
 def _pick_district(lines: list[str], price_line: str | None, title: str | None) -> str | None:

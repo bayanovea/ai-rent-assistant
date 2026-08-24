@@ -3,10 +3,10 @@
 Opens ``/marketplace/item/{id}/`` in the authenticated persistent context,
 expands the collapsed description if the "See more" button is present, and
 pulls the fields the storage layer cares about: ``description``,
-``published_at`` (raw FB text like ``"Listed 3 days ago"`` — normalisation
-is deferred to a later iteration), ``price_raw`` (may differ from the list
-card), and a ``raw_json`` dict of everything the DOM gave us for debugging
-and future AI enrichment.
+``published_at`` (normalised to an ISO-8601 UTC timestamp from FB's
+relative "3 days ago" / "3 дня назад" text), ``price_raw`` (may differ
+from the list card), and a ``raw_json`` dict of everything the DOM gave
+us for debugging and AI enrichment.
 
 Rate limiting between successive calls is the orchestrator's job — this
 function makes exactly one page request and returns. Deleted or removed
@@ -24,6 +24,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from .browser import LoginRequiredError
+from .extractors import description_from_text_lines, parse_published_at
 
 if TYPE_CHECKING:
     from playwright.sync_api import BrowserContext, Page
@@ -45,10 +46,6 @@ _UNAVAILABLE_PATTERNS = (
 )
 
 _PRICE_LINE_RE = re.compile(r"฿|thb|baht", re.IGNORECASE)
-_PUBLISHED_RE = re.compile(
-    r"(listed\s+.+?ago|posted\s+.+?ago|\d+\s+(?:minute|hour|day|week|month)s?\s+ago)",
-    re.IGNORECASE,
-)
 
 
 def _detect_login_redirect(page: "Page") -> bool:
@@ -102,20 +99,32 @@ def _extract_price_raw(lines: list[str]) -> str | None:
 
 
 def _extract_published_at(lines: list[str]) -> str | None:
+    """First line carrying a relative timestamp, as an ISO-8601 UTC string.
+
+    Iteration 1 stored FB's raw wording ("Listed 3 days ago") and got NULL
+    for every Russian-locale page; ``parse_published_at`` handles both
+    locales and hands back an absolute date the storage layer can sort on.
+    """
     for line in lines:
-        match = _PUBLISHED_RE.search(line)
-        if match:
-            return match.group(0).strip()
+        published = parse_published_at(line)
+        if published:
+            return published
     return None
 
 
 def _extract_description(page: "Page", lines: list[str]) -> str | None:
-    """Pick the longest text block on the page as the description.
+    """Cut the ad body out of the page text, longest-block as fallback.
 
-    FB's detail page has one dominant multi-line text block for the
-    listing body. We approximate by taking the longest ``<span>`` /
-    ``<div>`` text node; fall back to the longest line from the body.
+    The reliable signal is the "Описание"/"Description" heading in the
+    flat page text — everything between it and the seller block is the
+    seller's own copy. Only when that marker is missing do we fall back
+    to iteration 1's "longest text node" guess, which on real pages
+    grabbed the unrelated "Выбор дня" sidebar for half the listings.
     """
+    from_markers = description_from_text_lines(lines)
+    if from_markers:
+        return from_markers
+
     candidates: list[str] = []
     try:
         handles = page.query_selector_all(
