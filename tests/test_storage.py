@@ -170,3 +170,53 @@ def test_upsert_passes_through_string_raw_json(conn):
         "SELECT raw_json FROM listings WHERE fb_id = ?", ("str-raw",)
     ).fetchone()
     assert row["raw_json"] == '{"a": 1}'
+
+
+def test_export_html_empty_db(conn, tmp_path: Path):
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out)
+    text = out.read_text(encoding="utf-8")
+    assert "<title>fb-rent listings</title>" in text
+    assert "fb-rent — 0 listings" in text
+    assert "const DATA = [];" in text
+
+
+def test_export_html_embeds_rows_sorted(conn, tmp_path: Path):
+    storage.upsert_listing(
+        conn, _make_listing(fb_id="a", title="First"), now="2026-08-24T09:00:00Z"
+    )
+    storage.upsert_listing(
+        conn, _make_listing(fb_id="b", title="Second"), now="2026-08-24T11:00:00Z"
+    )
+    storage.upsert_listing(
+        conn, _make_listing(fb_id="c", title="Third"), now="2026-08-24T10:00:00Z"
+    )
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out)
+    text = out.read_text(encoding="utf-8")
+
+    assert "fb-rent — 3 listings" in text
+    # Data payload is embedded as a JSON array; extract and verify order.
+    marker = "const DATA = "
+    start = text.index(marker) + len(marker)
+    end = text.index(";", start)
+    data = json.loads(text[start:end])
+    assert [row[1] for row in data] == ["Second", "Third", "First"]
+
+
+def test_export_html_neutralises_script_breakout(conn, tmp_path: Path):
+    # A malicious listing must not be able to close the embedded <script>
+    # block by embedding a literal </script> in one of its fields.
+    storage.upsert_listing(
+        conn,
+        _make_listing(
+            fb_id="xss",
+            description="pwn</script><script>alert(1)</script>",
+        ),
+    )
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out)
+    text = out.read_text(encoding="utf-8")
+    assert "</script><script>alert(1)</script>" not in text
+    # The payload should be present in escaped form.
+    assert "<\\/script>" in text

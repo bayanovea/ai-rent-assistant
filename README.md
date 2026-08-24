@@ -3,8 +3,8 @@
 FB Marketplace Phuket rentals scraper — **iteration 1 (MVP)**.
 
 Scrapes long-term rental listings from the [Phuket Property Rentals](https://www.facebook.com/marketplace/110729412288885/propertyrentals)
-category (15 000 – 30 000 THB) into a local SQLite database, with a CSV export
-for browsing in Numbers/Excel.
+category (15 000 – 30 000 THB) into a local SQLite database, with CSV and
+self-contained HTML exports for browsing in Numbers/Excel or a browser.
 
 Design rationale, decisions, and the roadmap for future iterations live in
 [`docs/plans/completed/20260824-fb-marketplace-scraper-mvp.md`](docs/plans/completed/20260824-fb-marketplace-scraper-mvp.md).
@@ -24,11 +24,12 @@ playwright install chromium
 
 ```sh
 fb-rent login          # one-time headed login, session persisted to ~/.fb-rent/
-fb-rent scrape         # headless scrape, writes ~/.fb-rent/rentals.db + rentals.csv
-fb-rent export         # regenerate CSV from the DB without scraping
+fb-rent scrape         # headless scrape, writes ~/.fb-rent/rentals.{db,csv,html}
+fb-rent export         # regenerate CSV+HTML from the DB without scraping
 ```
 
-Open `~/.fb-rent/rentals.csv` in Numbers/Excel to browse results.
+Open `~/.fb-rent/rentals.html` in a browser (sortable, searchable, paginated —
+Grid.js loaded from a CDN) or `~/.fb-rent/rentals.csv` in Numbers/Excel.
 
 ## Local state
 
@@ -37,6 +38,8 @@ Everything lives under `~/.fb-rent/`:
 - `browser-profile/` — persistent Chromium profile (cookies, localStorage)
 - `rentals.db` — SQLite database (source of truth)
 - `rentals.csv` — flat export, regenerated on every scrape
+- `rentals.html` — self-contained HTML table (Grid.js via CDN, needs internet
+  the first time), regenerated on every scrape
 
 Override the base path with the `FB_RENT_HOME` environment variable, e.g.
 `FB_RENT_HOME=/tmp/fb-rent-test fb-rent scrape`.
@@ -56,7 +59,7 @@ Re-run this command whenever Facebook invalidates the session (typically every
 
 Runs the full pipeline: build search URL → scrape list → walk each detail page
 with a 3–7 s random jitter → extract fields → upsert into SQLite → regenerate
-CSV.
+CSV and HTML.
 
 | Flag              | Default | Description                                              |
 |-------------------|---------|----------------------------------------------------------|
@@ -77,12 +80,13 @@ fb-rent scrape --max 60 --skip-details  # fast incremental sweep
 
 ### `fb-rent export`
 
-Regenerates the CSV from the current DB. Handy for reformatting after schema
-tweaks or verifying an empty DB produces a header-only CSV.
+Regenerates the CSV and HTML from the current DB. Handy for reformatting after
+schema tweaks or verifying an empty DB produces a header-only CSV.
 
 ```sh
-fb-rent export                         # writes ~/.fb-rent/rentals.csv
-fb-rent export --path /tmp/rentals.csv # custom destination
+fb-rent export                              # writes ~/.fb-rent/rentals.{csv,html}
+fb-rent export --path /tmp/rentals.csv      # custom CSV destination
+fb-rent export --html-path /tmp/rentals.html # custom HTML destination
 ```
 
 ## Troubleshooting

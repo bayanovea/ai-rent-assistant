@@ -9,9 +9,9 @@ storage layers into three commands:
 - ``fb-rent scrape`` — orchestrator: builds the marketplace search URL,
   scrapes the list, walks each item's detail page with a random 3–7 s
   jitter, extracts structured fields and upserts them into SQLite. Ends
-  by regenerating the CSV export.
-- ``fb-rent export`` — regenerates the CSV export from the current DB
-  without touching the network. Useful for verification.
+  by regenerating the CSV and HTML exports.
+- ``fb-rent export`` — regenerates the CSV and HTML exports from the
+  current DB without touching the network. Useful for verification.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from .browser import (
 from .extractors import extract_bedrooms, extract_property_type, parse_price
 from .scraper_detail import scrape_detail
 from .scraper_list import scrape_list
-from .storage import export_csv, init_db, known_fb_ids, upsert_listing
+from .storage import export_csv, export_html, init_db, known_fb_ids, upsert_listing
 from .url_builder import build_marketplace_url
 
 
@@ -264,10 +264,11 @@ def scrape_cmd(
                 else:
                     updated += 1
             csv_path = export_csv(conn, config.CSV_PATH)
+            html_path = export_html(conn, config.HTML_PATH)
 
             click.echo(
                 f"Done. inserted: {inserted}, updated: {updated}, "
-                f"skipped_known: {skipped_known}, csv: {csv_path}"
+                f"skipped_known: {skipped_known}, csv: {csv_path}, html: {html_path}"
             )
         finally:
             try:
@@ -287,16 +288,26 @@ def scrape_cmd(
     default=None,
     help=f"Destination CSV path (default: {config.CSV_PATH}).",
 )
-def export_cmd(csv_path: Path | None) -> None:
-    """Regenerate the CSV export from the local SQLite DB."""
-    out = csv_path if csv_path is not None else config.CSV_PATH
+@click.option(
+    "--html-path",
+    "html_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help=f"Destination HTML path (default: {config.HTML_PATH}).",
+)
+def export_cmd(csv_path: Path | None, html_path: Path | None) -> None:
+    """Regenerate the CSV and HTML exports from the local SQLite DB."""
+    csv_out = csv_path if csv_path is not None else config.CSV_PATH
+    html_out = html_path if html_path is not None else config.HTML_PATH
     config.ensure_home()
     conn = init_db(config.DB_PATH)
     try:
-        written = export_csv(conn, out)
+        csv_written = export_csv(conn, csv_out)
+        html_written = export_html(conn, html_out)
     finally:
         conn.close()
-    click.echo(f"CSV written: {written}")
+    click.echo(f"CSV written:  {csv_written}")
+    click.echo(f"HTML written: {html_written}")
 
 
 if __name__ == "__main__":

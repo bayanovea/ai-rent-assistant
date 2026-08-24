@@ -34,6 +34,7 @@ def _home() -> Path:
 FB_RENT_HOME: Path = _home()
 DB_PATH: Path = FB_RENT_HOME / "rentals.db"
 CSV_PATH: Path = FB_RENT_HOME / "rentals.csv"
+HTML_PATH: Path = FB_RENT_HOME / "rentals.html"
 BROWSER_PROFILE_DIR: Path = FB_RENT_HOME / "browser-profile"
 
 

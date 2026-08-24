@@ -1,8 +1,8 @@
 """SQLite storage layer for fb-rent listings.
 
-The database is the source of truth; ``rentals.csv`` is a flat export
-regenerated from it. Deduplication is done on ``fb_id`` (the listing ID
-extracted from the marketplace URL).
+The database is the source of truth; ``rentals.csv`` and ``rentals.html``
+are flat exports regenerated from it. Deduplication is done on ``fb_id``
+(the listing ID extracted from the marketplace URL).
 """
 
 from __future__ import annotations
@@ -157,4 +157,87 @@ def export_csv(conn: sqlite3.Connection, path: Path | str) -> Path:
         writer.writerow(CSV_COLUMNS)
         for row in rows:
             writer.writerow([row[c] for c in CSV_COLUMNS])
+    return out
+
+
+_HTML_TEMPLATE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>fb-rent listings</title>
+<link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet" />
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 1.5rem; color: #222; }
+  h1 { margin: 0 0 0.25rem; font-size: 1.15rem; }
+  .meta { color: #666; font-size: 0.85rem; margin-bottom: 1rem; }
+  .desc { max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  th, td { vertical-align: top; }
+</style>
+</head>
+<body>
+<h1>fb-rent — __ROW_COUNT__ listings</h1>
+<div class="meta">Generated __GENERATED_AT__ · sorted by last seen ↓ · click column headers to sort · search box top-right</div>
+<div id="grid"></div>
+<script src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
+<script>
+const DATA = __DATA_JSON__;
+new gridjs.Grid({
+  columns: [
+    { name: "Price (THB)", sort: true, width: "110px" },
+    { name: "Title" },
+    { name: "BR", sort: true, width: "60px" },
+    { name: "District", sort: true, width: "120px" },
+    { name: "Type", sort: true, width: "100px" },
+    { name: "Published", width: "130px" },
+    { name: "Link", width: "70px",
+      formatter: (c) => c ? gridjs.html('<a href="' + c + '" target="_blank" rel="noopener">open</a>') : "" },
+    { name: "Description",
+      formatter: (c) => {
+        const s = c == null ? "" : String(c);
+        const esc = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        return gridjs.html('<div class="desc" title="' + esc + '">' + esc + '</div>');
+      } },
+    { name: "First seen", sort: true, width: "170px" },
+    { name: "Last seen",  sort: true, width: "170px" },
+  ],
+  data: DATA,
+  search: true,
+  sort: true,
+  pagination: { limit: 50 },
+  resizable: true,
+}).render(document.getElementById("grid"));
+</script>
+</body>
+</html>
+"""
+
+
+def export_html(conn: sqlite3.Connection, path: Path | str) -> Path:
+    """Regenerate a self-contained HTML export from the database.
+
+    Data is embedded as inline JSON; sorting/search/pagination are provided
+    by Grid.js loaded from a CDN. Open the file directly in a browser — no
+    local server required.
+    """
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    query = f"SELECT {', '.join(CSV_COLUMNS)} FROM listings ORDER BY last_seen_at DESC"
+    rows = conn.execute(query).fetchall()
+    data = [[row[c] for c in CSV_COLUMNS] for row in rows]
+
+    # Neutralise ``</script>`` and HTML comment starters inside string
+    # values so a malicious listing cannot break out of the <script> block.
+    data_json = (
+        json.dumps(data, ensure_ascii=False, default=str)
+        .replace("</", "<\\/")
+        .replace("<!--", "<\\!--")
+    )
+    html = (
+        _HTML_TEMPLATE
+        .replace("__ROW_COUNT__", str(len(data)))
+        .replace("__GENERATED_AT__", _now_iso())
+        .replace("__DATA_JSON__", data_json)
+    )
+    out.write_text(html, encoding="utf-8")
     return out
