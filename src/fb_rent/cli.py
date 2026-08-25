@@ -58,6 +58,7 @@ from .storage import (
     export_html,
     fetch_pending,
     fetch_pending_photos,
+    gallery_urls_of,
     init_db,
     known_fb_ids,
     marketplace_url,
@@ -758,7 +759,7 @@ def ai_status_cmd() -> None:
     if no_photos:
         click.echo(
             "  These listings have no photos on disk — "
-            "run `fb-rent scrape --refresh` to fetch them:"
+            "run `fb-rent photos-fetch` to download them:"
         )
         for row in no_photos[:10]:
             click.echo(f"    - {row['fb_id']} {row.get('url') or ''}")
@@ -879,6 +880,145 @@ def ai_batch_cmd(
     click.echo(f"Batch written: {written} ({len(batch['items'])} listing(s))")
 
 
+@main.command("photos-fetch")
+@click.option(
+    "--limit",
+    default=25,
+    show_default=True,
+    help="Maximum number of listings to fetch galleries for.",
+)
+@click.option(
+    "--all",
+    "fetch_all",
+    is_flag=True,
+    default=False,
+    help="Fetch every listing in the queue, ignoring --limit.",
+)
+@click.option(
+    "--ids",
+    "ids",
+    multiple=True,
+    help="Fetch these fb_ids instead of the queue (repeatable).",
+)
+def photos_fetch_cmd(limit: int, fetch_all: bool, ids: tuple[str, ...]) -> None:
+    """Download the galleries the photo pass is waiting for.
+
+    A wide sweep is cheaper with `--no-photos`, and the photo pass only ever
+    looks at listings that survived the text pass and your own rejections —
+    so the pictures are better fetched afterwards, for the survivors alone.
+    What makes that possible is that the detail page's gallery links are
+    stored with the listing. They are signed and expire in about a week; past
+    that only the page itself can hand them out again
+    (`fb-rent scrape --ids <fb_id>`).
+    """
+    if limit <= 0 and not fetch_all:
+        raise click.ClickException("--limit must be a positive number")
+
+    registry = _load_registry()
+    conn = _open_db()
+    try:
+        # A hand-rejected listing is not worth a download either.
+        _sync_decisions(conn)
+        rows: list[dict[str, Any]] = []
+        if ids:
+            unknown: list[str] = []
+            for fb_id in dict.fromkeys(str(i) for i in ids):
+                row = conn.execute(
+                    "SELECT * FROM listings WHERE fb_id = ?", (fb_id,)
+                ).fetchone()
+                if row is None:
+                    unknown.append(fb_id)
+                else:
+                    rows.append(dict(row))
+            if unknown:
+                click.echo(f"Unknown listing(s): {', '.join(unknown)}")
+        else:
+            _pending, rows = fetch_pending_photos(
+                conn,
+                registry,
+                photo_analysis_version=_photo_analysis_version(_raw_registry()),
+            )
+            if not fetch_all:
+                rows = rows[:limit]
+    finally:
+        conn.close()
+
+    targets: list[tuple[str, list[str]]] = []
+    on_disk = 0
+    for row in rows:
+        fb_id = str(row["fb_id"])
+        if photos.photos_hash(fb_id) is not None:
+            on_disk += 1
+            continue
+        targets.append((fb_id, gallery_urls_of(row.get("raw_json"))))
+
+    if on_disk:
+        click.echo(f"{on_disk} listing(s) already have their photos on disk.")
+    if not targets:
+        click.echo("Nothing to fetch.")
+        return
+
+    playwright = start_playwright()
+    context = None
+    fetched = 0
+    no_urls: list[str] = []
+    failed: list[str] = []
+    try:
+        try:
+            context = launch_persistent(playwright, headless=True)
+        except Exception as exc:  # noqa: BLE001 — surface a friendly error
+            _echo_err(f"Failed to launch browser: {exc}")
+            sys.exit(2)
+
+        # The CDN links are signed for this account: they resolve through the
+        # logged-in context's request client and nowhere else.
+        if not is_logged_in(context):
+            _echo_err("No active Facebook session. Run `fb-rent login` first.")
+            sys.exit(3)
+
+        with click.progressbar(
+            targets,
+            label="Fetching galleries",
+            show_pos=True,
+            item_show_func=lambda t: t[0] if t else "",
+        ) as bar:
+            for fb_id, urls in bar:
+                if not urls:
+                    no_urls.append(fb_id)
+                    continue
+                if photos.download_and_resize(context, urls, fb_id):
+                    fetched += 1
+                else:
+                    failed.append(fb_id)
+                time.sleep(
+                    random.uniform(
+                        config.PHOTO_FETCH_DELAY_MIN_SEC,
+                        config.PHOTO_FETCH_DELAY_MAX_SEC,
+                    )
+                )
+    finally:
+        try:
+            if context is not None:
+                context.close()
+        finally:
+            playwright.stop()
+
+    click.echo(f"Fetched galleries for {fetched} listing(s).")
+    if no_urls:
+        click.echo(
+            f"No stored gallery links for {len(no_urls)} listing(s) — their "
+            "detail page was read before photos were collected. Re-read it: "
+            f"fb-rent scrape --ids {' --ids '.join(no_urls[:5])}"
+            + (" ..." if len(no_urls) > 5 else "")
+        )
+    if failed:
+        click.echo(
+            f"Every link expired for {len(failed)} listing(s) — re-read the "
+            f"page: fb-rent scrape --ids {' --ids '.join(failed[:5])}"
+            + (" ..." if len(failed) > 5 else "")
+        )
+
+
 @main.command("photo-batch")
 @click.option(
     "--limit",
@@ -953,7 +1093,7 @@ def photo_batch_cmd(
                     selected.append(dict(row))
             if unusable:
                 click.echo(
-                    "No photos on disk (run `fb-rent scrape --refresh` first): "
+                    "No photos on disk (run `fb-rent photos-fetch` first): "
                     f"{', '.join(unusable)}"
                 )
             if missing_ids:
@@ -962,7 +1102,7 @@ def photo_batch_cmd(
         if no_photos and not ids:
             click.echo(
                 f"{len(no_photos)} listing(s) have no photos on disk — "
-                "run `fb-rent scrape --refresh` to fetch them."
+                "run `fb-rent photos-fetch` to download them."
             )
 
         if not selected:

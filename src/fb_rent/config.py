@@ -49,6 +49,11 @@ DETAIL_DELAY_MAX_SEC: float = 7.0
 # Set an int to sample instead: the cover shot plus an even spread.
 PHOTO_MAX_COUNT: int | None = None
 PHOTO_LONG_EDGE_PX: int = 1024
+# Pause between listings in `photos-fetch`. The download itself is a handful
+# of CDN requests, not a page load, so the gap is short — it only keeps a
+# queue of fifty from arriving as one burst.
+PHOTO_FETCH_DELAY_MIN_SEC: float = 0.5
+PHOTO_FETCH_DELAY_MAX_SEC: float = 1.5
 PHOTO_JPEG_QUALITY: int = 80
 
 

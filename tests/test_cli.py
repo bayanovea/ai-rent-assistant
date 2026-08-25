@@ -617,6 +617,122 @@ def test_an_id_with_no_listing_behind_it_is_skipped(home, monkeypatch):
     conn.close()
 
 
+# --- photos-fetch --------------------------------------------------------
+
+
+def _stub_cdn(monkeypatch):
+    """A logged-in browser context whose request client serves a red square."""
+
+    class _Response:
+        ok = True
+
+        def body(self) -> bytes:
+            import io
+
+            from PIL import Image
+
+            buf = io.BytesIO()
+            Image.new("RGB", (200, 100), "red").save(buf, "PNG")
+            return buf.getvalue()
+
+    class _Request:
+        def get(self, url: str) -> _Response:
+            return _Response()
+
+    class _Context:
+        request = _Request()
+
+        def close(self) -> None:
+            pass
+
+    class _Playwright:
+        def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "start_playwright", lambda: _Playwright())
+    monkeypatch.setattr(cli, "launch_persistent", lambda pw, headless=True: _Context())
+    monkeypatch.setattr(cli, "is_logged_in", lambda ctx: True)
+    monkeypatch.setattr(cli.time, "sleep", lambda _s: None)
+
+
+def _queued_for_photos(fb_id: str, *, gallery: list[str]):
+    """A listing the text pass read, with its gallery links still stored."""
+    conn = storage.init_db(config.DB_PATH)
+    registry = ai_schema.load_registry()
+    _add_listing(
+        conn,
+        fb_id,
+        raw_json=json.dumps({"text_lines": ["Описание"], "gallery_urls": gallery}),
+    )
+    _analyse(conn, registry, fb_id)
+    conn.close()
+
+
+def test_photos_fetch_downloads_the_stored_gallery(home, monkeypatch):
+    _queued_for_photos("1", gallery=["https://scontent.xx.fbcdn.net/v/t39.30808-6/1.jpg"])
+    _stub_cdn(monkeypatch)
+
+    result = _run("photos-fetch")
+
+    assert result.exit_code == 0, result.output
+    assert sorted(p.name for p in (home / "photos" / "1").iterdir()) == ["01.jpg"]
+    assert "Fetched galleries for 1 listing(s)." in result.output
+
+
+def test_photos_fetch_names_the_listings_whose_links_were_never_stored(
+    home, monkeypatch
+):
+    """Scraped before photos existed — only the detail page can help now."""
+    _queued_for_photos("1", gallery=[])
+    _stub_cdn(monkeypatch)
+
+    result = _run("photos-fetch")
+
+    assert result.exit_code == 0, result.output
+    assert "No stored gallery links for 1 listing(s)" in result.output
+    assert "fb-rent scrape --ids 1" in result.output
+
+
+def test_photos_fetch_leaves_photos_that_are_already_on_disk(home, monkeypatch):
+    """A gallery on disk is never re-downloaded: that would re-queue the pass.
+
+    ``photos_hash`` is what tells the photo pass the pictures changed, so a
+    second download of the same gallery would send an analysed listing back
+    into the queue for nothing.
+    """
+    _queued_for_photos("1", gallery=["https://scontent.xx.fbcdn.net/v/t39.30808-6/1.jpg"])
+    _shoot(home, "1")
+    _stub_cdn(monkeypatch)
+
+    result = _run("photos-fetch", "--ids", "1")
+
+    assert result.exit_code == 0, result.output
+    assert "1 listing(s) already have their photos on disk." in result.output
+    assert sorted(p.name for p in (home / "photos" / "1").iterdir()) == [
+        "01.jpg",
+        "02.jpg",
+    ]
+
+
+def test_photos_fetch_ids_reach_a_listing_the_queue_does_not_hold(home, monkeypatch):
+    """No analysis yet, so the photo queue does not know about it."""
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(
+        conn,
+        "5",
+        raw_json=json.dumps(
+            {"gallery_urls": ["https://scontent.xx.fbcdn.net/v/t39.30808-6/1.jpg"]}
+        ),
+    )
+    conn.close()
+    _stub_cdn(monkeypatch)
+
+    result = _run("photos-fetch", "--ids", "5")
+
+    assert result.exit_code == 0, result.output
+    assert (home / "photos" / "5" / "01.jpg").exists()
+
+
 # --- photo-batch ---------------------------------------------------------
 
 

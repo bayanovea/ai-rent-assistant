@@ -24,6 +24,14 @@ and no cookie plumbing is needed — 6 files download in 1–2 s. Facebook serve
 960 px on the long edge, so the 1024 px cap in `config.py` is effectively "do
 not upscale".
 
+**Galleries can be fetched later, but not much later.** The stored
+`gallery_urls` are signed and expire in about a week, which is what makes
+`photos-fetch` possible at all: sweep wide with `--no-photos`, analyse, reject
+by hand, then download for the survivors. Past the expiry only the detail page
+can hand out fresh links — `scrape --ids <fb_id>`, which is also the repair
+path for `sidebar_noise` and for listings scraped before galleries were
+collected.
+
 **`photos_hash` is the photo pass's `content_key`.** It is what re-queues a
 listing, so anything that rewrites the directory re-queues it. `_download_photos`
 therefore leaves a non-empty directory alone; a genuine refetch means purging

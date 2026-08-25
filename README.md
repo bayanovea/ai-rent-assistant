@@ -89,7 +89,8 @@ to this `scrapper/` package):
   behind the "Ещё N полей" toggle. Self-contained, no CDN and no network;
   regenerated on every scrape
 - `photos/<fb_id>/` — the listing's whole gallery, `01.jpg`, `02.jpg`, …,
-  downscaled to 1024 px on the long edge. Written during `scrape`, read by the photo pass,
+  downscaled to 1024 px on the long edge. Written during `scrape` or by
+  `fb-rent photos-fetch`, read by the photo pass,
   and disposable: a directory deleted (or a listing re-scraped with
   `--refresh`) is simply downloaded again. Auto-rejecting a listing or merging
   it away in `fb-rent dedupe` purges its directory
@@ -399,11 +400,38 @@ Opus is one line in the skill if a batch proves it necessary.
 
 ```
 fb-rent ai-status                  # the "Фото" block: analysed / pending / no photos
+fb-rent photos-fetch               # download the galleries the queue is missing
 fb-rent photo-batch --limit 25     # -> ../data/ai/photo-batch-<ts>.json
    ... one subagent per listing reads its 6 files and returns JSON
 fb-rent photo-apply <result.json>  # store photo fields, recompute rules
 fb-rent export                     # regenerate CSV + HTML
 ```
+
+### `fb-rent photos-fetch`
+
+Downloads the galleries the photo pass is waiting for, from the links the
+detail page left behind in the listing's `raw_json`. `scrape` already does
+this inline, so this command is for the wide-sweep order of work: sweep with
+`--no-photos` (a gallery costs a second or two per listing and hundreds of
+megabytes over a big run), analyse the text, reject by hand, and only then
+spend the downloads on the listings that are left.
+
+| Flag      | Default | Description                                          |
+|-----------|---------|------------------------------------------------------|
+| `--limit` | `25`    | Maximum number of listings to fetch galleries for.   |
+| `--all`   | off     | Fetch the whole queue, ignoring `--limit`.           |
+| `--ids`   | —       | Fetch these `fb_id`s instead of the queue.           |
+
+The queue is the same one `ai-status` prints under "Фото / No photos":
+listings the text pass has read, that neither the rules nor you have rejected,
+and that have no pictures on disk. A directory that already holds photos is
+left alone — re-downloading would change `photos_hash` and push an analysed
+listing back into the queue for pictures that did not change.
+
+Those gallery links are signed and expire in about a week. A listing whose
+links have gone stale, or that was scraped before galleries were collected at
+all, is named in the output together with the command that fixes it —
+`fb-rent scrape --ids <fb_id>` reads the page again and stores fresh links.
 
 In a Claude Code session, `/photo-analyze` drives that loop (skill:
 `.claude/skills/photo-analyze/SKILL.md`); `/analyze` offers to hand over to it

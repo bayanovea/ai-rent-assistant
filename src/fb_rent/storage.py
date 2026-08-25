@@ -636,6 +636,25 @@ def text_lines_of(raw_json: Any) -> list[str]:
     return []
 
 
+def gallery_urls_of(raw_json: Any) -> list[str]:
+    """Return ``gallery_urls`` from a listing's ``raw_json``, or an empty list.
+
+    The links are signed and expire in about a week, so a stored gallery is
+    a short-lived promise: ``photos-fetch`` can still download it, and after
+    that only the detail page can say what the pictures are.
+    """
+    if isinstance(raw_json, str) and raw_json:
+        try:
+            raw_json = json.loads(raw_json)
+        except json.JSONDecodeError:
+            return []
+    if isinstance(raw_json, dict):
+        urls = raw_json.get("gallery_urls")
+        if isinstance(urls, list):
+            return [str(url) for url in urls]
+    return []
+
+
 def upsert_ai_analysis(
     conn: sqlite3.Connection,
     row: dict[str, Any],
@@ -882,7 +901,7 @@ def fetch_pending_photos(
     text queue: ``new`` / ``changed`` / ``schema``.
 
     Candidates with an empty or missing photo directory go to ``no_photos``
-    instead — they need a ``scrape --refresh`` before the pass can run.
+    instead — they need a ``photos-fetch`` before the pass can run.
     """
     wanted_version = (
         registry.schema_version
