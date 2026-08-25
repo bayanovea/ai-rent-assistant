@@ -183,13 +183,13 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 - Modify: `config/ai_fields.json`
 - Modify: `tests/test_ai_schema.py`
 
-- [ ] в `ai_schema.py` добавить `KNOWN_SOURCES = {"text", "photo", "both"}` и валидацию ключа `source` в `load_registry` (отсутствие = `"text"`)
-- [ ] добавить `Registry.fields_for(source) -> tuple[dict, ...]` — возвращает поля, которые данный проход должен заполнять (`photo` матчит `photo` и `both`)
-- [ ] в `config/ai_fields.json` проставить `"source": "both"` полям `condition`, `furnished`, `kitchen`, `living_room`, `parking`, `green_area`, `pool_gym`; остальные 21 оставить без ключа
-- [ ] добавить новое поле `photo_quality` (`enum`: `real` / `render` / `other_unit` / `floorplan` / `unclear`, `source: "photo"`) — сигнал «3D-рендер вместо реального фото», которого сейчас нет нигде
-- [ ] поднять `schema_version` до 2, добавить `photo_analysis_version: 2`
-- [ ] написать тесты: невалидный `source` роняет реестр, дефолт `"text"`, `fields_for("photo")` возвращает `both`+`photo` и не возвращает `text`
-- [ ] прогнать тесты
+- [x] в `ai_schema.py` добавить `KNOWN_SOURCES = {"text", "photo", "both"}` и валидацию ключа `source` в `load_registry` (отсутствие = `"text"`)
+- [x] добавить `Registry.fields_for(source) -> tuple[dict, ...]` — возвращает поля, которые данный проход должен заполнять (`photo` матчит `photo` и `both`)
+- [x] в `config/ai_fields.json` проставить `"source": "both"` полям `condition`, `furnished`, `kitchen`, `living_room`, `parking`, `green_area`, `pool_gym`; остальные 21 оставить без ключа
+- [x] добавить новое поле `photo_quality` (`enum`: `real` / `render` / `other_unit` / `floorplan` / `unclear`, `source: "photo"`) — сигнал «3D-рендер вместо реального фото», которого сейчас нет нигде
+- [x] поднять `schema_version` до 2, добавить `photo_analysis_version: 2`
+- [x] написать тесты: невалидный `source` роняет реестр, дефолт `"text"`, `fields_for("photo")` возвращает `both`+`photo` и не возвращает `text`
+- [x] прогнать тесты
 
 ### Task 5: Очередь фото-прохода
 

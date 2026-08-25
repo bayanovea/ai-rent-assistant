@@ -1,5 +1,7 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "analysis_version": 1,
+  "photo_analysis_version": 2,
   "fields": [
     { "key": "pets", "label": "Pets", "group": "core", "type": "enum",
       "values": ["allowed", "not_allowed", "unclear"],
@@ -35,11 +37,11 @@
       "prompt": "Комнаты сверх спален и гостиной: кабинет, вторая гостиная, кладовая, терраса-комната. Кратко, через запятую." },
 
     { "key": "living_room", "label": "Гостиная", "group": "core", "type": "enum",
-      "values": ["yes", "no", "unclear"], "added_in": 1,
+      "values": ["yes", "no", "unclear"], "source": "both", "added_in": 1,
       "prompt": "Есть ли отдельная гостиная. Если про неё просто не написано — 'unclear', это НЕ дефект. 'no' только когда явно сказано, что жилая зона совмещена или её нет." },
 
     { "key": "furnished", "label": "Меблировка", "group": "core", "type": "enum",
-      "values": ["full", "partial", "none", "unclear"], "added_in": 1,
+      "values": ["full", "partial", "none", "unclear"], "source": "both", "added_in": 1,
       "prompt": "Уровень меблировки: 'full' (fully furnished), 'partial' (частично, только кухня/встроенное), 'none' (пустая), 'unclear'." },
 
     { "key": "property_type", "label": "Тип жилья", "group": "property", "type": "enum",
@@ -64,15 +66,15 @@
       "prompt": "Количество этажей в доме/таунхаусе. Для кондо — этаж не важен, оставь пустым." },
 
     { "key": "condition", "label": "Состояние", "group": "property", "type": "enum",
-      "values": ["new", "good", "worn", "unclear"], "added_in": 1,
+      "values": ["new", "good", "worn", "unclear"], "source": "both", "added_in": 1,
       "prompt": "Состояние объекта по описанию и упоминанию ремонта: 'new' (новый / только сдан), 'good', 'worn' (требует ремонта), 'unclear'." },
 
     { "key": "kitchen", "label": "Кухня", "group": "amenity", "type": "enum",
-      "values": ["full", "kitchenette", "none", "unclear"], "added_in": 1,
+      "values": ["full", "kitchenette", "none", "unclear"], "source": "both", "added_in": 1,
       "prompt": "Кухня: 'full' (полноценная, с плитой/духовкой), 'kitchenette' (мини-кухня, электроплитка), 'none', 'unclear'." },
 
     { "key": "parking", "label": "Парковка", "group": "amenity", "type": "enum",
-      "values": ["yes", "no", "unclear"], "added_in": 1,
+      "values": ["yes", "no", "unclear"], "source": "both", "added_in": 1,
       "prompt": "Есть ли парковочное место для машины." },
 
     { "key": "internet", "label": "Интернет", "group": "amenity", "type": "text",
@@ -84,11 +86,11 @@
       "prompt": "Количество и расположение кондиционеров, если указано ('2 шт: спальня + гостиная')." },
 
     { "key": "pool_gym", "label": "Бассейн/зал", "group": "amenity", "type": "text",
-      "added_in": 1,
+      "source": "both", "added_in": 1,
       "prompt": "Бассейн, спортзал и прочая инфраструктура — свой или общий, кратко." },
 
     { "key": "green_area", "label": "Зелёная зона", "group": "amenity", "type": "enum",
-      "values": ["yes", "no", "unclear"], "added_in": 1,
+      "values": ["yes", "no", "unclear"], "source": "both", "added_in": 1,
       "prompt": "Есть ли рядом зелёная зона/парк/двор, где можно гулять с собакой. 'yes' при упоминании сада, парка, garden, зелёного двора посёлка." },
 
     { "key": "security", "label": "Охрана", "group": "amenity", "type": "enum",
@@ -113,6 +115,10 @@
 
     { "key": "contact", "label": "Контакт", "group": "meta", "type": "text",
       "added_in": 1,
-      "prompt": "Телефон, LINE ID, WhatsApp — как указано. Часто в тексте стоит '[hidden information]', так и записывай." }
+      "prompt": "Телефон, LINE ID, WhatsApp — как указано. Часто в тексте стоит '[hidden information]', так и записывай." },
+    { "key": "photo_quality", "label": "Что на фото", "group": "meta", "type": "enum",
+      "values": ["real", "render", "other_unit", "floorplan", "unclear"],
+      "source": "photo", "added_in": 2,
+      "prompt": "Что вообще показывают фотографии: 'real' (реальные снимки этого объекта), 'render' (3D-визуализация/рендер вместо съёмки), 'floorplan' (только планировки), 'other_unit' (снят явно другой юнит — другая планировка/этаж), 'unclear'. При 'render' остальные фотополя не заполняй." }
   ]
 }

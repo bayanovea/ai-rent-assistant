@@ -57,7 +57,9 @@ def test_add_appends_field_with_bumped_added_in(registry_file):
 
 
 def test_add_without_backfill_leaves_analysis_version_behind(registry_file):
-    before = _read(registry_file)["schema_version"]
+    raw_before = _read(registry_file)
+    before = raw_before["schema_version"]
+    analysis_before = raw_before.get("analysis_version", before)
 
     result = _run(
         "ai-field", "add",
@@ -68,7 +70,7 @@ def test_add_without_backfill_leaves_analysis_version_behind(registry_file):
     assert result.exit_code == 0, result.output
     raw = _read(registry_file)
     # Analysed rows are not re-queued: they simply show a c-stale dash.
-    assert raw["analysis_version"] == before
+    assert raw["analysis_version"] == analysis_before
     assert raw["schema_version"] == before + 1
     assert "--backfill" in result.output
 

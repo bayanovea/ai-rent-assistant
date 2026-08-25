@@ -7,7 +7,7 @@ import json
 import pytest
 
 from fb_rent import config
-from fb_rent.ai_schema import RegistryError, load_registry, source_hash
+from fb_rent.ai_schema import RegistryError, field_source, load_registry, source_hash
 
 
 def _write(tmp_path, registry: dict):
@@ -68,6 +68,23 @@ def test_real_registry_fields_all_carry_a_prompt():
         assert field["group"] in {"core", "property", "amenity", "meta"}
 
 
+def test_real_registry_declares_the_photo_pass_fields():
+    registry = load_registry()
+    photo_keys = {f["key"] for f in registry.fields_for("photo")}
+    assert {
+        "condition",
+        "furnished",
+        "kitchen",
+        "living_room",
+        "parking",
+        "green_area",
+        "pool_gym",
+        "photo_quality",
+    } <= photo_keys
+    assert registry.field("photo_quality")["source"] == "photo"
+    assert "render" in registry.field("photo_quality")["values"]
+
+
 def test_requirements_file_exists_and_flags_pets_first():
     text = config.REQUIREMENTS_PATH.read_text(encoding="utf-8")
     assert "критерий №1" in text
@@ -82,6 +99,43 @@ def test_field_lookup_and_unknown_keys():
     assert registry.field("pets")["type"] == "enum"
     assert registry.field("nope") is None
     assert registry.unknown_keys(["pets", "zzz", "qqq"]) == ["zzz", "qqq"]
+
+
+def test_fields_for_photo_takes_both_but_not_text():
+    registry = load_registry()
+    keys = [f["key"] for f in registry.fields_for("photo")]
+    assert "photo_quality" in keys  # source: photo
+    assert "condition" in keys  # source: both
+    assert "pets" not in keys  # source defaults to text
+    assert "price_month_thb" not in keys
+
+
+def test_fields_for_text_takes_both_but_not_photo():
+    registry = load_registry()
+    keys = [f["key"] for f in registry.fields_for("text")]
+    assert "pets" in keys
+    assert "condition" in keys
+    assert "photo_quality" not in keys
+
+
+def test_fields_for_unknown_source_rejected():
+    with pytest.raises(ValueError, match="unknown source"):
+        load_registry().fields_for("audio")
+
+
+def test_source_defaults_to_text(tmp_path):
+    registry = load_registry(_write(tmp_path, _valid()))
+    assert all("source" not in f for f in registry.fields)
+    assert field_source(registry.field("pets")) == "text"
+    assert [f["key"] for f in registry.fields_for("text")] == ["pets", "size_sqm"]
+    assert registry.fields_for("photo") == ()
+
+
+def test_invalid_source_rejected(tmp_path):
+    bad = _valid()
+    bad["fields"][0]["source"] = "video"
+    with pytest.raises(RegistryError, match="unknown source 'video'"):
+        load_registry(_write(tmp_path, bad))
 
 
 # --- validation --------------------------------------------------------

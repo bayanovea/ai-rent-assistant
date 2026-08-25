@@ -45,6 +45,11 @@ def _add_listing(conn, fb_id: str, **overrides):
     return listing
 
 
+# The registry version a freshly produced result would claim. Hard-coding it
+# would re-break every apply test on the next `ai-field add`.
+_CURRENT_VERSION = ai_schema.load_registry().schema_version
+
+
 def _result(fb_id: str, *, fields: dict | None = None, **overrides) -> dict:
     entry = {
         "fb_id": fb_id,
@@ -60,7 +65,7 @@ def _result(fb_id: str, *, fields: dict | None = None, **overrides) -> dict:
     }
     entry.update(overrides)
     return {
-        "schema_version": 1,
+        "schema_version": _CURRENT_VERSION,
         "model": "claude-opus-5 (claude-code)",
         "results": [entry],
     }
@@ -306,7 +311,7 @@ def test_apply_results_stores_the_version_the_ai_saw(conn, tmp_path, registry):
     """A result produced before `ai-field add` must not claim the new version."""
     _add_listing(conn, "1")
     newer = _registry_with_extra_field(tmp_path, registry)
-    result = _result("1")  # schema_version 1, built before `balcony` existed
+    result = _result("1")  # built before `balcony` existed
 
     report = ai_batch.apply_results(conn, newer, result)
 

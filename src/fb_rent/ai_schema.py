@@ -27,6 +27,14 @@ from . import config
 # non-empty `values` list; everything else is free-form.
 KNOWN_TYPES: frozenset[str] = frozenset({"enum", "int", "text", "date"})
 
+# Which pass fills a field. `text` (the default when the key is absent) is
+# the description pass, `photo` the gallery pass, `both` means the photo pass
+# may confirm or overrule what the text claimed.
+KNOWN_SOURCES: frozenset[str] = frozenset({"text", "photo", "both"})
+
+# Value assumed for a field that does not declare `source`.
+DEFAULT_SOURCE = "text"
+
 # Keys hashed into `source_hash`, in a fixed order so the digest does not
 # depend on dict ordering.
 _HASH_KEYS: tuple[str, ...] = ("title", "price_raw", "district", "description")
@@ -53,6 +61,19 @@ class Registry:
             if f["key"] == key:
                 return f
         return None
+
+    def fields_for(self, source: str) -> tuple[dict[str, Any], ...]:
+        """Return the fields the ``source`` pass is expected to fill.
+
+        A field marked ``both`` belongs to every pass, so ``fields_for("photo")``
+        yields ``photo`` and ``both`` fields but no ``text``-only ones.
+        """
+        if source not in KNOWN_SOURCES:
+            raise ValueError(
+                f"unknown source {source!r} (known: {', '.join(sorted(KNOWN_SOURCES))})"
+            )
+        wanted = {source, "both"}
+        return tuple(f for f in self.fields if field_source(f) in wanted)
 
     def unknown_keys(self, keys: Any) -> list[str]:
         """Return the subset of ``keys`` that the registry does not define."""
@@ -115,6 +136,13 @@ def load_registry(path: Path | str | None = None) -> Registry:
             if not isinstance(values, list) or not values:
                 raise RegistryError(f"enum field {key!r} needs a non-empty values list")
 
+        source = field.get("source", DEFAULT_SOURCE)
+        if source not in KNOWN_SOURCES:
+            raise RegistryError(
+                f"field {key!r} has unknown source {source!r} "
+                f"(known: {', '.join(sorted(KNOWN_SOURCES))})"
+            )
+
         added_in = field.get("added_in")
         if not isinstance(added_in, int) or isinstance(added_in, bool):
             raise RegistryError(f"field {key!r} needs an integer added_in")
@@ -124,6 +152,11 @@ def load_registry(path: Path | str | None = None) -> Registry:
             )
 
     return Registry(schema_version=schema_version, fields=tuple(fields))
+
+
+def field_source(field: dict[str, Any]) -> str:
+    """Return a field's declared ``source``, defaulting to ``"text"``."""
+    return field.get("source") or DEFAULT_SOURCE
 
 
 def _text_line_count(listing: dict[str, Any]) -> int:
