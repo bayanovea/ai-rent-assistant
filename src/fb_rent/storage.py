@@ -318,8 +318,14 @@ def upsert_listing(
     """Insert a new listing or update an existing one keyed by ``fb_id``.
 
     Returns ``"inserted"``, ``"updated"`` or ``"duplicate"``. On update
-    ``first_seen_at`` is preserved; ``last_seen_at``, ``price_*``,
-    ``description``, ``raw_json`` and other mutable fields are refreshed.
+    ``first_seen_at`` is preserved and every field the new sighting actually
+    carries is refreshed — but a field it does not carry is left alone. That
+    asymmetry is the whole point: ``scrape`` skips the detail page of a
+    listing already in the DB, so a re-sighting is a list card and nothing
+    more, and writing its Nones would erase the ad text the AI pass reads,
+    the ``published_at`` behind it and the gallery URLs the photos come from.
+    A wide sweep re-sees most of the table, so this used to wipe the base
+    once per run.
 
     A new row whose ad text already exists under a different ``fb_id`` is a
     repost: it is recorded in ``duplicates`` and not inserted, so one flat
@@ -382,6 +388,8 @@ def upsert_listing(
         conn.commit()
         return "inserted"
 
+    fields = {column: value for column, value in fields.items() if value is not None}
+    fields["fb_id"] = fb_id
     fields["last_seen_at"] = ts
     assignments = ", ".join(f"{k} = :{k}" for k in fields.keys() if k != "fb_id")
     conn.execute(

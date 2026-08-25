@@ -82,6 +82,50 @@ def test_upsert_update_preserves_first_seen_at(conn):
     assert row["description"] == "Price bumped."
 
 
+def test_a_card_only_resighting_keeps_what_the_detail_page_gave(conn):
+    """A listing re-seen in the feed must not lose its ad text.
+
+    ``scrape`` skips the detail page of a listing already in the DB, so what
+    comes back is a bare list card. Writing its missing fields as NULL erased
+    the description, the gallery URLs behind the photo pass and the content
+    key the repost detection runs on — once per wide sweep.
+    """
+    ad = (
+        "Spacious two-bedroom villa a short walk from Rawai beach, private "
+        "pool, parking for two cars, pets welcome, minimum six months."
+    )
+    storage.upsert_listing(
+        conn,
+        _make_listing(description=ad, raw_json='{"gallery_urls": ["a.jpg"]}'),
+        now="2026-08-24T10:00:00Z",
+    )
+    before = conn.execute(
+        "SELECT * FROM listings WHERE fb_id = ?", ("1234567890",)
+    ).fetchone()
+
+    storage.upsert_listing(
+        conn,
+        {
+            "fb_id": "1234567890",
+            "url": "https://www.facebook.com/marketplace/item/1234567890",
+            "title": "Cozy 2BR villa in Rawai",
+            "price_raw": "THB 22,000/month",
+            "price_thb": 22000,
+            "district": "Rawai",
+        },
+        now="2026-08-25T12:00:00Z",
+    )
+
+    row = conn.execute(
+        "SELECT * FROM listings WHERE fb_id = ?", ("1234567890",)
+    ).fetchone()
+    assert row["description"] == ad
+    assert row["raw_json"] == '{"gallery_urls": ["a.jpg"]}'
+    assert row["published_at"] == before["published_at"]
+    assert row["content_key"] == before["content_key"]
+    assert row["last_seen_at"] == "2026-08-25T12:00:00Z"
+
+
 def test_upsert_requires_fb_id(conn):
     with pytest.raises(ValueError):
         storage.upsert_listing(conn, {"url": "x", "title": "y"})

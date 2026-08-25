@@ -141,7 +141,10 @@ CSV and HTML.
 | `--refresh`       | off     | Re-scrape detail pages for listings already in the DB.   |
 | `--no-photos`     | off     | Skip downloading listing photos (faster, no photo pass). |
 
-Detail requests are hard-capped at 60 per run to stay polite.
+A listing already in the DB is re-seen as a bare list card — its detail page is
+not opened again — and such a sighting only refreshes what it actually carries.
+It never clears the ad text, `published_at` or the gallery URLs that the detail
+page put there.
 
 Examples:
 

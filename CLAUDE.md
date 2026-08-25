@@ -29,6 +29,15 @@ listing, so anything that rewrites the directory re-queues it. `_download_photos
 therefore leaves a non-empty directory alone; a genuine refetch means purging
 first.
 
+## Scrape
+
+**A re-sighting must not clobber.** `scrape` skips the detail page of a
+listing already in the DB, so what comes back is a bare list card with no
+description, no `published_at` and no `raw_json`. `upsert_listing` therefore
+drops `None` values on update: writing them erased the ad text, the gallery
+URLs and the `content_key` on every run that re-saw the table — which a wide
+sweep does by definition.
+
 ## Subagent fan-out
 
 The photo pass reads images in subagents, one per listing
