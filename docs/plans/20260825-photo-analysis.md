@@ -198,13 +198,13 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 - Modify: `src/fb_rent/cli.py`
 - Modify: `tests/test_storage.py`
 
-- [ ] в `_migrate()` добавить ветку по образцу `content_key` (`storage.py:262-270`): пять колонок в `ai_analysis` — `photo_data_json`, `photos_hash`, `photo_schema_version`, `photos_analyzed_at`, `photo_model` — плюс `photo_comment`
-- [ ] `fetch_pending_photos(conn, registry) -> PendingPhotos` — NamedTuple `(pending, no_photos)`. Кандидат попадает в очередь, если: анализ текста есть, `rules.decide` по текущим полям даёт **не** `rejected`, каталог фото непуст, и (`photos_hash` не совпал ИЛИ `photo_schema_version < photo_analysis_version` ИЛИ прохода не было). Причины: `new` / `changed` / `schema`
-- [ ] объявления без фото на диске — в `no_photos`, им нужен `scrape --refresh`
-- [ ] расширить `ai-status`: после текущей сводки печатать блок «Фото» — сколько проанализировано / в очереди с разбивкой причин / без фото
-- [ ] написать тесты на `fetch_pending_photos`: rejected не попадает; без фото уходит в `no_photos`; смена `photos_hash` возвращает в очередь; повтор после apply даёт пустую очередь (идемпотентность); рост `photo_analysis_version` возвращает всех
-- [ ] написать тест на миграцию: старая БД без новых колонок открывается и получает их
-- [ ] прогнать тесты
+- [x] в `_migrate()` добавить ветку по образцу `content_key` (`storage.py:262-270`): пять колонок в `ai_analysis` — `photo_data_json`, `photos_hash`, `photo_schema_version`, `photos_analyzed_at`, `photo_model` — плюс `photo_comment`
+- [x] `fetch_pending_photos(conn, registry) -> PendingPhotos` — NamedTuple `(pending, no_photos)`. Кандидат попадает в очередь, если: анализ текста есть, `rules.decide` по текущим полям даёт **не** `rejected`, каталог фото непуст, и (`photos_hash` не совпал ИЛИ `photo_schema_version < photo_analysis_version` ИЛИ прохода не было). Причины: `new` / `changed` / `schema`
+- [x] объявления без фото на диске — в `no_photos`, им нужен `scrape --refresh`
+- [x] расширить `ai-status`: после текущей сводки печатать блок «Фото» — сколько проанализировано / в очереди с разбивкой причин / без фото
+- [x] написать тесты на `fetch_pending_photos`: rejected не попадает; без фото уходит в `no_photos`; смена `photos_hash` возвращает в очередь; повтор после apply даёт пустую очередь (идемпотентность); рост `photo_analysis_version` возвращает всех
+- [x] написать тест на миграцию: старая БД без новых колонок открывается и получает их
+- [x] прогнать тесты
 
 ### Task 6: `photo-batch` — сборка батча
 

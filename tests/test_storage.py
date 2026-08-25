@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import csv
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
 
-from fb_rent import ai_schema, rules, storage
+from fb_rent import ai_schema, config, photos, rules, storage
 
 
 @pytest.fixture()
@@ -900,3 +901,146 @@ def test_dedupe_keeps_the_copy_with_the_fullest_ad_text(conn):
 
     collapsed = storage.dedupe_listings(conn, dry_run=True)
     assert collapsed[0]["canonical"] == "detailed"
+
+
+# --- photo queue ---------------------------------------------------------
+
+
+@pytest.fixture()
+def photos_home(tmp_path, monkeypatch):
+    """Point the photo store at a temp directory."""
+    root = tmp_path / "photos"
+    monkeypatch.setattr(config, "PHOTOS_DIR", root)
+    return root
+
+
+def _shoot(photos_home, fb_id: str, count: int = 3, body: bytes = b"jpeg"):
+    """Put `count` fake photo files on disk for a listing."""
+    directory = photos_home / fb_id
+    directory.mkdir(parents=True, exist_ok=True)
+    for index in range(1, count + 1):
+        (directory / f"{index:02d}.jpg").write_bytes(body)
+    return directory
+
+
+def _text_analysed(conn, fb_id: str, **fields):
+    """Give a listing a text analysis, defaulting to one the rules accept."""
+    storage.upsert_listing(conn, _make_listing(fb_id=fb_id))
+    data = {"pets": {"v": "unclear", "conf": "high", "ev": ""}}
+    data.update(fields)
+    storage.upsert_ai_analysis(conn, _make_analysis(fb_id=fb_id, data_json=data))
+
+
+def test_migration_adds_photo_columns_to_an_old_database(tmp_path: Path):
+    db_path = tmp_path / "rentals.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        """
+        CREATE TABLE ai_analysis (
+            fb_id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL,
+            analyzed_at TEXT NOT NULL, source_hash TEXT NOT NULL,
+            model TEXT, verdict TEXT NOT NULL, score INTEGER,
+            data_quality TEXT, data_json TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    conn = storage.init_db(db_path)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(ai_analysis)")}
+    assert {
+        "photo_data_json",
+        "photos_hash",
+        "photo_schema_version",
+        "photos_analyzed_at",
+        "photo_model",
+        "photo_comment",
+    } <= columns
+    conn.close()
+
+
+def test_fetch_pending_photos_queues_a_listing_with_photos(conn, photos_home):
+    _text_analysed(conn, "with-photos")
+    _shoot(photos_home, "with-photos")
+
+    pending, no_photos = storage.fetch_pending_photos(conn, _registry())
+    assert no_photos == []
+    assert [p["fb_id"] for p in pending] == ["with-photos"]
+    assert pending[0]["pending_reason"] == "new"
+    assert pending[0]["photos_hash"] == photos.photos_hash("with-photos")
+
+
+def test_fetch_pending_photos_skips_rejected_listings(conn, photos_home):
+    _text_analysed(conn, "no-pets", pets={"v": "not_allowed", "conf": "high", "ev": ""})
+    _shoot(photos_home, "no-pets")
+
+    pending, no_photos = storage.fetch_pending_photos(conn, _registry())
+    assert pending == []
+    assert no_photos == []
+
+
+def test_fetch_pending_photos_reports_listings_without_photos(conn, photos_home):
+    _text_analysed(conn, "bare")
+    (photos_home / "empty-dir").mkdir(parents=True)
+    _text_analysed(conn, "empty-dir")
+
+    pending, no_photos = storage.fetch_pending_photos(conn, _registry())
+    assert pending == []
+    assert {row["fb_id"] for row in no_photos} == {"bare", "empty-dir"}
+
+
+def _photo_pass(conn, fb_id: str, *, version: int = 1):
+    conn.execute(
+        """
+        UPDATE ai_analysis
+           SET photo_data_json = '{}', photos_hash = ?,
+               photo_schema_version = ?, photos_analyzed_at = ?
+         WHERE fb_id = ?
+        """,
+        (photos.photos_hash(fb_id), version, "2026-08-25T12:00:00Z", fb_id),
+    )
+    conn.commit()
+
+
+def test_fetch_pending_photos_is_idempotent_after_a_pass(conn, photos_home):
+    _text_analysed(conn, "done")
+    _shoot(photos_home, "done")
+    _photo_pass(conn, "done")
+
+    pending, no_photos = storage.fetch_pending_photos(conn, _registry())
+    assert pending == []
+    assert no_photos == []
+
+
+def test_fetch_pending_photos_requeues_a_changed_photo_set(conn, photos_home):
+    _text_analysed(conn, "reshot")
+    _shoot(photos_home, "reshot")
+    _photo_pass(conn, "reshot")
+    _shoot(photos_home, "reshot", count=5, body=b"another jpeg")
+
+    pending, _ = storage.fetch_pending_photos(conn, _registry())
+    assert [p["pending_reason"] for p in pending] == ["changed"]
+
+
+def test_fetch_pending_photos_requeues_on_a_newer_photo_analysis_version(
+    conn, photos_home
+):
+    _text_analysed(conn, "older")
+    _shoot(photos_home, "older")
+    _photo_pass(conn, "older", version=1)
+
+    pending, _ = storage.fetch_pending_photos(
+        conn, _registry(version=2, added_in=2), photo_analysis_version=2
+    )
+    assert [p["pending_reason"] for p in pending] == ["schema"]
+    assert pending[0]["analysed_photo_version"] == 1
+
+
+def test_fetch_pending_photos_ignores_unanalysed_listings(conn, photos_home):
+    storage.upsert_listing(conn, _make_listing(fb_id="never-read"))
+    _shoot(photos_home, "never-read")
+
+    pending, no_photos = storage.fetch_pending_photos(conn, _registry())
+    assert pending == []
+    assert no_photos == []

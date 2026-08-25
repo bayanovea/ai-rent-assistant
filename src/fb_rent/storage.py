@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from . import ai_schema, extractors, rules
+from . import ai_schema, extractors, photos, rules
 
 
 CSV_COLUMNS: tuple[str, ...] = (
@@ -246,6 +246,22 @@ def _migrate(conn: sqlite3.Connection) -> None:
     have = {row["name"] for row in conn.execute("PRAGMA table_info(ai_analysis)")}
     if "comment" not in have:
         conn.execute("ALTER TABLE ai_analysis ADD COLUMN comment TEXT")
+
+    # The photo pass keeps its own columns next to the text pass: same shape
+    # (fields, hash, version, timestamp, model), separate lifecycle, so a
+    # re-analysed description never invalidates the picture reading.
+    have = {row["name"] for row in conn.execute("PRAGMA table_info(ai_analysis)")}
+    for column in (
+        "photo_data_json",
+        "photos_hash",
+        "photo_schema_version",
+        "photos_analyzed_at",
+        "photo_model",
+        "photo_comment",
+    ):
+        if column not in have:
+            kind = "INTEGER" if column == "photo_schema_version" else "TEXT"
+            conn.execute(f"ALTER TABLE ai_analysis ADD COLUMN {column} {kind}")
 
     have = {row["name"] for row in conn.execute("PRAGMA table_info(duplicates)")}
     if "url" not in have:
@@ -727,6 +743,106 @@ def fetch_pending(
         (pending if has_text else no_raw).append(listing)
 
     return PendingListings(pending=pending, no_raw=no_raw)
+
+
+class PendingPhotos(NamedTuple):
+    """Split of the photo queue: shots to look at vs. listings with none."""
+
+    pending: list[dict[str, Any]]
+    no_photos: list[dict[str, Any]]
+
+
+def _fields_of(raw: Any) -> dict[str, Any]:
+    """Return a stored ``*_data_json`` column as a dict, or an empty one."""
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        loaded = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def photo_fields_of(row: dict[str, Any]) -> dict[str, Any]:
+    """Return a row's ``photo_data_json`` as a dict, or an empty one."""
+    return _fields_of(row.get("photo_data_json"))
+
+
+def fetch_pending_photos(
+    conn: sqlite3.Connection,
+    registry: ai_schema.Registry,
+    *,
+    photo_analysis_version: int | None = None,
+) -> PendingPhotos:
+    """Split analysed listings into "needs a photo pass" and "has no photos".
+
+    Only listings the text pass already read are candidates, and only those
+    the rules still call ``active``: an auto-rejected ad is not worth six
+    images. A candidate is pending when it never had a photo pass, when the
+    photo set on disk changed under it (``photos_hash``), or when it was
+    read against an older registry than ``photo_analysis_version`` (which
+    defaults to the registry's own ``schema_version``). Reasons mirror the
+    text queue: ``new`` / ``changed`` / ``schema``.
+
+    Candidates with an empty or missing photo directory go to ``no_photos``
+    instead — they need a ``scrape --refresh`` before the pass can run.
+    """
+    wanted_version = (
+        registry.schema_version
+        if photo_analysis_version is None
+        else photo_analysis_version
+    )
+    rows = conn.execute(
+        """
+        SELECT l.*, a.data_json, a.data_quality,
+               a.photo_data_json, a.photos_hash AS analysed_photos_hash,
+               a.photo_schema_version, a.photos_analyzed_at
+        FROM listings AS l
+        JOIN ai_analysis AS a ON a.fb_id = l.fb_id
+        ORDER BY l.last_seen_at DESC
+        """
+    ).fetchall()
+
+    pending: list[dict[str, Any]] = []
+    no_photos: list[dict[str, Any]] = []
+
+    for row in rows:
+        listing = dict(row)
+        text_fields = _fields_of(listing.pop("data_json", None))
+        photo_data = photo_fields_of(listing)
+        merged = {**text_fields, **photo_data}
+        status, _reason = rules.decide(
+            merged, listing.get("price_thb"), listing.get("data_quality")
+        )
+        if status == "rejected":
+            continue
+
+        analysed_hash = listing.pop("analysed_photos_hash")
+        analysed_version = listing.pop("photo_schema_version")
+        analysed_at = listing.pop("photos_analyzed_at")
+        current_hash = photos.photos_hash(str(listing["fb_id"]))
+
+        if current_hash is None:
+            no_photos.append(listing)
+            continue
+
+        if analysed_at is None:
+            reason = "new"
+        elif analysed_hash != current_hash:
+            reason = "changed"
+        elif (analysed_version or 0) < wanted_version:
+            reason = "schema"
+        else:
+            continue
+
+        listing["photos_hash"] = current_hash
+        listing["pending_reason"] = reason
+        listing["analysed_photo_version"] = analysed_version or 0
+        pending.append(listing)
+
+    return PendingPhotos(pending=pending, no_photos=no_photos)
 
 
 def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:

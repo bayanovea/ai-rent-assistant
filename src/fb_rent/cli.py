@@ -56,6 +56,7 @@ from .storage import (
     export_csv,
     export_html,
     fetch_pending,
+    fetch_pending_photos,
     init_db,
     known_fb_ids,
     upsert_listing,
@@ -443,6 +444,10 @@ def export_cmd(csv_path: Path | None, html_path: Path | None) -> None:
 # catches up when the user asks for `--backfill`, and that is what decides
 # whether those rows are actually re-queued or left alone with their dash.
 _ANALYSIS_VERSION_KEY = "analysis_version"
+# The photo pass has its own pair of the same question: `photo_analysis_version`
+# is what a `--backfill` on a photo field moves, and it is what re-queues rows
+# the camera already looked at.
+_PHOTO_ANALYSIS_VERSION_KEY = "photo_analysis_version"
 
 
 def _registry_path(path: Path | None) -> Path:
@@ -471,6 +476,14 @@ def _raw_registry(path: Path | None = None) -> dict[str, Any]:
 def _analysis_version(raw: dict[str, Any]) -> int:
     """Version at which a re-analysis was last requested (defaults to current)."""
     value = raw.get(_ANALYSIS_VERSION_KEY)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return int(raw.get("schema_version") or 1)
+
+
+def _photo_analysis_version(raw: dict[str, Any]) -> int:
+    """Version at which a photo re-analysis was last requested."""
+    value = raw.get(_PHOTO_ANALYSIS_VERSION_KEY)
     if isinstance(value, int) and not isinstance(value, bool):
         return value
     return int(raw.get("schema_version") or 1)
@@ -530,6 +543,14 @@ def ai_status_cmd() -> None:
     try:
         analyzed = conn.execute("SELECT COUNT(*) FROM ai_analysis").fetchone()[0]
         pending, stale, no_raw = _queue(conn, registry)
+        photo_analyzed = conn.execute(
+            "SELECT COUNT(*) FROM ai_analysis WHERE photos_analyzed_at IS NOT NULL"
+        ).fetchone()[0]
+        photo_pending, no_photos = fetch_pending_photos(
+            conn,
+            registry,
+            photo_analysis_version=_photo_analysis_version(_raw_registry()),
+        )
     finally:
         conn.close()
 
@@ -557,6 +578,29 @@ def ai_status_cmd() -> None:
             click.echo(f"    - {row['fb_id']} {row.get('url') or ''}")
         if len(no_raw) > 10:
             click.echo(f"    ... and {len(no_raw) - 10} more")
+
+    photo_reasons: dict[str, int] = {}
+    for row in photo_pending:
+        reason = str(row.get("pending_reason"))
+        photo_reasons[reason] = photo_reasons.get(reason, 0) + 1
+    photo_detail = ", ".join(f"{k}: {v}" for k, v in sorted(photo_reasons.items()))
+
+    click.echo("Фото:")
+    click.echo(f"  Analyzed: {photo_analyzed}")
+    click.echo(
+        f"  Pending:  {len(photo_pending)}"
+        + (f" ({photo_detail})" if photo_detail else "")
+    )
+    click.echo(f"  No photos: {len(no_photos)}")
+    if no_photos:
+        click.echo(
+            "  These listings have no photos on disk — "
+            "run `fb-rent scrape --refresh` to fetch them:"
+        )
+        for row in no_photos[:10]:
+            click.echo(f"    - {row['fb_id']} {row.get('url') or ''}")
+        if len(no_photos) > 10:
+            click.echo(f"    ... and {len(no_photos) - 10} more")
 
 
 @main.command("ai-batch")
