@@ -3,6 +3,10 @@
 Project-specific things that are not obvious from the code. General layout,
 commands and rationale live in `README.md` and `docs/plans/`.
 
+**Coming back to the photo pass? Read `docs/photo-analysis.md` first.** It
+carries what the code cannot: live measurements, the decisions worth not
+undoing, and the open gaps. This file has only the technical traps.
+
 ## Photos
 
 **The gallery is in the DOM without a click.** Every detail page ships 10–28
