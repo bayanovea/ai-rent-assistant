@@ -10,11 +10,15 @@ Iteration 2 adds AI enrichment on top: an analysis loop that reads each
 listing's raw text, fills the table columns, writes a verdict per listing and
 auto-rejects the obvious misses — see [AI enrichment](#ai-enrichment) below.
 
+Iteration 3 adds a second pass over the listing *photos*, which checks what the
+text actually promised — see [Photo analysis](#photo-analysis).
+
 Design rationale, decisions, and the roadmap for future iterations live in the
 plan files:
 
 - iteration 1 (MVP): [`docs/plans/completed/20260824-fb-marketplace-scraper-mvp.md`](docs/plans/completed/20260824-fb-marketplace-scraper-mvp.md)
 - iteration 2 (AI enrichment): [`docs/plans/completed/20260825-ai-enrichment.md`](docs/plans/completed/20260825-ai-enrichment.md)
+- iteration 3 (photo analysis): [`docs/plans/completed/20260825-photo-analysis.md`](docs/plans/completed/20260825-photo-analysis.md)
 
 ## Install
 
@@ -26,6 +30,10 @@ source .venv/bin/activate
 pip install -e .
 playwright install chromium
 ```
+
+Dependencies are Playwright (the scrape), Click (the CLI), python-dateutil (the
+date parsing) and Pillow (`pillow>=10`, the photo downscale — see
+[Photo analysis](#photo-analysis)).
 
 The `-e` is required, not a convenience: `config/ai_fields.json` and
 `config/requirements.md` are read from the checkout through a path relative to
@@ -46,6 +54,7 @@ effort):
 
 ```
 /analyze               # ai-status -> ai-batch -> read -> ai-apply -> export
+/photo-analyze         # second pass over the listing photos, see below
 ```
 
 Open `../data/rentals.html` in a browser: one self-contained file, no server
@@ -79,8 +88,14 @@ to this `scrapper/` package):
   FB page or extracted by the AI — and the rarely-scanned fields fold away
   behind the "Ещё N полей" toggle. Self-contained, no CDN and no network;
   regenerated on every scrape
+- `photos/<fb_id>/` — up to 6 photos per listing, `01.jpg`…`06.jpg`, downscaled
+  to 1024 px on the long edge. Written during `scrape`, read by the photo pass,
+  and disposable: a directory deleted (or a listing re-scraped with
+  `--refresh`) is simply downloaded again. Auto-rejecting a listing or merging
+  it away in `fb-rent dedupe` purges its directory
 - `ai/` — batches written by `fb-rent ai-batch` and the result files you hand
-  back to `fb-rent ai-apply` (`batch-<ts>.json` / `result-<ts>.json`);
+  back to `fb-rent ai-apply` (`batch-<ts>.json` / `result-<ts>.json`), plus the
+  photo pass's own pair (`photo-batch-<ts>.json` / its result file);
   disposable, they are just the transport between the CLI and the AI
 - `decisions.json` — your own verdicts (`reject` / `unreject` / `shortlist`)
   with reasons. **The only irreplaceable file here**: the DB can be rebuilt by
@@ -124,6 +139,7 @@ CSV and HTML.
 | `--dry-run`       | off     | Print what would be written without touching the DB.     |
 | `--skip-details`  | off     | List cards only, skip per-item detail pages.             |
 | `--refresh`       | off     | Re-scrape detail pages for listings already in the DB.   |
+| `--no-photos`     | off     | Skip downloading listing photos (faster, no photo pass). |
 
 Detail requests are hard-capped at 60 per run to stay polite.
 
@@ -250,6 +266,7 @@ fb-rent ai-field add --key balcony --label Balcony --type enum --values yes,no,u
 | `--prompt`   | Extraction instruction handed to the AI.                           |
 | `--after`    | Insert right after an existing key instead of at the end.          |
 | `--backfill` | Re-queue already-analysed listings so the AI fills the new field.  |
+| `--source`   | Which pass fills the field: `text` (default), `photo` or `both`.   |
 | `--registry` | Registry file to read/modify (default `config/ai_fields.json`).    |
 
 Every `add` bumps `schema_version`. What `--backfill` changes is
@@ -280,6 +297,72 @@ fb-rent export                       # refresh the table
 back (overriding an AI rejection), `shortlist` marks it as worth contacting.
 The HTML export has an Active / Shortlist / Rejected / All tab strip, shows the
 reason on rejected rows, and marks shortlisted ones with a yellow bar.
+
+## Photo analysis
+
+The text pass believes the ad. The photo pass checks it: "fully furnished" is
+in every listing, and only the picture says what that means. Its main product
+is therefore not new facts but **disagreements with the text** — a `condition`
+that was `unclear` in prose and is visibly worn in the photo, a `kitchen`
+promised as full and shown as a kitchenette, a listing whose gallery is a 3D
+render rather than a photo of the actual flat (`photo_quality: render`).
+
+Photos are downloaded during `fb-rent scrape` (skip with `--no-photos`), taken
+straight from the detail page's DOM — the gallery is there without opening the
+lightbox. Three limiters keep the pass at roughly ×2.8 the token cost of the
+text-only loop instead of ×12:
+
+- **6 photos per listing** — the cover plus 5 spread evenly over the rest. A
+  gallery is mostly three angles of the same bedroom; walking it evenly covers
+  the rooms instead
+- **1024 px on the long edge**, JPEG q80 — ~1050 tokens per photo, ~6.3k per
+  listing. Mould in a corner and wall texture are still legible. Facebook hands
+  out 960 px anyway, so this is in practice "do not upscale"
+- **survivors only** — the queue skips anything the text pass already
+  auto-rejected, which is about a quarter of every batch
+
+The reader is a **Sonnet subagent, one per listing**: the images never enter
+the orchestrator's context at all, and up to ~12 subagents run at once, so 50
+listings finish in minutes. Sonnet is enough because the questions are
+concrete and visual ("is there a sofa", "is this a render") rather than
+judgement calls — the judgement stays in `rules.py`. Bumping the fan-out to
+Opus is one line in the skill if a batch proves it necessary.
+
+```
+fb-rent ai-status                  # the "Фото" block: analysed / pending / no photos
+fb-rent photo-batch --limit 25     # -> ../data/ai/photo-batch-<ts>.json
+   ... one subagent per listing reads its 6 files and returns JSON
+fb-rent photo-apply <result.json>  # store photo fields, recompute rules
+fb-rent export                     # regenerate CSV + HTML
+```
+
+In a Claude Code session, `/photo-analyze` drives that loop (skill:
+`.claude/skills/photo-analyze/SKILL.md`); `/analyze` offers to hand over to it
+once the text pass leaves a non-empty photo queue.
+
+`photo-batch` mirrors `ai-batch` flag for flag (`--limit` 25, `--all`, `--ids`,
+`--out`) and `photo-apply` takes `--dry-run`. Which fields a pass may fill is
+declared in the registry: each field carries `source` — `text` (the default),
+`photo`, or `both` — and the photo batch ships only the `photo`/`both` subset,
+along with what the text pass already claimed for those fields, so the model
+can see what it is contradicting. Photo fields have their own
+`photo_analysis_version`, so `ai-field add --source photo --backfill` re-queues
+the photo pass without disturbing the text one.
+
+`photo-apply` writes into separate columns and merges on read
+(`{**text, **photo}`), so the two passes never overwrite each other: dropping
+the photo columns leaves the text analysis intact. After writing it recomputes
+`rules.decide` and `rules.score` over the merged fields, which means the photo
+pass can auto-reject a listing (a photographed studio, a size that turns out
+below the floor) and always shifts the score. In the HTML export photo fields
+get their own band, and a cell where the photo overrode a non-empty text value
+carries a badge with the old value in its tooltip.
+
+A result whose `photos_hash` no longer matches what is on disk is **skipped**,
+not written — unlike the text pass, which re-writes anyway. Text can be
+re-read; an analysis of photos that have since changed describes a different
+flat, and storing it would attribute someone else's observations to this
+listing.
 
 ## Troubleshooting
 

@@ -1,0 +1,44 @@
+# fb-rent — notes for Claude
+
+Project-specific things that are not obvious from the code. General layout,
+commands and rationale live in `README.md` and `docs/plans/`.
+
+## Photos
+
+**The gallery is in the DOM without a click.** Every detail page ships 10–28
+`img` elements from the gallery in `page.content()`; opening the lightbox is
+neither necessary nor possible (an overlay eats the pointer events on the
+cover). `extract_gallery_urls` picks them locale-independently: `img` with
+`/t39.30808-6/` in `src` and a non-empty `alt`, grouped by `alt`, largest group
+wins (gallery photos share one `alt`, "similar listings" cards each have their
+own). Do not filter on `aria-label` numbering (locale-dependent) or on
+`cstp=mx` (drags in the 565×565 recommendation cards).
+
+**`context.request.get` works on signed CDN URLs.** The persistent browser
+context shares its cookies with its request client, so no separate HTTP client
+and no cookie plumbing is needed — 6 files download in 1–2 s. Facebook serves
+960 px on the long edge, so the 1024 px cap in `config.py` is effectively "do
+not upscale".
+
+**`photos_hash` is the photo pass's `content_key`.** It is what re-queues a
+listing, so anything that rewrites the directory re-queues it. `_download_photos`
+therefore leaves a non-empty directory alone; a genuine refetch means purging
+first.
+
+## Subagent fan-out
+
+The photo pass reads images in subagents, one per listing
+(`.claude/skills/photo-analyze/SKILL.md`) — images never enter the
+orchestrator's context. Launch the independent ones in a single message so they
+run in parallel (~12 at a time). The subagent returns JSON only; it never sets
+`verdict`, `score` or `status` — `rules.py` computes those from the fields, and
+that boundary is the reason the same facts always produce the same outcome.
+
+## Two passes, two versions
+
+`analysis_version` re-queues the text pass, `photo_analysis_version` the photo
+one; `ai-field add --source both --backfill` moves both. Text and photo results
+live in separate columns on `ai_analysis` and are merged on read
+(`{**data_json, **photo_data_json}`), so neither pass can clobber the other.
+Staleness hatching in the export must be computed against the field's own
+version — using `ai_schema_version` for a photo field hatches every row.
