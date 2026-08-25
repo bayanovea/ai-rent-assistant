@@ -431,11 +431,32 @@ def test_fetch_enriched_joins_analysis_and_fields(conn):
     row = rows[0]
     assert row["title"] == "Cozy 2BR villa in Rawai"
     assert row["verdict"].startswith("Дом в посёлке")
-    assert row["score"] == 62
+    # Recomputed from the fields and the district, not the stored 62.
+    assert row["score"] == rules.score(row["fields"], "Rawai")
     assert row["fields"]["pets"]["v"] == "unclear"
     assert row["analyzed"] is True
     assert row["status"] == "active"
     assert row["decided_by"] is None
+
+
+def test_fetch_enriched_rescores_instead_of_reading_the_stored_column(conn):
+    # A weights change has to reach rows analysed before it, so the score is
+    # derived on read exactly like the verdict is.
+    storage.upsert_listing(conn, _make_listing(district="Kathu, Phuket, Thailand"))
+    storage.upsert_ai_analysis(conn, _make_analysis(score=7))
+
+    row = storage.fetch_enriched(conn)[0]
+    assert row["score"] != 7
+    assert row["score"] == rules.score(row["fields"], "Kathu, Phuket, Thailand")
+
+
+def test_fetch_enriched_rejects_a_listing_facebook_tagged_as_patong(conn):
+    storage.upsert_listing(conn, _make_listing(district="Patong"))
+    storage.upsert_ai_analysis(conn, _make_analysis())
+
+    row = storage.fetch_enriched(conn)[0]
+    assert row["ai_status"] == "rejected"
+    assert row["ai_reason"] == rules.REASON_AREA
 
 
 def test_fetch_enriched_marks_unanalysed_listing(conn):

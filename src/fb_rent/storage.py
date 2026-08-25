@@ -990,7 +990,10 @@ def fetch_pending_photos(
         else:
             merged = {**text_fields, **photo_data}
             status, _reason = rules.decide(
-                merged, listing.get("price_thb"), listing.get("data_quality")
+                merged,
+                listing.get("price_thb"),
+                listing.get("data_quality"),
+                listing.get("district"),
             )
             if status == "rejected":
                 continue
@@ -1030,10 +1033,11 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     it filled and ``photo_overrides`` maps the keys where it contradicted a
     non-empty text value to that old value, so the export can flag them.
 
-    ``ai_status`` / ``ai_reason`` are recomputed from the merged fields and
-    the row's ``data_quality`` by :mod:`.rules`, so a rule change takes effect
-    without re-running the AI. A user decision always wins: ``status``,
-    ``reason`` and ``decided_by`` reflect the file-backed ``decisions`` table
+    ``ai_status`` / ``ai_reason`` and ``score`` are recomputed from the merged
+    fields, the row's ``data_quality`` and its district by :mod:`.rules`, so a
+    rule change takes effect without re-running the AI — the stored ``score``
+    column is only what the last pass computed. A user decision always wins:
+    ``status``, ``reason`` and ``decided_by`` reflect the ``decisions`` table
     whenever it has a row for the listing.
     """
     rows = conn.execute(
@@ -1069,8 +1073,12 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
         if item["analyzed"]:
             ai_status, ai_reason = rules.decide(
-                fields, item.get("price_thb"), item.get("data_quality")
+                fields,
+                item.get("price_thb"),
+                item.get("data_quality"),
+                item.get("district"),
             )
+            item["score"] = rules.score(fields, item.get("district"))
         else:
             ai_status, ai_reason = "active", None
         item["ai_status"] = ai_status
@@ -1679,7 +1687,7 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
         },
         "area": {
             "t": _display(area),
-            "c": "",
+            "c": rules.area_class(area),
             "src": "ai" if not rules.is_empty(ai_area) else "fb",
         },
         "first_seen_at": {"t": str(first_seen)[:10], "c": ""},

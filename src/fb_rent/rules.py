@@ -2,9 +2,10 @@
 
 Two questions live here, both answered from the AI's extracted fields:
 
-* :func:`decide` — is this listing still worth looking at? Exactly four
-  conditions auto-reject (pets forbidden, far over budget, explicit studio,
-  living area under `MIN_SIZE_SQM`).
+* :func:`decide` — is this listing still worth looking at? Exactly five
+  conditions auto-reject (pets forbidden, a district rated at or below
+  `_AREA_REJECT_MAX`, far over budget, explicit studio, living area under
+  `MIN_SIZE_SQM`).
   Everything else is a flag in the verdict, never a rejection: more rooms
   than asked for is a bonus, an unmentioned living room is silence rather
   than a defect, and poor `data_quality` means "re-scrape", not "drop".
@@ -29,6 +30,7 @@ from .config import (
 
 # Reasons attached to auto-rejections, in the order they are checked.
 REASON_PETS = "Животные запрещены"
+REASON_AREA = "Район в автоотказе"
 REASON_PRICE = "Сильно вне бюджета"
 REASON_STUDIO = "Студия"
 REASON_SIZE = f"Меньше {MIN_SIZE_SQM} м²"
@@ -79,18 +81,110 @@ def is_empty(value: Any) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
+# Districts of Phuket on the user's own 1-5 scale. The numbers are personal,
+# not geographic: 5 is Kathu and Bang Tao, 4 is a quiet
+# place to actually live with a dog, 3.5 is "fine but touristy or far from
+# everything", 3 is indifferent, 1 auto-rejects. Beach proximity is already
+# baked into these numbers — it is a nice-to-have, never a criterion of its
+# own, so there is no separate distance-to-the-sea bonus anywhere.
+#
+# Aliases are matched whole-word against a space-normalised string, which is
+# why every spelling FB and the AI actually produce is listed separately
+# (`Ka Rorn` is FB's Karon, `Ban Ket Ho` is a village inside Kathu).
+_RATED_AREAS: tuple[tuple[float, tuple[str, ...]], ...] = (
+    (5.0, ("kathu", "ket ho", "ketho", "loch palm", "lochpalm", "bang tao",
+           "bangtao", "кату", "катху", "банг тао", "бангтао")),
+    (4.5, ("cherngtalay", "cherng talay", "choeng thale", "choengthale",
+           "laguna", "surin", "boat avenue", "boatavenue", "layan")),
+    (4.0, ("rawai", "nai harn", "naiharn", "nai yang", "naiyang", "nai thon",
+           "naithon", "mai khao", "maikhao", "sakhu", "airport", "аэропорт",
+           "old town", "oldtown", "talat nuea", "talatnuea", "talat yai",
+           "talatyai", "раваи", "равай")),
+    (3.5, ("kata", "karon", "ka rorn", "karorn", "thalang", "si sunthon",
+           "sisunthon", "sri soonthorn", "srisoonthorn", "bang jo", "bangjo",
+           "koh kaew", "kohkaew", "ko kaeo", "pa khlok", "pakhlok", "paklok",
+           "kamala", "panwa", "phuket town", "phukettown", "mueang phuket",
+           "ката", "карон", "тхаланг", "камала")),
+    (3.0, ("chalong", "wichit", "samkong", "sam kong", "ratsada", "rassada",
+           "sapam", "ao po", "aopo", "koh siray", "ko sireh", "чалонг")),
+    (1.0, ("patong", "патонг", "патонге")),
+)
+
+_AREA_RATINGS: dict[str, float] = {
+    alias: rating for rating, aliases in _RATED_AREAS for alias in aliases
+}
+
+# A rating at or below this rejects outright; the pivot scores zero, and every
+# half-step away from it is worth `_AREA_WEIGHT / 2` points.
+_AREA_REJECT_MAX = 1.5
+_AREA_PIVOT = 3.5
+_AREA_WEIGHT = 8
+
+
+def _area_words(text: Any) -> str:
+    """Reduce a location string to ` word word ` for whole-word matching."""
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    chars = [ch.lower() if ch.isalnum() else " " for ch in text]
+    return " " + " ".join("".join(chars).split()) + " "
+
+
+def district_rating(text: Any) -> float | None:
+    """Return the 1-5 rating of the district named in ``text``.
+
+    The AI writes `area` as free text and often names two places at once
+    (``Cherngtalay, Thalang``, ``Nai Harn, Rawai``, ``Kathu, 10 мин до
+    Patong``). The **first** name wins, because that is where the ad puts the
+    listing itself and everything after it is context — taking the best or the
+    worst match instead would rate a Kathu house by its distance to Patong.
+    ``None`` means no known district was mentioned, which costs nothing.
+    """
+    haystack = _area_words(text)
+    if not haystack:
+        return None
+
+    best: tuple[int, int, float] | None = None
+    for alias, rating in _AREA_RATINGS.items():
+        found = haystack.find(f" {alias} ")
+        if found < 0:
+            continue
+        # Earliest mention wins; on a shared start the longer name is the
+        # more specific one (`bang tao` over a hypothetical `bang`).
+        candidate = (found, -len(alias), rating)
+        if best is None or candidate < best:
+            best = candidate
+    return best[2] if best else None
+
+
+def area_rating(fields: dict[str, Any], district: str | None = None) -> float | None:
+    """Rating of a listing's district: the AI's `area` first, FB's tag after.
+
+    Same order the export uses to fill the district column, and for the same
+    reason — the AI read the ad text, FB's own tag is where the poster
+    dropped a pin and is often just ``Changwat Phuket``.
+    """
+    for text in (value_of(fields, "area"), district):
+        rating = district_rating(text)
+        if rating is not None:
+            return rating
+    return None
+
+
 def decide(
     fields: dict[str, Any],
     price_thb: int | None = None,
     data_quality: str | None = None,
+    district: str | None = None,
 ) -> tuple[str, str | None]:
     """Return ``("active" | "rejected", reason)`` for one listing.
 
     ``price_thb`` is the listing's own price; it falls back to the AI's
-    ``price_month_thb`` when the scraper never captured one. Anything not
-    listed below stays active — condos, missing parking and weak internet
-    are all flags for the verdict, not rejections. The same holds for a
-    missing ``size_sqm``: silence about the area is never a rejection.
+    ``price_month_thb`` when the scraper never captured one. ``district`` is
+    FB's own location tag, used only when the AI never named an area.
+    Anything not listed below stays active — condos, missing parking and weak
+    internet are all flags for the verdict, not rejections. The same holds for
+    a missing ``size_sqm``: silence about the area is never a rejection, and a
+    district nobody named is not a rejection either.
 
     ``data_quality`` other than ``good`` suppresses every rejection: the
     text the AI read was the sidebar or was missing entirely, so its
@@ -103,6 +197,12 @@ def decide(
 
     if value_of(fields, "pets") == "not_allowed":
         return "rejected", REASON_PETS
+
+    # Patong is out whatever the flat looks like, so this is checked before
+    # price and size rather than left to cost points in `score`.
+    rating = area_rating(fields, district)
+    if rating is not None and rating <= _AREA_REJECT_MAX:
+        return "rejected", REASON_AREA
 
     price = price_thb if price_thb is not None else _as_int(
         value_of(fields, "price_month_thb")
@@ -199,14 +299,36 @@ _ENUM_WEIGHTS: dict[str, dict[str, int]] = {
 _BASELINE = 50
 
 
-def score(fields: dict[str, Any]) -> int:
+def area_class(text: Any) -> str:
+    """Colour for the district cell, from the same 1-5 scale as the score."""
+    rating = district_rating(text)
+    if rating is None:
+        return CLASS_PLAIN
+    if rating <= _AREA_REJECT_MAX:
+        return CLASS_BAD
+    if rating >= _AREA_PIVOT + 1:
+        return CLASS_GOOD
+    if rating < _AREA_PIVOT:
+        return CLASS_WARN
+    return CLASS_PLAIN
+
+
+def score(fields: dict[str, Any], district: str | None = None) -> int:
     """Rank a listing 0-100 against `config/requirements.md`.
 
     Extra rooms, a green area, parking and security push the score up;
     only explicit mismatches (no pets, kitchenette, over budget) push it
-    down. Fields the ad never mentions leave the score untouched.
+    down. Fields the ad never mentions leave the score untouched — including
+    the district, which is why an unrecognised area is worth exactly zero
+    rather than a penalty.
     """
     total = _BASELINE
+
+    rating = area_rating(fields, district)
+    if rating is not None:
+        # Linear around the pivot: Kathu and Bang Tao (5) are worth +12,
+        # Kata and Karon (3.5) nothing, Chalong and Wichit (3) −4.
+        total += round((rating - _AREA_PIVOT) * _AREA_WEIGHT)
 
     for key, weights in _ENUM_WEIGHTS.items():
         value = value_of(fields, key)

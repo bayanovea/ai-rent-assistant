@@ -9,12 +9,15 @@ from fb_rent.rules import (
     CLASS_PLAIN,
     CLASS_STALE,
     CLASS_WARN,
+    REASON_AREA,
     REASON_PETS,
     REASON_PRICE,
     REASON_SIZE,
     REASON_STUDIO,
+    area_class,
     cell_class,
     decide,
+    district_rating,
     score,
 )
 
@@ -151,7 +154,77 @@ def test_genuine_photos_are_the_norm_not_a_bonus():
     assert score(wrap(photo_quality="unclear")) == baseline
 
 
+# --- districts ----------------------------------------------------------
+
+
+def test_patong_is_rejected():
+    assert decide(wrap(area="Patong", bedrooms=2), 20_000) == ("rejected", REASON_AREA)
+
+
+def test_patong_from_facebooks_own_tag_is_rejected():
+    # The AI never named an area; FB's location tag is the only thing left.
+    status, reason = decide(wrap(bedrooms=2), 20_000, "good", "Patong")
+    assert (status, reason) == ("rejected", REASON_AREA)
+
+
+def test_patong_as_a_landmark_does_not_reject_a_kathu_house():
+    # The first name is where the flat is; everything after it is context.
+    assert decide(wrap(area="Kathu, 10 мин до Patong"), 20_000) == ("active", None)
+    assert district_rating("Kathu, 10 мин до Patong") == 5.0
+
+
+def test_the_first_district_named_wins():
+    assert district_rating("Cherngtalay, Thalang") == 4.5
+    assert district_rating("Nai Harn, Rawai") == 4.0
+    assert district_rating("Samkong, Phuket Town") == 3.0
+    assert district_rating("Koh Kaew — Sapam") == 3.5
+
+
+def test_facebook_spellings_are_recognised():
+    assert district_rating("Ban Ket Ho, Phuket, Thailand") == 5.0
+    assert district_rating("Ka Rorn, Phuket, Thailand") == 3.5
+    assert district_rating("Amphoe Thalang") == 3.5
+    assert district_rating("Bangtao, Cherngtalay") == 5.0
+
+
+def test_a_district_nobody_named_is_unrated():
+    assert district_rating("Changwat Phuket, Phuket, Thailand") is None
+    assert district_rating("рядом с объездной и IKEA") is None
+    assert district_rating("") is None
+    assert district_rating(None) is None
+
+
+def test_district_moves_the_score_around_the_pivot():
+    baseline = score({})
+    assert score(wrap(area="Kathu")) == baseline + 12
+    assert score(wrap(area="Cherngtalay")) == baseline + 8
+    assert score(wrap(area="Rawai")) == baseline + 4
+    assert score(wrap(area="Kata")) == baseline
+    assert score(wrap(area="Chalong")) == baseline - 4
+
+
+def test_an_unknown_district_costs_nothing():
+    # Silence about the area is not evidence that the area is bad.
+    assert score(wrap(area="")) == score({}) == score(wrap(area="Пхукет"))
+
+
+def test_facebooks_district_scores_only_when_the_ai_named_none():
+    assert score(wrap(area="Chalong"), "Kathu, Phuket, Thailand") == score({}) - 4
+    assert score(wrap(area=""), "Kathu, Phuket, Thailand") == score({}) + 12
+
+
 # --- cell colours -------------------------------------------------------
+
+
+def test_district_cell_colour_follows_the_rating():
+    assert area_class("Kathu") == CLASS_GOOD
+    assert area_class("Cherngtalay") == CLASS_GOOD
+    assert area_class("Rawai") == CLASS_PLAIN
+    assert area_class("Kata") == CLASS_PLAIN
+    assert area_class("Wichit") == CLASS_WARN
+    assert area_class("Patong") == CLASS_BAD
+    assert area_class("") == CLASS_PLAIN
+
 
 
 def test_size_below_the_floor_is_red():

@@ -336,7 +336,7 @@ def apply_results(
 
         data_quality = entry.get("data_quality")
         status, reason = rules.decide(
-            fields, listing.get("price_thb"), data_quality
+            fields, listing.get("price_thb"), data_quality, listing.get("district")
         )
         if status == "rejected" and reason:
             report.rejected.append((fb_id, reason))
@@ -369,7 +369,7 @@ def apply_results(
                 "model": model,
                 "verdict": entry["verdict"],
                 "comment": entry.get("comment"),
-                "score": rules.score(fields),
+                "score": rules.score(fields, listing.get("district")),
                 "data_quality": data_quality,
                 "data_json": fields,
             },

@@ -285,7 +285,7 @@ def apply_photo_results(
 
         row = conn.execute(
             """
-            SELECT l.price_thb, a.data_json, a.data_quality
+            SELECT l.price_thb, l.district, a.data_json, a.data_quality
             FROM listings AS l
             JOIN ai_analysis AS a ON a.fb_id = l.fb_id
             WHERE l.fb_id = ?
@@ -313,8 +313,11 @@ def apply_photo_results(
         report.overrides.extend(_overrides(fb_id, text_fields, photo_data))
 
         data_quality = row["data_quality"]
-        before, _ = rules.decide(text_fields, row["price_thb"], data_quality)
-        status, reason = rules.decide(merged, row["price_thb"], data_quality)
+        district = row["district"]
+        before, _ = rules.decide(
+            text_fields, row["price_thb"], data_quality, district
+        )
+        status, reason = rules.decide(merged, row["price_thb"], data_quality, district)
         if status == "rejected" and before != "rejected" and reason:
             report.rejected.append((fb_id, reason))
 
@@ -335,7 +338,7 @@ def apply_photo_results(
                 "photo_model": model,
                 "photo_comment": entry.get("comment"),
                 "photo_data_json": photo_data,
-                "score": rules.score(merged),
+                "score": rules.score(merged, district),
             },
         )
 

@@ -133,7 +133,7 @@
       "group": "property",
       "type": "text",
       "added_in": 1,
-      "prompt": "Нормализованный район Пхукета: Kathu, Chalong, Rawai, Thalang, Phuket Town и т.п."
+      "prompt": "Нормализованный район Пхукета латиницей: Kathu, Bang Tao, Cherngtalay, Rawai, Nai Harn, Chalong, Wichit, Thalang, Phuket Town, Kata, Karon, Kamala, Patong и т.п. Район считается кодом в Score, поэтому ПЕРВЫМ ставь тот, где стоит сам дом, а уточнения и ориентиры — после запятой ('Kathu, 10 мин до Patong', а не наоборот)."
     },
     {
       "key": "size_sqm",

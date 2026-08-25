@@ -348,7 +348,8 @@ def test_apply_photo_results_rescores_from_the_merged_fields(
             "pets": {"v": "allowed"},
             "furnished": {"v": "full"},
             "living_room": {"v": "yes"},
-        }
+        },
+        "Kathu, Phuket",
     )
 
 
