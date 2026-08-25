@@ -1045,14 +1045,20 @@ def test_dedupe_records_the_url_of_every_collapsed_repost(conn):
 # --- one flat, several agents -------------------------------------------
 
 
-def _analysed(conn, fb_id: str, body: str, price: int, **fields):
+def _analysed(conn, fb_id: str, body: str, price: int, data_quality="good", **fields):
     """A listing plus the AI fields the near-duplicate rules read."""
     listing = _with_body(fb_id, body, price=price)
     storage.upsert_listing(conn, listing)
     data = {k: {"v": v, "conf": "high", "ev": ""} for k, v in fields.items()}
     data["price_month_thb"] = {"v": price, "conf": "high", "ev": ""}
     storage.upsert_ai_analysis(
-        conn, _make_analysis(fb_id=fb_id, source_hash="h-" + fb_id, data_json=data)
+        conn,
+        _make_analysis(
+            fb_id=fb_id,
+            source_hash="h-" + fb_id,
+            data_json=data,
+            data_quality=data_quality,
+        ),
     )
     return listing
 
@@ -1102,6 +1108,87 @@ def test_different_buildings_of_one_project_stay_apart(conn):
 def test_same_project_at_a_different_price_stays_apart(conn):
     _analysed(conn, "cheap", _AD, 15000, project_name="The Base Downtown", bedrooms=1)
     _analysed(conn, "pricey", _AD_B, 16000, project_name="The Base Downtown", bedrooms=1)
+
+    assert storage.dedupe_listings(conn, dry_run=True) == []
+
+
+def test_a_trailing_word_in_the_project_name_still_matches(conn):
+    # One agent writes the estate's full name, the other trims it. The ratio
+    # alone drops to 0.82 on that suffix, below the threshold.
+    _analysed(conn, "long", _AD, 26000, project_name="Pruksa Ville Thalang Hillside",
+              bedrooms=3, property_type="house")
+    _analysed(conn, "short", _AD_B, 26000, project_name="Pruksa Ville Thalang",
+              bedrooms=3, property_type="house")
+
+    collapsed = storage.dedupe_listings(conn, dry_run=True)
+    assert len(collapsed) == 1
+    assert collapsed[0]["reason"] == "facts"
+
+
+def test_one_house_priced_a_thousand_apart_collapses(conn):
+    # Each agent adds his own margin to the same house.
+    _analysed(conn, "cheap", _AD, 25000, project_name="Pruksa Ville Thalang",
+              bedrooms=3, property_type="house")
+    _analysed(conn, "pricey", _AD_B, 26000, project_name="Pruksa Ville Thalang",
+              bedrooms=3, property_type="house")
+
+    collapsed = storage.dedupe_listings(conn, dry_run=True)
+    assert len(collapsed) == 1
+    assert collapsed[0]["reason"] == "facts"
+
+
+def test_two_condo_units_priced_a_thousand_apart_stay_apart(conn):
+    # The same slack inside a condo project would merge two different units,
+    # so it is not granted there.
+    _analysed(conn, "unit-a", _AD, 15000, project_name="The Base Downtown",
+              bedrooms=1, property_type="condo")
+    _analysed(conn, "unit-b", _AD_B, 16000, project_name="The Base Downtown",
+              bedrooms=1, property_type="condo")
+
+    assert storage.dedupe_listings(conn, dry_run=True) == []
+
+
+def test_houses_priced_far_apart_stay_apart(conn):
+    _analysed(conn, "cheap", _AD, 25000, project_name="Pruksa Ville Thalang",
+              bedrooms=3, property_type="house")
+    _analysed(conn, "pricey", _AD_B, 27000, project_name="Pruksa Ville Thalang",
+              bedrooms=3, property_type="house")
+
+    assert storage.dedupe_listings(conn, dry_run=True) == []
+
+
+def test_sidebar_noise_never_matches_on_text(conn):
+    # When the scrape stored the Facebook sidebar instead of the ad, that text
+    # is identical across listings — a house and a condo in another project
+    # would read 100% alike and collapse into one.
+    sidebar = (
+        "Выбор дня Пхукет 40 км Недавно опубликовано 12 000 ฿ 1 Bed 1 Bath "
+        "Apartment Sale Rent Phuket Property MacBook Air 2015 Phuket Market"
+    )
+    _analysed(conn, "house", sidebar, 28000, data_quality="sidebar_noise",
+              project_name="Chaofa Villa", bedrooms=3, property_type="house")
+    _analysed(conn, "condo", sidebar, 20000, data_quality="sidebar_noise",
+              project_name="The Base Central", bedrooms=1, property_type="condo")
+
+    assert storage.dedupe_listings(conn, dry_run=True) == []
+
+
+def test_a_readable_ad_still_matches_on_text(conn):
+    # The guard is about bad data, not about the text rule itself.
+    _analysed(conn, "a", _AD, 17000, project_name="Phanason Green Place", bedrooms=1)
+    _analysed(conn, "b", _AD + " Call today", 17000,
+              project_name="Phanason Green Place", bedrooms=1)
+
+    assert len(storage.dedupe_listings(conn, dry_run=True)) == 1
+
+
+def test_an_unrelated_project_sharing_a_word_stays_apart(conn):
+    # Subset matching is on whole words, so "Green Place" is not swallowed by
+    # "Green Place Two" unless every word lines up.
+    _analysed(conn, "a", _AD, 20000, project_name="Chanakan Bo Ore",
+              bedrooms=3, property_type="house")
+    _analysed(conn, "b", _AD_B, 20000, project_name="Chanakan Delight",
+              bedrooms=3, property_type="house")
 
     assert storage.dedupe_listings(conn, dry_run=True) == []
 

@@ -60,6 +60,16 @@ first screens, and an index-based cap spends the whole budget on cards whose
 detail page is skipped anyway. Rows are upserted inside the loop, so a run that
 dies at minute 40 keeps its work; the exports are the only stale part.
 
+**A card-only row still counts as known.** `known_fb_ids` (`storage.py:612`)
+returns every `fb_id` in the table, and does not care whether the row has a
+description. When the detail budget runs out mid-run the loop keeps writing the
+remaining cards as rows with a title and a price and nothing else — and those
+rows then make the *next* run skip their detail pages forever. `--refresh`
+is the wrong fix (it re-reads the rows that are already complete and burns the
+budget on them); the right one is `--ids` over
+`select fb_id from listings where description is null`. The 2026-08-25 sweep
+left 594 such rows — see `docs/scrape-log.md`.
+
 ## Subagent fan-out
 
 The photo pass reads images in subagents, one per listing

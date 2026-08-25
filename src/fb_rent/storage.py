@@ -146,6 +146,12 @@ _TEXT_MATCH_RATIO = 0.9
 _PROJECT_MATCH_RATIO = 0.85
 # Two agents measuring the same flat disagree by a metre or two.
 _SIZE_TOLERANCE_SQM = 3
+# Two agents pricing one house rarely agree to the baht — each adds his own
+# margin. Inside a condo the opposite holds: a project holds hundreds of
+# near-identical units, so a price gap there is the very thing that tells
+# them apart. The tolerance is therefore houses only.
+_HOUSE_TYPES = frozenset({"house", "townhouse", "villa"})
+_HOUSE_PRICE_TOLERANCE_THB = 1000
 
 
 def _first_match(patterns: tuple[re.Pattern[str], ...], text: str) -> str | None:
@@ -400,16 +406,27 @@ def upsert_listing(
 
 
 def _listing_signature(
-    listing: dict[str, Any], fields: dict[str, Any]
+    listing: dict[str, Any],
+    fields: dict[str, Any],
+    data_quality: str | None = None,
 ) -> dict[str, Any]:
-    """Everything the near-duplicate check needs about one listing."""
+    """Everything the near-duplicate check needs about one listing.
+
+    ``data_quality`` other than ``good`` empties the word set, the same way
+    it suppresses a rejection in :func:`rules.decide`: what got stored was
+    the Facebook sidebar, not the ad. That sidebar is identical across
+    listings, so leaving it in would match every such row against every
+    other at 100% and collapse unrelated flats into one.
+    """
     text = _ad_text(listing)
+    is_ad = not data_quality or data_quality == "good"
     return {
         "fb_id": str(listing["fb_id"]),
-        "text_len": len(text),
-        "words": frozenset(_WORD_RE.findall(text.lower())),
+        "text_len": len(text) if is_ad else 0,
+        "words": frozenset(_WORD_RE.findall(text.lower())) if is_ad else frozenset(),
         "project": _normalise_project(rules.value_of(fields, "project_name")),
         "price": rules.value_of(fields, "price_month_thb") or listing.get("price_thb"),
+        "property_type": rules.value_of(fields, "property_type"),
         "bedrooms": rules.value_of(fields, "bedrooms"),
         "size": rules.value_of(fields, "size_sqm"),
         "floor": _first_match(_FLOOR_PATTERNS, text),
@@ -434,6 +451,42 @@ def _contradicts(a: dict[str, Any], b: dict[str, Any]) -> bool:
     return False
 
 
+def _same_project(a: str, b: str) -> bool:
+    """Whether two project names denote one project.
+
+    Names arrive misspelled and half transliterated, which the ratio covers,
+    and they also arrive trimmed: one agent's "Pruksa Ville Thalang" is
+    another's "Pruksa Ville Thalang Hillside". A trailing word like that costs
+    enough ratio to miss the threshold, so one name's words being a subset of
+    the other's counts as well.
+    """
+    if difflib.SequenceMatcher(None, a, b).ratio() >= _PROJECT_MATCH_RATIO:
+        return True
+    words_a, words_b = set(a.split()), set(b.split())
+    if not (words_a and words_b):
+        return False
+    return words_a <= words_b or words_b <= words_a
+
+
+def _price_matches(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Whether the two ads agree on the rent.
+
+    Exact equality, except between houses — see ``_HOUSE_PRICE_TOLERANCE_THB``.
+    """
+    price_a, price_b = a["price"], b["price"]
+    if price_a is None or price_b is None:
+        return False
+    if price_a == price_b:
+        return True
+    if not (
+        a["property_type"] in _HOUSE_TYPES and b["property_type"] in _HOUSE_TYPES
+    ):
+        return False
+    if not (isinstance(price_a, int) and isinstance(price_b, int)):
+        return False
+    return abs(price_a - price_b) <= _HOUSE_PRICE_TOLERANCE_THB
+
+
 def same_property(a: dict[str, Any], b: dict[str, Any]) -> str | None:
     """Why two listings are the same flat, or ``None`` if they are not.
 
@@ -446,6 +499,9 @@ def same_property(a: dict[str, Any], b: dict[str, Any]) -> str | None:
     ``facts``
         Same project, same price, same bedroom count. This is what catches
         one flat listed by several agents, who each write their own text.
+        Both the project name and the price are matched with the slack that
+        such ads actually carry — see :func:`_same_project` and
+        :func:`_price_matches`.
     """
     if _contradicts(a, b):
         return None
@@ -459,12 +515,10 @@ def same_property(a: dict[str, Any], b: dict[str, Any]) -> str | None:
     if (
         a["project"]
         and b["project"]
-        and a["price"] is not None
-        and a["price"] == b["price"]
+        and _price_matches(a, b)
         and a["bedrooms"] is not None
         and a["bedrooms"] == b["bedrooms"]
-        and difflib.SequenceMatcher(None, a["project"], b["project"]).ratio()
-        >= _PROJECT_MATCH_RATIO
+        and _same_project(a["project"], b["project"])
     ):
         return "facts"
 
@@ -475,7 +529,7 @@ def _load_for_dedupe(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Every listing with its analysis fields, oldest first."""
     rows = conn.execute(
         """
-        SELECT l.*, a.data_json AS ai_data
+        SELECT l.*, a.data_json AS ai_data, a.data_quality AS ai_data_quality
         FROM listings AS l
         LEFT JOIN ai_analysis AS a ON a.fb_id = l.fb_id
         ORDER BY l.first_seen_at, l.fb_id
@@ -485,6 +539,7 @@ def _load_for_dedupe(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     loaded: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
+        quality = item.pop("ai_data_quality", None)
         raw = item.pop("ai_data", None)
         fields: dict[str, Any] = {}
         if raw:
@@ -494,7 +549,7 @@ def _load_for_dedupe(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                 parsed = None
             if isinstance(parsed, dict):
                 fields = parsed
-        item["_signature"] = _listing_signature(item, fields)
+        item["_signature"] = _listing_signature(item, fields, quality)
         loaded.append(item)
     return loaded
 

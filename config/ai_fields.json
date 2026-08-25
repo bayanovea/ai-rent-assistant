@@ -1,124 +1,320 @@
 {
-  "schema_version": 2,
-  "analysis_version": 1,
+  "schema_version": 3,
+  "analysis_version": 3,
   "photo_analysis_version": 2,
   "fields": [
-    { "key": "pets", "label": "Pets", "group": "core", "type": "enum",
-      "values": ["allowed", "not_allowed", "unclear"],
-      "highlight": "pets", "added_in": 1,
-      "prompt": "Разрешены ли животные/собаки? 'allowed' ТОЛЬКО при явном подтверждении (pets allowed, pet friendly, dogs ok, สัตว์เลี้ยงได้). 'not_allowed' ТОЛЬКО при явном запрете. Во всех остальных случаях 'unclear'. Обязательно цитату в ev." },
-
-    { "key": "pets_evidence", "label": "Pets — цитата", "group": "core", "type": "text",
+    {
+      "key": "pets",
+      "label": "Pets",
+      "group": "core",
+      "type": "enum",
+      "values": [
+        "allowed",
+        "not_allowed",
+        "unclear"
+      ],
+      "highlight": "pets",
       "added_in": 1,
-      "prompt": "Дословная цитата из объявления, на основании которой выставлено поле pets. Пустая строка, если в тексте про животных ничего нет." },
-
-    { "key": "price_month_thb", "label": "Цена ฿/мес", "group": "core", "type": "int",
+      "prompt": "Разрешены ли животные/собаки? 'allowed' ТОЛЬКО при явном подтверждении (pets allowed, pet friendly, dogs ok, สัตว์เลี้ยงได้). 'not_allowed' ТОЛЬКО при явном запрете. Во всех остальных случаях 'unclear'. Обязательно цитату в ev."
+    },
+    {
+      "key": "pets_evidence",
+      "label": "Pets — цитата",
+      "group": "core",
+      "type": "text",
       "added_in": 1,
-      "prompt": "Реальная месячная цена в THB, которую платит арендатор. Если в объявлении сетка тарифов — бери ту, что ближе всего к годовому контракту. Без валютного символа, только число." },
-
-    { "key": "price_12m_thb", "label": "Цена 12 мес ฿", "group": "core", "type": "int",
+      "prompt": "Дословная цитата из объявления, на основании которой выставлено поле pets. Пустая строка, если в тексте про животных ничего нет."
+    },
+    {
+      "key": "price_month_thb",
+      "label": "Цена ฿/мес",
+      "group": "core",
+      "type": "int",
       "added_in": 1,
-      "prompt": "Цена при контракте на 12 месяцев, если объявление даёт тарифную сетку по срокам. Иначе оставь пустым." },
-
-    { "key": "deposit", "label": "Депозит", "group": "core", "type": "text",
+      "prompt": "Реальная месячная цена в THB, которую платит арендатор. Если в объявлении сетка тарифов — бери ту, что ближе всего к годовому контракту. Без валютного символа, только число."
+    },
+    {
+      "key": "price_12m_thb",
+      "label": "Цена 12 мес ฿",
+      "group": "core",
+      "type": "int",
       "added_in": 1,
-      "prompt": "Условия депозита и предоплаты как написано, кратко: '2 месяца депозит + 1 предоплата'." },
-
-    { "key": "bedrooms", "label": "Спален", "group": "core", "type": "int",
+      "prompt": "Цена при контракте на 12 месяцев, если объявление даёт тарифную сетку по срокам. Иначе оставь пустым."
+    },
+    {
+      "key": "deposit",
+      "label": "Депозит",
+      "group": "core",
+      "type": "text",
       "added_in": 1,
-      "prompt": "Количество спален. Студия — 0. Больше спален, чем нужно, — это плюс, а не проблема." },
-
-    { "key": "bathrooms", "label": "Санузлов", "group": "core", "type": "int",
+      "prompt": "Условия депозита и предоплаты как написано, кратко: '2 месяца депозит + 1 предоплата'."
+    },
+    {
+      "key": "bedrooms",
+      "label": "Спален",
+      "group": "core",
+      "type": "int",
       "added_in": 1,
-      "prompt": "Количество санузлов/ванных комнат." },
-
-    { "key": "extra_rooms", "label": "Доп. комнаты", "group": "core", "type": "text",
+      "prompt": "Количество спален. Студия — 0. Больше спален, чем нужно, — это плюс, а не проблема."
+    },
+    {
+      "key": "bathrooms",
+      "label": "Санузлов",
+      "group": "core",
+      "type": "int",
       "added_in": 1,
-      "prompt": "Комнаты сверх спален и гостиной: кабинет, вторая гостиная, кладовая, терраса-комната. Кратко, через запятую." },
-
-    { "key": "living_room", "label": "Гостиная", "group": "core", "type": "enum",
-      "values": ["yes", "no", "unclear"], "source": "both", "added_in": 1,
-      "prompt": "Есть ли отдельная гостиная. Если про неё просто не написано — 'unclear', это НЕ дефект. 'no' только когда явно сказано, что жилая зона совмещена или её нет." },
-
-    { "key": "furnished", "label": "Меблировка", "group": "core", "type": "enum",
-      "values": ["full", "partial", "none", "unclear"], "source": "both", "added_in": 1,
-      "prompt": "Уровень меблировки: 'full' (fully furnished), 'partial' (частично, только кухня/встроенное), 'none' (пустая), 'unclear'." },
-
-    { "key": "property_type", "label": "Тип жилья", "group": "property", "type": "enum",
-      "values": ["house", "townhouse", "villa", "condo", "apartment", "studio", "unknown"],
+      "prompt": "Количество санузлов/ванных комнат."
+    },
+    {
+      "key": "extra_rooms",
+      "label": "Доп. комнаты",
+      "group": "core",
+      "type": "text",
       "added_in": 1,
-      "prompt": "Тип объекта. 'studio' ставь ТОЛЬКО при явном слове studio или когда описана одна комната без спальни — это приводит к авторежекту." },
-
-    { "key": "project_name", "label": "Проект/посёлок", "group": "property", "type": "text",
+      "prompt": "Комнаты сверх спален и гостиной: кабинет, вторая гостиная, кладовая, терраса-комната. Кратко, через запятую."
+    },
+    {
+      "key": "living_room",
+      "label": "Гостиная",
+      "group": "core",
+      "type": "enum",
+      "values": [
+        "yes",
+        "no",
+        "unclear"
+      ],
+      "source": "both",
       "added_in": 1,
-      "prompt": "Название посёлка, проекта или кондо (Pruksa Ville, Supalai, The Base и т.п.). Пусто, если не указано." },
-
-    { "key": "area", "label": "Район", "group": "property", "type": "text",
+      "prompt": "Есть ли отдельная гостиная. Если про неё просто не написано — 'unclear', это НЕ дефект. 'no' только когда явно сказано, что жилая зона совмещена или её нет."
+    },
+    {
+      "key": "furnished",
+      "label": "Меблировка",
+      "group": "core",
+      "type": "enum",
+      "values": [
+        "full",
+        "partial",
+        "none",
+        "unclear"
+      ],
+      "source": "both",
       "added_in": 1,
-      "prompt": "Нормализованный район Пхукета: Kathu, Chalong, Rawai, Thalang, Phuket Town и т.п." },
-
-    { "key": "size_sqm", "label": "Площадь м²", "group": "property", "type": "int",
+      "prompt": "Уровень меблировки: 'full' (fully furnished), 'partial' (частично, только кухня/встроенное), 'none' (пустая), 'unclear'."
+    },
+    {
+      "key": "property_type",
+      "label": "Тип жилья",
+      "group": "property",
+      "type": "enum",
+      "values": [
+        "house",
+        "townhouse",
+        "villa",
+        "condo",
+        "apartment",
+        "studio",
+        "unknown"
+      ],
       "added_in": 1,
-      "prompt": "Площадь жилья в квадратных метрах. Если указана площадь участка отдельно — бери площадь дома." },
-
-    { "key": "floors", "label": "Этажей", "group": "property", "type": "int",
+      "prompt": "Тип объекта. 'studio' ставь ТОЛЬКО при явном слове studio или когда описана одна комната без спальни — это приводит к авторежекту."
+    },
+    {
+      "key": "project_name",
+      "label": "Проект/посёлок",
+      "group": "property",
+      "type": "text",
       "added_in": 1,
-      "prompt": "Количество этажей в доме/таунхаусе. Для кондо — этаж не важен, оставь пустым." },
-
-    { "key": "condition", "label": "Состояние", "group": "property", "type": "enum",
-      "values": ["new", "good", "worn", "unclear"], "source": "both", "added_in": 1,
-      "prompt": "Состояние объекта по описанию и упоминанию ремонта: 'new' (новый / только сдан), 'good', 'worn' (требует ремонта), 'unclear'." },
-
-    { "key": "kitchen", "label": "Кухня", "group": "amenity", "type": "enum",
-      "values": ["full", "kitchenette", "none", "unclear"], "source": "both", "added_in": 1,
-      "prompt": "Кухня: 'full' (полноценная, с плитой/духовкой), 'kitchenette' (мини-кухня, электроплитка), 'none', 'unclear'." },
-
-    { "key": "parking", "label": "Парковка", "group": "amenity", "type": "enum",
-      "values": ["yes", "no", "unclear"], "source": "both", "added_in": 1,
-      "prompt": "Есть ли парковочное место для машины." },
-
-    { "key": "internet", "label": "Интернет", "group": "amenity", "type": "text",
+      "prompt": "Название посёлка, проекта или кондо (Pruksa Ville, Supalai, The Base и т.п.). Пусто, если не указано."
+    },
+    {
+      "key": "area",
+      "label": "Район",
+      "group": "property",
+      "type": "text",
       "added_in": 1,
-      "prompt": "Интернет: скорость, провайдер, лимит, включён ли в стоимость — если указано. Иначе пусто." },
-
-    { "key": "aircon", "label": "Кондиционеры", "group": "amenity", "type": "text",
+      "prompt": "Нормализованный район Пхукета: Kathu, Chalong, Rawai, Thalang, Phuket Town и т.п."
+    },
+    {
+      "key": "size_sqm",
+      "label": "Площадь м²",
+      "group": "property",
+      "type": "int",
       "added_in": 1,
-      "prompt": "Количество и расположение кондиционеров, если указано ('2 шт: спальня + гостиная')." },
-
-    { "key": "pool_gym", "label": "Бассейн/зал", "group": "amenity", "type": "text",
-      "source": "both", "added_in": 1,
-      "prompt": "Бассейн, спортзал и прочая инфраструктура — свой или общий, кратко." },
-
-    { "key": "green_area", "label": "Зелёная зона", "group": "amenity", "type": "enum",
-      "values": ["yes", "no", "unclear"], "source": "both", "added_in": 1,
-      "prompt": "Есть ли рядом зелёная зона/парк/двор, где можно гулять с собакой. 'yes' при упоминании сада, парка, garden, зелёного двора посёлка." },
-
-    { "key": "security", "label": "Охрана", "group": "amenity", "type": "enum",
-      "values": ["yes", "no", "unclear"], "added_in": 1,
-      "prompt": "Охраняемый посёлок/КПП/24h security/CCTV на въезде." },
-
-    { "key": "contract_min_months", "label": "Мин. контракт, мес", "group": "meta", "type": "int",
+      "prompt": "Площадь жилья в квадратных метрах. Если указана площадь участка отдельно — бери площадь дома."
+    },
+    {
+      "key": "floors",
+      "label": "Этажей",
+      "group": "property",
+      "type": "int",
       "added_in": 1,
-      "prompt": "Минимальный срок аренды в месяцах. Нужен контракт на год — если сдают только помесячно/посуточно, это флажок, но не реджект." },
-
-    { "key": "available_from", "label": "Свободно с", "group": "meta", "type": "date",
+      "prompt": "Количество этажей в доме/таунхаусе. Для кондо — этаж не важен, оставь пустым."
+    },
+    {
+      "key": "condition",
+      "label": "Состояние",
+      "group": "property",
+      "type": "enum",
+      "values": [
+        "new",
+        "good",
+        "worn",
+        "unclear"
+      ],
+      "source": "both",
       "added_in": 1,
-      "prompt": "Дата, с которой жильё свободно, в формате YYYY-MM-DD. Нужно к дате переезда. Пусто, если не указано." },
-
-    { "key": "posted_at", "label": "Опубликовано", "group": "meta", "type": "date",
+      "prompt": "Состояние объекта по описанию и упоминанию ремонта: 'new' (новый / только сдан), 'good', 'worn' (требует ремонта), 'unclear'."
+    },
+    {
+      "key": "kitchen",
+      "label": "Кухня",
+      "group": "amenity",
+      "type": "enum",
+      "values": [
+        "full",
+        "kitchenette",
+        "none",
+        "unclear"
+      ],
+      "source": "both",
       "added_in": 1,
-      "prompt": "Дата публикации объявления в формате YYYY-MM-DD, если её видно в тексте." },
-
-    { "key": "poster_type", "label": "Кто сдаёт", "group": "meta", "type": "enum",
-      "values": ["agent", "owner", "unclear"], "added_in": 1,
-      "prompt": "Кто публикует: 'agent' (агентство, риелтор, упоминание комиссии), 'owner' (собственник), 'unclear'." },
-
-    { "key": "contact", "label": "Контакт", "group": "meta", "type": "text",
+      "prompt": "Кухня: 'full' (полноценная, с плитой/духовкой), 'kitchenette' (мини-кухня, электроплитка), 'none', 'unclear'."
+    },
+    {
+      "key": "parking",
+      "label": "Парковка",
+      "group": "amenity",
+      "type": "enum",
+      "values": [
+        "yes",
+        "no",
+        "unclear"
+      ],
+      "source": "both",
       "added_in": 1,
-      "prompt": "Телефон, LINE ID, WhatsApp — как указано. Часто в тексте стоит '[hidden information]', так и записывай." },
-    { "key": "photo_quality", "label": "Что на фото", "group": "meta", "type": "enum",
-      "values": ["real", "render", "other_unit", "floorplan", "unclear"],
-      "source": "photo", "added_in": 2,
-      "prompt": "Что вообще показывают фотографии: 'real' (реальные снимки этого объекта), 'render' (3D-визуализация/рендер вместо съёмки), 'floorplan' (только планировки), 'other_unit' (снят явно другой юнит — другая планировка/этаж), 'unclear'. При 'render' остальные фотополя не заполняй." }
+      "prompt": "Есть ли парковочное место для машины."
+    },
+    {
+      "key": "internet",
+      "label": "Интернет",
+      "group": "amenity",
+      "type": "text",
+      "added_in": 1,
+      "prompt": "Интернет: скорость, провайдер, лимит, включён ли в стоимость — если указано. Иначе пусто."
+    },
+    {
+      "key": "utilities",
+      "label": "Коммуналка",
+      "group": "amenity",
+      "type": "text",
+      "added_in": 3,
+      "prompt": "Что входит в аренду и что оплачивается сверху: интернет, common fee, свет, вода, их тарифы — как написано, кратко. Пусто, если не сказано."
+    },
+    {
+      "key": "aircon",
+      "label": "Кондиционеры",
+      "group": "amenity",
+      "type": "text",
+      "added_in": 1,
+      "prompt": "Количество и расположение кондиционеров, если указано ('2 шт: спальня + гостиная')."
+    },
+    {
+      "key": "pool_gym",
+      "label": "Бассейн/зал",
+      "group": "amenity",
+      "type": "text",
+      "source": "both",
+      "added_in": 1,
+      "prompt": "Бассейн, спортзал и прочая инфраструктура — свой или общий, кратко."
+    },
+    {
+      "key": "green_area",
+      "label": "Зелёная зона",
+      "group": "amenity",
+      "type": "enum",
+      "values": [
+        "yes",
+        "no",
+        "unclear"
+      ],
+      "source": "both",
+      "added_in": 1,
+      "prompt": "Есть ли рядом зелёная зона/парк/двор, где можно гулять с собакой. 'yes' при упоминании сада, парка, garden, зелёного двора посёлка."
+    },
+    {
+      "key": "security",
+      "label": "Охрана",
+      "group": "amenity",
+      "type": "enum",
+      "values": [
+        "yes",
+        "no",
+        "unclear"
+      ],
+      "added_in": 1,
+      "prompt": "Охраняемый посёлок/КПП/24h security/CCTV на въезде."
+    },
+    {
+      "key": "contract_min_months",
+      "label": "Мин. контракт, мес",
+      "group": "meta",
+      "type": "int",
+      "added_in": 1,
+      "prompt": "Минимальный срок аренды в месяцах. Нужен контракт на год — если сдают только помесячно/посуточно, это флажок, но не реджект."
+    },
+    {
+      "key": "available_from",
+      "label": "Свободно с",
+      "group": "meta",
+      "type": "date",
+      "added_in": 1,
+      "prompt": "Дата, с которой жильё свободно, в формате YYYY-MM-DD. Нужно к дате переезда. Пусто, если не указано."
+    },
+    {
+      "key": "posted_at",
+      "label": "Опубликовано",
+      "group": "meta",
+      "type": "date",
+      "added_in": 1,
+      "prompt": "Дата публикации объявления в формате YYYY-MM-DD, если её видно в тексте."
+    },
+    {
+      "key": "poster_type",
+      "label": "Кто сдаёт",
+      "group": "meta",
+      "type": "enum",
+      "values": [
+        "agent",
+        "owner",
+        "unclear"
+      ],
+      "added_in": 1,
+      "prompt": "Кто публикует: 'agent' (агентство, риелтор, упоминание комиссии), 'owner' (собственник), 'unclear'."
+    },
+    {
+      "key": "contact",
+      "label": "Контакт",
+      "group": "meta",
+      "type": "text",
+      "added_in": 1,
+      "prompt": "Телефон, LINE ID, WhatsApp — как указано. Часто в тексте стоит '[hidden information]', так и записывай."
+    },
+    {
+      "key": "photo_quality",
+      "label": "Что на фото",
+      "group": "meta",
+      "type": "enum",
+      "values": [
+        "real",
+        "render",
+        "other_unit",
+        "floorplan",
+        "unclear"
+      ],
+      "source": "photo",
+      "added_in": 2,
+      "prompt": "Что вообще показывают фотографии: 'real' (реальные снимки этого объекта), 'render' (3D-визуализация/рендер вместо съёмки), 'floorplan' (только планировки), 'other_unit' (снят явно другой юнит — другая планировка/этаж), 'unclear'. При 'render' остальные фотополя не заполняй."
+    }
   ]
 }
