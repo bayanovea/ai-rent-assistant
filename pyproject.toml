@@ -12,6 +12,7 @@ dependencies = [
     "playwright>=1.45",
     "click>=8.1",
     "python-dateutil>=2.9",
+    "pillow>=10",
 ]
 
 [project.optional-dependencies]

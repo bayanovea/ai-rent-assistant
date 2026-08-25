@@ -27,6 +27,7 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CSV_PATH", root / "rentals.csv")
     monkeypatch.setattr(config, "HTML_PATH", root / "rentals.html")
     monkeypatch.setattr(config, "AI_DIR", root / "ai")
+    monkeypatch.setattr(config, "PHOTOS_DIR", root / "photos")
     monkeypatch.setattr(config, "DECISIONS_PATH", root / "decisions.json")
     return root
 

@@ -42,6 +42,13 @@ DETAIL_REQUEST_CAP: int = 60
 DETAIL_DELAY_MIN_SEC: float = 3.0
 DETAIL_DELAY_MAX_SEC: float = 7.0
 
+# Photo pass budget: how many gallery shots per listing get downloaded, and
+# how much of each one survives the resize. Six 1024px JPEGs are ~6.3k
+# tokens for a subagent — the ceiling that keeps the pass at ~x2.8 cost.
+PHOTO_MAX_COUNT: int = 6
+PHOTO_LONG_EDGE_PX: int = 1024
+PHOTO_JPEG_QUALITY: int = 80
+
 
 def _home() -> Path:
     """Return the fb-rent home directory, honouring ``FB_RENT_HOME`` env var."""
@@ -57,6 +64,7 @@ CSV_PATH: Path = FB_RENT_HOME / "rentals.csv"
 HTML_PATH: Path = FB_RENT_HOME / "rentals.html"
 BROWSER_PROFILE_DIR: Path = FB_RENT_HOME / "browser-profile"
 AI_DIR: Path = FB_RENT_HOME / "ai"
+PHOTOS_DIR: Path = FB_RENT_HOME / "photos"
 DECISIONS_PATH: Path = FB_RENT_HOME / "decisions.json"
 
 

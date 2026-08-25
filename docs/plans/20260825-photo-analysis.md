@@ -148,17 +148,17 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 - Modify: `src/fb_rent/config.py`
 - Modify: `tests/test_cli.py`
 
-- [ ] добавить `pillow>=10` в `dependencies` в `pyproject.toml`
-- [ ] в `config.py` добавить `PHOTOS_DIR = FB_RENT_HOME / "photos"` (рядом с `AI_DIR`, :52), `PHOTO_MAX_COUNT = 6`, `PHOTO_LONG_EDGE_PX = 1024`, `PHOTO_JPEG_QUALITY = 80`
-- [ ] **добавить `PHOTOS_DIR` в фикстуру `home`** (`tests/test_cli.py:20-35`) — без этого тесты пишут в настоящий `data/`
-- [ ] `photos_dir(fb_id) -> Path` — путь `data/photos/<fb_id>/`
-- [ ] `pick_photo_urls(urls) -> list[str]` — берёт первый URL плюс 5 равномерно по остатку, максимум `PHOTO_MAX_COUNT`
-- [ ] `download_and_resize(context, urls, fb_id) -> list[Path]` — качает через `context.request.get(url)` (делит куки с персистентным контекстом), ресайзит Pillow-ом до 1024 px по длинной стороне, пишет `01.jpg`…`06.jpg`, конвертирует в RGB; битый/недоступный URL пропускает, не роняя объявление
-- [ ] `photos_hash(fb_id) -> str | None` — SHA-256 от отсортированных `имя+размер`, `None` если каталога нет или он пуст
-- [ ] `purge_photos(fb_id) -> None` — удаляет каталог объявления
-- [ ] написать тесты на `pick_photo_urls` (0/1/3/6/20 URL-ов), `photos_hash` (стабильность, чувствительность к составу, `None` на пустом), `purge_photos` — все на `tmp_path`
-- [ ] написать тест на `download_and_resize` с фейковым `context.request` и синтетическим PNG: проверить длинную сторону ≤ 1024, формат JPEG, имена файлов, пропуск битого URL
-- [ ] прогнать тесты — должны пройти до Task 3
+- [x] добавить `pillow>=10` в `dependencies` в `pyproject.toml`
+- [x] в `config.py` добавить `PHOTOS_DIR = FB_RENT_HOME / "photos"` (рядом с `AI_DIR`, :52), `PHOTO_MAX_COUNT = 6`, `PHOTO_LONG_EDGE_PX = 1024`, `PHOTO_JPEG_QUALITY = 80`
+- [x] **добавить `PHOTOS_DIR` в фикстуру `home`** (`tests/test_cli.py:20-35`) — без этого тесты пишут в настоящий `data/`
+- [x] `photos_dir(fb_id) -> Path` — путь `data/photos/<fb_id>/`
+- [x] `pick_photo_urls(urls) -> list[str]` — берёт первый URL плюс 5 равномерно по остатку, максимум `PHOTO_MAX_COUNT`
+- [x] `download_and_resize(context, urls, fb_id) -> list[Path]` — качает через `context.request.get(url)` (делит куки с персистентным контекстом), ресайзит Pillow-ом до 1024 px по длинной стороне, пишет `01.jpg`…`06.jpg`, конвертирует в RGB; битый/недоступный URL пропускает, не роняя объявление
+- [x] `photos_hash(fb_id) -> str | None` — SHA-256 от отсортированных `имя+размер`, `None` если каталога нет или он пуст
+- [x] `purge_photos(fb_id) -> None` — удаляет каталог объявления
+- [x] написать тесты на `pick_photo_urls` (0/1/3/6/20 URL-ов), `photos_hash` (стабильность, чувствительность к составу, `None` на пустом), `purge_photos` — все на `tmp_path`
+- [x] написать тест на `download_and_resize` с фейковым `context.request` и синтетическим PNG: проверить длинную сторону ≤ 1024, формат JPEG, имена файлов, пропуск битого URL
+- [x] прогнать тесты — должны пройти до Task 3
 
 ### Task 3: Извлечение галереи в скрейпере
 
