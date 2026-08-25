@@ -65,7 +65,9 @@ to this `scrapper/` package):
   `fb_id` *and* on the ad text: agencies republish the same flat to lift it up
   the feed and Facebook mints a new id each time, so a listing whose text and
   price already exist is recorded in `duplicates` instead of getting its own
-  row. `fb-rent dedupe` collapses reposts that predate that check
+  row. The table then shows one line per flat, with every posting's id and
+  link listed in its ID cell. `fb-rent dedupe` collapses reposts that predate
+  that check
 - `rentals.csv` — flat export of the scraped `listings` columns only,
   regenerated on every scrape
 - `rentals.html` — the full table: AI fields, recommendation, score and

@@ -662,6 +662,7 @@ def _with_body(fb_id: str, body: str, price: int = 16000):
     """A listing whose detail page carried ``body`` as its ad text."""
     return _make_listing(
         fb_id=fb_id,
+        url=f"https://www.facebook.com/marketplace/item/{fb_id}/",
         price_thb=price,
         raw_json={"text_lines": ["Описание", body, "Информация о продавце"]},
     )
@@ -751,3 +752,55 @@ def test_dedupe_listings_keeps_the_copy_carrying_the_most_work(conn):
     # rescrape skips them instead of adding them back.
     assert conn.execute("SELECT count(*) FROM ai_analysis").fetchone()[0] == 0
     assert storage.duplicate_fb_ids(conn) == {"oldest", "analysed"}
+
+
+def test_reposts_collapse_into_one_row_keeping_every_link(conn, tmp_path: Path):
+    # Six postings of one flat are one line in the table, but each posting
+    # keeps its own id and link — the user still has to message someone.
+    storage.upsert_listing(conn, _with_body("keep", _AD))
+    for fb_id in ("repost-a", "repost-b"):
+        storage.upsert_listing(conn, _with_body(fb_id, _AD))
+
+    grouped = storage.duplicates_by_canonical(conn)
+    assert [d["fb_id"] for d in grouped["keep"]] == ["repost-a", "repost-b"]
+    assert grouped["keep"][0]["url"].endswith("/marketplace/item/repost-a/")
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out)
+    text = out.read_text(encoding="utf-8")
+    rows = _inline_payload(text, "DATA")
+
+    assert len(rows) == 1
+    dups = rows[0]["cells"]["fb_id"]["dups"]
+    assert [d["fb_id"] for d in dups] == ["repost-a", "repost-b"]
+    # Each repost's link survives into the page.
+    for fb_id in ("repost-a", "repost-b"):
+        assert f"/marketplace/item/{fb_id}/" in text
+
+
+def test_listing_without_reposts_has_an_empty_dup_list(conn, tmp_path: Path):
+    storage.upsert_listing(conn, _with_body("alone", _AD))
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out)
+    row = _inline_payload(out.read_text(encoding="utf-8"), "DATA")[0]
+    assert row["cells"]["fb_id"]["dups"] == []
+
+
+def test_dedupe_records_the_url_of_every_collapsed_repost(conn):
+    for fb_id in ("first", "second"):
+        listing = _with_body(fb_id, _AD)
+        listing["url"] = f"https://www.facebook.com/marketplace/item/{fb_id}/"
+        conn.execute(
+            "INSERT INTO listings (fb_id, url, title, price_thb, content_key,"
+            " raw_json, first_seen_at, last_seen_at) VALUES (?,?,?,?,?,?,?,?)",
+            (fb_id, listing["url"], "t", 16000, storage.content_key(listing),
+             json.dumps(listing["raw_json"]), "2026-08-0" + ("1" if fb_id == "first" else "2"),
+             "2026-08-25"),
+        )
+    conn.commit()
+
+    storage.dedupe_listings(conn)
+    grouped = storage.duplicates_by_canonical(conn)
+    assert grouped["first"] == [
+        {"fb_id": "second", "url": "https://www.facebook.com/marketplace/item/second/"}
+    ]

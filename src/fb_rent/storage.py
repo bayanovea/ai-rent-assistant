@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS duplicates (
     fb_id            TEXT PRIMARY KEY,
     canonical_fb_id  TEXT NOT NULL,
     content_key      TEXT NOT NULL,
+    url              TEXT,
     noticed_at       TEXT NOT NULL
 );
 """
@@ -94,6 +95,7 @@ _INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_last_seen ON listings(last_seen_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_price ON listings(price_thb);",
     "CREATE INDEX IF NOT EXISTS idx_content_key ON listings(content_key);",
+    "CREATE INDEX IF NOT EXISTS idx_dup_canonical ON duplicates(canonical_fb_id);",
 )
 
 
@@ -104,6 +106,11 @@ def _now_iso() -> str:
 # An ad shorter than this is not a fingerprint: "Выбор дня" or a bare price
 # line would collapse unrelated listings into one.
 _CONTENT_KEY_MIN_CHARS = 60
+
+
+def marketplace_url(fb_id: str) -> str:
+    """The canonical listing URL for an id, in the shape the scraper stores."""
+    return f"https://www.facebook.com/marketplace/item/{fb_id}/"
 
 
 def content_key(listing: dict[str, Any]) -> str | None:
@@ -155,12 +162,29 @@ def _record_duplicate(
     canonical_fb_id: str,
     key: str,
     ts: str,
+    url: str | None = None,
 ) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO duplicates "
-        "(fb_id, canonical_fb_id, content_key, noticed_at) VALUES (?, ?, ?, ?)",
-        (fb_id, canonical_fb_id, key, ts),
+        "(fb_id, canonical_fb_id, content_key, url, noticed_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (fb_id, canonical_fb_id, key, url or marketplace_url(fb_id), ts),
     )
+
+
+def duplicates_by_canonical(
+    conn: sqlite3.Connection,
+) -> dict[str, list[dict[str, str]]]:
+    """Reposts grouped under the listing they duplicate, oldest first."""
+    grouped: dict[str, list[dict[str, str]]] = {}
+    rows = conn.execute(
+        "SELECT fb_id, canonical_fb_id, url FROM duplicates ORDER BY noticed_at, fb_id"
+    ).fetchall()
+    for row in rows:
+        grouped.setdefault(row["canonical_fb_id"], []).append(
+            {"fb_id": row["fb_id"], "url": row["url"] or marketplace_url(row["fb_id"])}
+        )
+    return grouped
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -172,6 +196,18 @@ def _migrate(conn: sqlite3.Connection) -> None:
     have = {row["name"] for row in conn.execute("PRAGMA table_info(ai_analysis)")}
     if "comment" not in have:
         conn.execute("ALTER TABLE ai_analysis ADD COLUMN comment TEXT")
+
+    have = {row["name"] for row in conn.execute("PRAGMA table_info(duplicates)")}
+    if "url" not in have:
+        conn.execute("ALTER TABLE duplicates ADD COLUMN url TEXT")
+        # Reposts recorded before this column existed: their row is gone from
+        # `listings`, but a marketplace id is enough to rebuild the link.
+        for row in conn.execute("SELECT fb_id FROM duplicates").fetchall():
+            conn.execute(
+                "UPDATE duplicates SET url = ? WHERE fb_id = ?",
+                (marketplace_url(row["fb_id"]), row["fb_id"]),
+            )
+        conn.commit()
 
     have = {row["name"] for row in conn.execute("PRAGMA table_info(listings)")}
     if "content_key" not in have:
@@ -238,7 +274,9 @@ def upsert_listing(
     if existing is None:
         canonical = canonical_for(conn, fb_id, key)
         if canonical is not None:
-            _record_duplicate(conn, fb_id, canonical, key or "", ts)
+            _record_duplicate(
+                conn, fb_id, canonical, key or "", ts, listing.get("url")
+            )
             conn.commit()
             return "duplicate"
 
@@ -322,7 +360,8 @@ def dedupe_listings(
         if dry_run:
             continue
         for fb_id in removed:
-            _record_duplicate(conn, fb_id, keeper["fb_id"], key, ts)
+            url = next(i.get("url") for i in rest if i["fb_id"] == fb_id)
+            _record_duplicate(conn, fb_id, keeper["fb_id"], key, ts, url)
             conn.execute("DELETE FROM ai_analysis WHERE fb_id = ?", (fb_id,))
             conn.execute("DELETE FROM listings WHERE fb_id = ?", (fb_id,))
     if not dry_run:
@@ -499,9 +538,12 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         """
     ).fetchall()
 
+    reposts = duplicates_by_canonical(conn)
+
     enriched: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
+        item["duplicates"] = reposts.get(str(item["fb_id"]), [])
         raw_fields = item.pop("data_json", None)
         fields: dict[str, Any] = {}
         if raw_fields:
@@ -599,8 +641,12 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .rt td:first-child, .rt th:first-child { position: sticky; left: 0; z-index: 1; background: #fff; box-shadow: 1px 0 0 #dde; }
   .rt thead th:first-child { z-index: 4; background: #eef0f4; }
   .rt tbody tr:hover td { background: #f9fbff; }
+  .id-list { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
   .id-cell { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #1a73e8; text-decoration: none; }
   .id-cell:hover { text-decoration: underline; }
+  .id-row { display: flex; align-items: center; }
+  .id-cell.dup-id { color: #6b7a99; }
+  .dup-count { font-size: 9px; color: #6b3fa0; border: 1px solid #d8cfe8; border-radius: 3px; padding: 0 3px; margin-left: 4px; }
   /* Long values are clipped so the table stays scannable; a click unfolds
      the cell in place, a second click folds it back. */
   .clip { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; cursor: zoom-in; }
@@ -683,7 +729,8 @@ function cellOf(row, key) {
 
 function haystack(row) {
   if (row._hay == null) {
-    row._hay = COLUMNS.map(c => cellOf(row, c.key).t).join(" ").toLowerCase();
+    const dups = (cellOf(row, "fb_id").dups || []).map(d => d.fb_id).join(" ");
+    row._hay = (COLUMNS.map(c => cellOf(row, c.key).t).join(" ") + " " + dups).toLowerCase();
   }
   return row._hay;
 }
@@ -722,10 +769,19 @@ function tdHTML(row, col) {
 
   let inner;
   if (col.kind === "id") {
-    const label = esc(empty ? "—" : text);
-    inner = row.url
-      ? '<a class="id-cell" href="' + esc(row.url) + '" target="_blank" rel="noopener">' + label + '</a>'
-      : '<span class="id-cell">' + label + '</span>';
+    // One flat, one row — but every posting of it keeps its own link.
+    const posts = [{ fb_id: text, url: row.url }].concat(cell.dups || []);
+    inner = '<span class="id-list">' + posts.map((p, i) => {
+      const label = esc(p.fb_id || "—");
+      const cls = "id-cell" + (i ? " dup-id" : "");
+      const link = p.url
+        ? '<a class="' + cls + '" href="' + esc(p.url) + '" target="_blank" rel="noopener">' + label + '</a>'
+        : '<span class="' + cls + '">' + label + '</span>';
+      const count = (i === 0 && posts.length > 1)
+        ? '<span class="dup-count" title="одно объявление, опубликованное ' + posts.length + ' раза">×' + posts.length + '</span>'
+        : "";
+      return '<span class="id-row">' + link + count + '</span>';
+    }).join("") + '</span>';
   } else if (col.kind === "score") {
     inner = empty ? '—' : esc(text);
     if (!empty && cell.n != null) style = scoreStyle(cell.n);
@@ -1055,7 +1111,7 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
     area = ai_area if not rules.is_empty(ai_area) else fb_area
 
     cells: dict[str, dict[str, Any]] = {
-        "fb_id": {"t": item.get("fb_id"), "c": ""},
+        "fb_id": {"t": item.get("fb_id"), "c": "", "dups": item.get("duplicates") or []},
         "price": {
             "t": _display(price),
             "c": rules.cell_class("price_month_thb", price, {"added_in": 1}, version),
