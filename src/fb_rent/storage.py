@@ -820,6 +820,27 @@ def fields_of(raw: Any) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
+def _photo_overrides(
+    text_fields: dict[str, Any], photo_fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Keys where the photos contradicted something the text already said.
+
+    Mirrors :func:`.photo_batch._overrides`: only a disagreement counts, so a
+    photo confirming the text or filling a gap it left empty is not flagged,
+    and an empty photo answer ("could not see") never overrides anything.
+    Maps the key to the text's old value — that is what the tooltip shows.
+    """
+    found: dict[str, Any] = {}
+    for key in photo_fields:
+        old = rules.value_of(text_fields, key)
+        new = rules.value_of(photo_fields, key)
+        if rules.is_empty(old) or rules.is_empty(new):
+            continue
+        if old != new:
+            found[key] = old
+    return found
+
+
 def photo_fields_of(row: dict[str, Any]) -> dict[str, Any]:
     """Return a row's ``photo_data_json`` as a dict, or an empty one."""
     return fields_of(row.get("photo_data_json"))
@@ -903,9 +924,15 @@ def fetch_pending_photos(
 def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Return every listing joined with its AI analysis and user decision.
 
-    ``data_json`` is unpacked into ``fields``; ``ai_status`` / ``ai_reason``
-    are recomputed from those fields and the row's ``data_quality`` by
-    :mod:`.rules`, so a rule change takes effect without re-running the AI. A user decision always wins: ``status``,
+    ``data_json`` is unpacked into ``fields`` with ``photo_data_json`` merged
+    on top of it — the gallery pass looked at the flat itself, so where it
+    answered at all its answer wins over the text's. ``photo_keys`` lists what
+    it filled and ``photo_overrides`` maps the keys where it contradicted a
+    non-empty text value to that old value, so the export can flag them.
+
+    ``ai_status`` / ``ai_reason`` are recomputed from the merged fields and
+    the row's ``data_quality`` by :mod:`.rules`, so a rule change takes effect
+    without re-running the AI. A user decision always wins: ``status``,
     ``reason`` and ``decided_by`` reflect the file-backed ``decisions`` table
     whenever it has a row for the listing.
     """
@@ -915,6 +942,8 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                a.schema_version AS ai_schema_version,
                a.analyzed_at, a.source_hash AS ai_source_hash, a.model,
                a.verdict, a.comment, a.score, a.data_quality, a.data_json,
+               a.photo_data_json, a.photo_comment, a.photo_model,
+               a.photo_schema_version, a.photos_analyzed_at, a.photos_hash,
                d.status AS user_status, d.reason AS user_reason, d.decided_at
         FROM listings AS l
         LEFT JOIN ai_analysis AS a ON a.fb_id = l.fb_id
@@ -929,17 +958,14 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     for row in rows:
         item = dict(row)
         item["duplicates"] = reposts.get(str(item["fb_id"]), [])
-        raw_fields = item.pop("data_json", None)
-        fields: dict[str, Any] = {}
-        if raw_fields:
-            try:
-                loaded = json.loads(raw_fields)
-            except json.JSONDecodeError:
-                loaded = None
-            if isinstance(loaded, dict):
-                fields = loaded
+        text_fields = fields_of(item.pop("data_json", None))
+        photo_fields = fields_of(item.pop("photo_data_json", None))
+        fields: dict[str, Any] = {**text_fields, **photo_fields}
         item["fields"] = fields
+        item["photo_keys"] = sorted(photo_fields)
+        item["photo_overrides"] = _photo_overrides(text_fields, photo_fields)
         item["analyzed"] = item.get("analyzed_at") is not None
+        item["photo_analyzed"] = item.get("photos_analyzed_at") is not None
 
         if item["analyzed"]:
             ai_status, ai_reason = rules.decide(
@@ -1014,14 +1040,18 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .rt thead th.lbl { position: sticky; top: 24px; z-index: 2; cursor: pointer; box-shadow: 0 1px 0 #dde; }
   .rt thead th.band { position: sticky; top: 0; z-index: 2; text-align: center; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 8px; color: #55607a; }
   .rt thead th.lbl:hover { background: #eef1f7; }
-  /* Where the data comes from: parsed off the FB page vs. extracted by the AI. */
+  /* Where the data comes from: parsed off the FB page, extracted by the AI
+     from the text, or read off the photographs by the gallery pass. */
   .rt .src-fb  { background: #f4f7fb; }
   .rt .src-ai  { background: #f8f5fb; }
+  .rt .src-photo { background: #f1f8f6; }
   .rt .src-sys { background: #f7f8fb; }
   .rt .band.src-fb  { color: #2a5f9e; background: #e9f0f9; }
   .rt .band.src-ai  { color: #6b3fa0; background: #f1eaf9; }
+  .rt .band.src-photo { color: #1f6f68; background: #e3f1ee; }
   .rt .band.src-sys { color: #55607a; background: #eef0f4; }
   .rt td.src-ai { background: #fdfcfe; }
+  .rt td.src-photo { background: #fbfefd; }
   .rt .edge { border-left: 2px solid #c8cfe0; }
   .rt td:first-child, .rt th:first-child { position: sticky; left: 0; z-index: 1; background: #fff; box-shadow: 1px 0 0 #dde; }
   .rt thead th:first-child { z-index: 4; background: #eef0f4; }
@@ -1043,6 +1073,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .num { font-variant-numeric: tabular-nums; text-align: right; }
   .badge { font-size: 9px; color: #8a7fa8; border: 1px solid #d8cfe8; border-radius: 3px; padding: 0 3px; margin-left: 4px; vertical-align: 1px; }
   .badge.fb { color: #4a7099; border-color: #cbd9e8; }
+  .badge.was { color: #1f6f68; border-color: #bfdcd6; cursor: help; }
   .c-good { background: #e6f4ea; color: #137333; }
   .c-warn { background: #fef7e0; color: #8a6d00; }
   .c-bad  { background: #fce8e6; color: #a50e0e; }
@@ -1069,6 +1100,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
 <div class="legend">
   <span class="item"><span class="sw src-fb"></span>колонка из парсинга FB</span>
   <span class="item"><span class="sw src-ai"></span>колонка от AI</span>
+  <span class="item"><span class="sw src-photo"></span>колонка от фото-прохода — AI смотрел снимки, а не текст</span>
+  <span class="item"><span class="badge was">≠ текст</span>фото не согласилось с текстом — в подсказке прежнее значение</span>
   <span class="item"><span class="sw c-good"></span>подходит (pets allowed, цена в бюджете)</span>
   <span class="item"><span class="sw c-warn"></span>под вопросом (unclear, 30–35k ฿)</span>
   <span class="item"><span class="sw c-bad"></span>стоп-фактор (животные запрещены, вне бюджета)</span>
@@ -1083,7 +1116,7 @@ const COLUMNS = __COLUMNS_JSON__;
 const DATA = __DATA_JSON__;
 
 const TAB_LABELS = { active: "Active", shortlist: "Shortlist", rejected: "Rejected", all: "All" };
-const SRC_LABELS = { fb: "FB — парсинг", ai: "AI — анализ", sys: "Решение" };
+const SRC_LABELS = { fb: "FB — парсинг", ai: "AI — анализ", photo: "Фото — анализ", sys: "Решение" };
 const CLIPPED_KINDS = { verdict: 1, comment: 1, field: 1, text: 1, reason: 1 };
 const TYPE_ICONS = {
   house: "🏠", townhouse: "🏘️", villa: "🏡", condo: "🏢",
@@ -1190,6 +1223,12 @@ function tdHTML(row, col) {
   // value; the badge says which one that was.
   if (!empty && cell.src && cell.src !== col.src) {
     inner += '<span class="badge ' + esc(cell.src) + '">' + esc(cell.src) + '</span>';
+  }
+
+  // The photo pass overruled a non-empty text value; the badge keeps the
+  // overruled reading one hover away instead of dropping it silently.
+  if (!empty && cell.was) {
+    inner += '<span class="badge was" title="' + esc(cell.was) + '">\u2260 текст</span>';
   }
 
   const cellId = row.fb_id + "|" + col.key;
@@ -1328,6 +1367,20 @@ _BASE_COLUMNS: tuple[dict[str, Any], ...] = (
     {"key": "data_quality", "label": "Качество данных", "kind": "text", "src": "ai"},
 )
 
+# The gallery pass gets a band of its own: every registry field it can answer
+# plus the comment it wrote. Its columns are the ones whose staleness is
+# measured against `photo_schema_version` rather than the text pass's.
+_PHOTO_COLUMNS: tuple[dict[str, Any], ...] = (
+    {"key": "photo_comment", "label": "Комментарий по фото", "kind": "comment",
+     "src": "photo"},
+)
+
+
+def is_photo_field(field: dict[str, Any]) -> bool:
+    """Whether the gallery pass is expected to fill this registry field."""
+    return ai_schema.field_source(field) in ("photo", "both")
+
+
 # The one column that is neither parsed nor extracted: why the listing is out,
 # decided by `rules` or by the user. It closes the table.
 _TAIL_COLUMNS: tuple[dict[str, Any], ...] = (
@@ -1419,10 +1472,12 @@ def _extra_field_keys(registry: ai_schema.Registry) -> list[str]:
 def html_columns(registry: ai_schema.Registry) -> list[dict[str, Any]]:
     """Return every export column: the fixed ones plus the registry's fields.
 
-    Registry fields follow the base columns in the AI band — first the ones
-    worth a glance in the default view, then the extras, which ship with
-    ``hidden`` set so the page can fold them away. ``edge`` marks the column
-    that opens a new source band, which is where the page draws its divider.
+    Registry fields follow the base columns — first the ones worth a glance in
+    the default view, then the extras, which ship with ``hidden`` set so the
+    page can fold them away. Fields the gallery pass fills (``source`` of
+    ``photo`` or ``both``) move to a band of their own at the end, followed by
+    ``photo_comment``. ``edge`` marks the column that opens a new source band,
+    which is where the page draws its divider.
     """
     by_key = {field["key"]: field for field in registry.fields}
 
@@ -1440,20 +1495,29 @@ def html_columns(registry: ai_schema.Registry) -> list[dict[str, Any]]:
             "key": key,
             "label": field.get("label") or key,
             "kind": kind,
-            "src": "ai",
+            "src": "photo" if is_photo_field(field) else "ai",
             "group": field.get("group") or "",
             "hidden": hidden,
         }
 
+    def by_band(keys: list[str], *, photo: bool, hidden: bool) -> list[dict[str, Any]]:
+        return [
+            field_column(key, hidden=hidden)
+            for key in keys
+            if key in by_key and is_photo_field(by_key[key]) is photo
+        ]
+
+    primary = [key for key in _PRIMARY_FIELD_KEYS if key in by_key]
+    extra = _extra_field_keys(registry)
+
     columns: list[dict[str, Any]] = [dict(col) for col in _BASE_COLUMNS]
-    columns += [
-        field_column(key, hidden=False)
-        for key in _PRIMARY_FIELD_KEYS
-        if key in by_key
-    ]
-    columns += [
-        field_column(key, hidden=True) for key in _extra_field_keys(registry)
-    ]
+    columns += by_band(primary, photo=False, hidden=False)
+    columns += by_band(extra, photo=False, hidden=True)
+    # The photo band closes the registry so it stays one unbroken stripe:
+    # the fields the gallery pass can answer, then its own comment.
+    columns += by_band(primary, photo=True, hidden=False)
+    columns += by_band(extra, photo=True, hidden=True)
+    columns += [dict(col) for col in _PHOTO_COLUMNS]
     columns += [dict(col) for col in _TAIL_COLUMNS]
 
     previous = None
@@ -1472,7 +1536,8 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
     page shows as a tooltip so any claim can be traced to the source text.
     Price and district exist twice in the pipeline (parsed off the card, then
     read out of the ad text); each is merged into one cell that prefers the
-    AI's reading and records in ``src`` which one is on screen.
+    AI's reading and records in ``src`` which one is on screen. A cell the
+    photo pass overrode carries ``was`` — what the text had claimed.
     """
     analyzed = bool(item.get("analyzed"))
     fields = item.get("fields") or {}
@@ -1480,6 +1545,16 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
     # current keeps its blank cells plain grey: `c-stale` means "the field
     # arrived after this row was analysed", which says nothing here.
     version = (item.get("ai_schema_version") or 0) if analyzed else registry.schema_version
+    # The photo band has its own clock. Until the gallery pass has run it
+    # borrows the text pass's, so a `both` field added after the text analysis
+    # still hatches — but once photos exist, only their version decides,
+    # otherwise every field added by `ai-field add --source photo` would hatch
+    # across the whole table.
+    photo_analyzed = bool(item.get("photo_analyzed"))
+    photo_version = (
+        (item.get("photo_schema_version") or 0) if photo_analyzed else version
+    )
+    photo_overrides = item.get("photo_overrides") or {}
 
     status = item.get("status") or "active"
     reason = item.get("reason")
@@ -1527,6 +1602,10 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
             if analyzed and item.get("data_quality") not in (None, "", "good")
             else "",
         },
+        "photo_comment": {
+            "t": item.get("photo_comment") or "",
+            "c": "" if photo_analyzed else rules.CLASS_NONE,
+        },
         "reason": {
             "t": reason or "",
             "c": rules.CLASS_BAD if status == "rejected" and reason else "",
@@ -1542,13 +1621,22 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
         value = rules.value_of(fields, key)
         cell: dict[str, Any] = {
             "t": _display(value),
-            "c": rules.cell_class(key, value, field, version),
+            "c": rules.cell_class(
+                key,
+                value,
+                field,
+                photo_version if is_photo_field(field) else version,
+            ),
         }
         if key in ("bedrooms", "bathrooms"):
             cell["n"] = value if isinstance(value, int) else None
         raw = fields.get(key)
         if isinstance(raw, dict) and raw.get("ev"):
             cell["ev"] = str(raw["ev"])
+        if key in photo_overrides:
+            # The photo disagreed with the text. Both readings stay visible:
+            # the cell shows what the camera saw, the badge what was written.
+            cell["was"] = "текст: " + (_display(photo_overrides[key]) or "—")
         cells[key] = cell
 
     return {

@@ -243,14 +243,14 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 - Modify: `src/fb_rent/storage.py`
 - Modify: `tests/test_storage.py`
 
-- [ ] в `fetch_enriched` (`storage.py:732`) парсить `photo_data_json` и класть в `fields` слиянием `{**data_json, **photo_data_json}`; запомнить множество перекрытых ключей в `photo_keys`
-- [ ] в `html_columns` присваивать фотополям `src: "photo"`, добавить `photo_comment` колонку в ту же полосу
-- [ ] добавить `photo` в `SRC_LABELS` (`storage.py:915`, подпись «Фото — анализ») и CSS-классы `.src-photo` по образцу `.src-ai` (`storage.py:846-854`)
-- [ ] в `html_row` (`storage.py:1296`) для фотоколонок передавать в `rules.cell_class` **`photo_schema_version`**, а не `ai_schema_version` — иначе новые фотополя будут штриховаться у всех подряд
-- [ ] пометить ячейки, где фото перекрыло непустое текстовое значение — переиспользовать существующий паттерн бейджа (`storage.py:1020-1022`), подпись «текст: <старое значение>» в тултипе
-- [ ] дополнить легенду (`storage.py:898-907`) строкой про фотополосу и бейдж расхождения
-- [ ] написать тесты на сырой HTML (стиль `test_export_html_stale_only_for_fields_added_after_analysis`, `test_storage.py:522`): полоса рендерится, `edge` на границе, `c-stale` для фотополя считается по своей версии, бейдж расхождения появляется
-- [ ] прогнать тесты
+- [x] в `fetch_enriched` (`storage.py:732`) парсить `photo_data_json` и класть в `fields` слиянием `{**data_json, **photo_data_json}`; запомнить множество перекрытых ключей в `photo_keys`
+- [x] в `html_columns` присваивать фотополям `src: "photo"`, добавить `photo_comment` колонку в ту же полосу
+- [x] добавить `photo` в `SRC_LABELS` (`storage.py:915`, подпись «Фото — анализ») и CSS-классы `.src-photo` по образцу `.src-ai` (`storage.py:846-854`)
+- [x] в `html_row` (`storage.py:1296`) для фотоколонок передавать в `rules.cell_class` **`photo_schema_version`**, а не `ai_schema_version` — иначе новые фотополя будут штриховаться у всех подряд
+- [x] пометить ячейки, где фото перекрыло непустое текстовое значение — переиспользовать существующий паттерн бейджа (`storage.py:1020-1022`), подпись «текст: <старое значение>» в тултипе
+- [x] дополнить легенду (`storage.py:898-907`) строкой про фотополосу и бейдж расхождения
+- [x] написать тесты на сырой HTML (стиль `test_export_html_stale_only_for_fields_added_after_analysis`, `test_storage.py:522`): полоса рендерится, `edge` на границе, `c-stale` для фотополя считается по своей версии, бейдж расхождения появляется
+- [x] прогнать тесты
 
 ### Task 9: Уборка фотографий
 

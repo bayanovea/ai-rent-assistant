@@ -494,6 +494,7 @@ def test_export_html_colours_pets_and_marks_rejected(conn, tmp_path: Path):
     assert "Причина" in labels
     assert len(labels) == (
         len(storage._BASE_COLUMNS)
+        + len(storage._PHOTO_COLUMNS)
         + len(storage._TAIL_COLUMNS)
         + len(registry.fields)
         - len(merged)
@@ -543,6 +544,190 @@ def test_export_html_stale_only_for_fields_added_after_analysis(conn, tmp_path: 
     # A listing that was never analysed has no stale cells at all: nothing
     # was ever looked at, so hatching would claim more than we know.
     assert rows["fresh"]["cells"]["parking"]["c"] == rules.CLASS_NONE
+
+
+def _photo_registry(version: int = 2, photo_added_in: int = 1):
+    """Registry with all three sources represented: text, both, photo-only."""
+    return ai_schema.Registry(
+        schema_version=version,
+        fields=(
+            {"key": "pets", "label": "Pets", "type": "enum",
+             "values": ["allowed", "not_allowed", "unclear"], "added_in": 1},
+            {"key": "parking", "label": "Parking", "type": "enum",
+             "values": ["yes", "no", "unclear"], "added_in": version,
+             "source": "text"},
+            {"key": "furnished", "label": "Furnished", "type": "enum",
+             "values": ["full", "partial", "no", "unclear"],
+             "added_in": photo_added_in, "source": "both"},
+            {"key": "photo_quality", "label": "Photo quality", "type": "enum",
+             "values": ["real", "render", "unclear"],
+             "added_in": photo_added_in, "source": "photo"},
+        ),
+    )
+
+
+def _attach_photos(conn, fb_id: str, data: dict, **overrides):
+    """Give an already-analysed listing a photo pass."""
+    row = {
+        "fb_id": fb_id,
+        "photo_schema_version": 2,
+        "photos_hash": "photos-a",
+        "photos_analyzed_at": "2026-08-25T12:00:00Z",
+        "photo_model": "claude-sonnet-5 (claude-code)",
+        "photo_comment": "Мебель на снимках выглядит старой.",
+        "photo_data_json": data,
+    }
+    row.update(overrides)
+    storage.upsert_photo_analysis(conn, row)
+
+
+def test_fetch_enriched_merges_photo_fields_over_text(conn):
+    storage.upsert_listing(conn, _make_listing(fb_id="p1"))
+    storage.upsert_ai_analysis(
+        conn,
+        _make_analysis(
+            fb_id="p1",
+            schema_version=2,
+            data_json={
+                "furnished": {"v": "full", "ev": "fully furnished"},
+                "pets": {"v": "allowed", "ev": "pets ok"},
+            },
+        ),
+    )
+    _attach_photos(
+        conn,
+        "p1",
+        {
+            "furnished": {"v": "partial", "ev": "фото 2: пустая спальня"},
+            "photo_quality": {"v": "real", "ev": "фото 1: реальный снимок"},
+        },
+    )
+
+    item = storage.fetch_enriched(conn)[0]
+    # The photo wins where it answered, the text survives where it did not.
+    assert rules.value_of(item["fields"], "furnished") == "partial"
+    assert rules.value_of(item["fields"], "pets") == "allowed"
+    assert rules.value_of(item["fields"], "photo_quality") == "real"
+    assert item["photo_keys"] == ["furnished", "photo_quality"]
+    # Only the contradiction is an override: filling `photo_quality` is not.
+    assert item["photo_overrides"] == {"furnished": "full"}
+    assert item["photo_analyzed"] is True
+    assert item["photo_comment"] == "Мебель на снимках выглядит старой."
+
+
+def test_fetch_enriched_without_photos_has_no_overrides(conn):
+    storage.upsert_listing(conn, _make_listing(fb_id="t1"))
+    storage.upsert_ai_analysis(conn, _make_analysis(fb_id="t1"))
+
+    item = storage.fetch_enriched(conn)[0]
+    assert item["photo_keys"] == []
+    assert item["photo_overrides"] == {}
+    assert item["photo_analyzed"] is False
+
+
+def test_export_html_renders_the_photo_band(conn, tmp_path: Path):
+    registry = _photo_registry()
+    storage.upsert_listing(conn, _make_listing(fb_id="p1"))
+    storage.upsert_ai_analysis(
+        conn,
+        _make_analysis(
+            fb_id="p1",
+            schema_version=2,
+            data_json={"furnished": {"v": "full", "ev": "fully furnished"}},
+        ),
+    )
+    _attach_photos(conn, "p1", {"furnished": {"v": "partial", "ev": "фото 2"}})
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out, registry)
+    text = out.read_text(encoding="utf-8")
+
+    # The band exists in the payload, is contiguous and carries its own label.
+    columns = _inline_payload(text, "COLUMNS")
+    photo = [c for c in columns if c["src"] == "photo"]
+    assert [c["key"] for c in photo] == ["furnished", "photo_quality", "photo_comment"]
+    assert photo[0]["edge"] is True
+    assert all(c["edge"] is False for c in photo[1:])
+    assert "Фото — анализ" in text
+    assert ".rt .band.src-photo" in text
+
+    row = _inline_payload(text, "DATA")[0]
+    assert row["cells"]["furnished"]["t"] == "partial"
+    assert row["cells"]["furnished"]["was"] == "текст: full"
+    assert row["cells"]["photo_comment"]["t"] == "Мебель на снимках выглядит старой."
+
+
+def test_export_html_photo_override_badge_is_absent_without_disagreement(
+    conn, tmp_path: Path
+):
+    registry = _photo_registry()
+    storage.upsert_listing(conn, _make_listing(fb_id="p2"))
+    storage.upsert_ai_analysis(
+        conn,
+        _make_analysis(
+            fb_id="p2",
+            schema_version=2,
+            data_json={"furnished": {"v": "partial", "ev": "partly furnished"}},
+        ),
+    )
+    _attach_photos(conn, "p2", {"furnished": {"v": "partial", "ev": "фото 2"}})
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out, registry)
+    row = _inline_payload(out.read_text(encoding="utf-8"), "DATA")[0]
+    assert "was" not in row["cells"]["furnished"]
+
+
+def test_export_html_photo_staleness_uses_the_photo_schema_version(
+    conn, tmp_path: Path
+):
+    # `furnished` and `photo_quality` arrive in v2 of the registry. The photo
+    # pass on `seen` ran at v2, so its empty photo cells are ordinary dashes —
+    # even though the text pass behind them is still stuck at v1, which is
+    # what hatches its own `parking`. `blind` was photographed at v1, so the
+    # same cells there are hatched.
+    registry = _photo_registry(version=2, photo_added_in=2)
+    for fb_id in ("seen", "blind", "textonly"):
+        storage.upsert_listing(conn, _make_listing(fb_id=fb_id))
+        storage.upsert_ai_analysis(
+            conn, _make_analysis(fb_id=fb_id, schema_version=1, data_json={})
+        )
+    _attach_photos(conn, "seen", {}, photo_schema_version=2)
+    _attach_photos(conn, "blind", {}, photo_schema_version=1)
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out, registry)
+    rows = {
+        r["fb_id"]: r
+        for r in _inline_payload(out.read_text(encoding="utf-8"), "DATA")
+    }
+
+    assert rows["seen"]["cells"]["photo_quality"]["c"] == rules.CLASS_NONE
+    assert rows["seen"]["cells"]["furnished"]["c"] == rules.CLASS_NONE
+    assert rows["seen"]["cells"]["parking"]["c"] == rules.CLASS_STALE
+    assert rows["blind"]["cells"]["photo_quality"]["c"] == rules.CLASS_STALE
+    # No photo pass at all: the photo band falls back to the text pass's
+    # version, so a field added after that analysis is hatched as before.
+    assert rows["textonly"]["cells"]["photo_quality"]["c"] == rules.CLASS_STALE
+
+
+def test_export_html_photo_fields_reach_the_verdict(conn, tmp_path: Path):
+    # The merged fields are what `rules` sees, so a photo can reject a row.
+    registry = _photo_registry()
+    storage.upsert_listing(conn, _make_listing(fb_id="p3"))
+    storage.upsert_ai_analysis(
+        conn,
+        _make_analysis(
+            fb_id="p3",
+            schema_version=2,
+            data_json={"pets": {"v": "allowed", "ev": "pets ok"}},
+        ),
+    )
+    _attach_photos(conn, "p3", {"pets": {"v": "not_allowed", "ev": "фото 3: знак"}})
+
+    item = storage.fetch_enriched(conn)[0]
+    assert item["status"] == "rejected"
+    assert item["ai_reason"] == rules.REASON_PETS
 
 
 def test_export_html_prices_coloured_against_budget(conn, tmp_path: Path):
@@ -628,17 +813,23 @@ def test_html_columns_fold_extras_behind_the_toggle():
     columns = storage.html_columns(registry)
     hidden = [c["key"] for c in columns if c["hidden"]]
 
-    # The five that most often decide whether a viewing is worth it open the
-    # folded group.
-    assert hidden[:5] == ["security", "deposit", "parking", "aircon", "kitchen"]
+    # The ones that most often decide whether a viewing is worth it open the
+    # folded group — minus those the photo band took over.
+    assert hidden[:3] == ["security", "deposit", "aircon"]
+    assert {"parking", "kitchen"} <= set(hidden)
     for key in ("pets", "bedrooms", "property_type"):
         assert next(c for c in columns if c["key"] == key)["hidden"] is False
 
     # Bands are contiguous, and `edge` marks where one gives way to the next.
     sources = [c["src"] for c in columns]
     assert sources[0] == "fb" and sources[-1] == "sys"
+    assert sources == sorted(sources, key=["fb", "ai", "photo", "sys"].index)
     edges = [c["key"] for c in columns if c["edge"]]
-    assert edges == ["score", "reason"]
+    assert edges == ["score", "pool_gym", "reason"]
+    # The photo band ends with the comment the gallery pass wrote.
+    photo = [c["key"] for c in columns if c["src"] == "photo"]
+    assert photo[-1] == "photo_comment"
+    assert "photo_quality" in photo
 
 
 def test_verdict_and_comment_are_stored_side_by_side(conn):
