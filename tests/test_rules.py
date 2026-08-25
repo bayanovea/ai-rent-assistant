@@ -11,6 +11,7 @@ from fb_rent.rules import (
     CLASS_WARN,
     REASON_PETS,
     REASON_PRICE,
+    REASON_SIZE,
     REASON_STUDIO,
     cell_class,
     decide,
@@ -23,7 +24,7 @@ def wrap(**fields) -> dict:
     return {k: {"v": v, "conf": "high", "ev": ""} for k, v in fields.items()}
 
 
-# --- the three auto-rejections -----------------------------------------
+# --- the four auto-rejections ------------------------------------------
 
 
 def test_pets_not_allowed_is_rejected():
@@ -50,6 +51,20 @@ def test_explicit_studio_type_is_rejected():
 
 def test_zero_bedrooms_is_rejected():
     assert decide(wrap(bedrooms=0), 18_000) == ("rejected", REASON_STUDIO)
+
+
+def test_size_below_the_floor_is_rejected():
+    fields = wrap(pets="allowed", bedrooms=1, size_sqm=34)
+    assert decide(fields, 20_000) == ("rejected", REASON_SIZE)
+
+
+def test_size_at_the_floor_is_active():
+    fields = wrap(pets="allowed", bedrooms=1, size_sqm=35)
+    assert decide(fields, 20_000) == ("active", None)
+
+
+def test_size_as_a_string_is_still_compared():
+    assert decide(wrap(bedrooms=1, size_sqm="28"), 20_000) == ("rejected", REASON_SIZE)
 
 
 def test_pets_wins_over_other_reasons():
@@ -96,6 +111,19 @@ def test_bad_data_quality_suppresses_a_rejection():
     assert decide(fields, 22_000, None) == ("rejected", REASON_PETS)
 
 
+def test_unknown_size_stays_active():
+    # Silence about the area is not evidence that the flat is small.
+    assert decide(wrap(pets="allowed", bedrooms=1), 20_000) == ("active", None)
+    assert decide(wrap(bedrooms=1, size_sqm=None), 20_000) == ("active", None)
+    assert decide(wrap(bedrooms=1, size_sqm=""), 20_000) == ("active", None)
+    assert decide(wrap(bedrooms=1, size_sqm="около 40"), 20_000) == ("active", None)
+
+
+def test_small_size_from_bad_data_quality_stays_active():
+    fields = wrap(size_sqm=20)
+    assert decide(fields, 20_000, "sidebar_noise") == ("active", None)
+
+
 def test_empty_fields_stay_active():
     assert decide({}, None) == ("active", None)
 
@@ -106,6 +134,19 @@ def test_missing_amenities_stay_active():
 
 
 # --- cell colours -------------------------------------------------------
+
+
+def test_size_below_the_floor_is_red():
+    assert cell_class("size_sqm", 30, {"added_in": 1}, 1) == CLASS_BAD
+
+
+def test_size_at_or_above_the_floor_is_plain():
+    assert cell_class("size_sqm", 35, {"added_in": 1}, 1) == CLASS_PLAIN
+    assert cell_class("size_sqm", 80, {"added_in": 1}, 1) == CLASS_PLAIN
+
+
+def test_unparsable_size_is_plain():
+    assert cell_class("size_sqm", "около 40", {"added_in": 1}, 1) == CLASS_PLAIN
 
 
 def test_pets_allowed_is_green():

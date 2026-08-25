@@ -171,11 +171,12 @@ In a Claude Code session, `/analyze` drives that whole loop for you (skill:
 
 Extraction is the AI's job; the *decision* is not. `rules.py` computes the
 `active` / `rejected` verdict and the score from the extracted fields, so the
-same facts always produce the same outcome. Exactly three conditions
+same facts always produce the same outcome. Exactly four conditions
 auto-reject: pets explicitly forbidden, a price above 35 000 THB (the hard
-ceiling above the 15 000–30 000 target), and an explicit studio. Everything
-else — a condo, no parking, an unmentioned living room — is a remark in the
-comment, never a rejection.
+ceiling above the 15 000–30 000 target), an explicit studio, and a stated
+living area under 35 m². An ad that never names its size is *not* rejected —
+only a number below the floor is. Everything else — a condo, no parking, an
+unmentioned living room — is a remark in the comment, never a rejection.
 
 Alongside the fields the AI records `data_quality` per listing: `good` (it
 read the ad itself), `sidebar_noise` (Facebook's "Выбор дня" block landed in

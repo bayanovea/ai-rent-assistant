@@ -2,8 +2,9 @@
 
 Two questions live here, both answered from the AI's extracted fields:
 
-* :func:`decide` — is this listing still worth looking at? Exactly three
-  conditions auto-reject (pets forbidden, far over budget, explicit studio).
+* :func:`decide` — is this listing still worth looking at? Exactly four
+  conditions auto-reject (pets forbidden, far over budget, explicit studio,
+  living area under `MIN_SIZE_SQM`).
   Everything else is a flag in the verdict, never a rejection: more rooms
   than asked for is a bonus, an unmentioned living room is silence rather
   than a defect, and poor `data_quality` means "re-scrape", not "drop".
@@ -19,12 +20,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from .config import BUDGET_HARD_MAX_THB, DEFAULT_MAX_PRICE, DEFAULT_MIN_PRICE
+from .config import (
+    BUDGET_HARD_MAX_THB,
+    DEFAULT_MAX_PRICE,
+    DEFAULT_MIN_PRICE,
+    MIN_SIZE_SQM,
+)
 
 # Reasons attached to auto-rejections, in the order they are checked.
 REASON_PETS = "Животные запрещены"
 REASON_PRICE = "Сильно вне бюджета"
 REASON_STUDIO = "Студия"
+REASON_SIZE = f"Меньше {MIN_SIZE_SQM} м²"
 
 # CSS classes the HTML export understands.
 CLASS_GOOD = "c-good"
@@ -82,7 +89,8 @@ def decide(
     ``price_thb`` is the listing's own price; it falls back to the AI's
     ``price_month_thb`` when the scraper never captured one. Anything not
     listed below stays active — condos, missing parking and weak internet
-    are all flags for the verdict, not rejections.
+    are all flags for the verdict, not rejections. The same holds for a
+    missing ``size_sqm``: silence about the area is never a rejection.
 
     ``data_quality`` other than ``good`` suppresses every rejection: the
     text the AI read was the sidebar or was missing entirely, so its
@@ -106,6 +114,12 @@ def decide(
     if value_of(fields, "property_type") == "studio" or bedrooms == 0:
         return "rejected", REASON_STUDIO
 
+    # Only a stated number below the floor rejects. An ad that never names a
+    # size — or whose size the AI could not read — stays active.
+    size = _as_int(value_of(fields, "size_sqm"))
+    if size is not None and size < MIN_SIZE_SQM:
+        return "rejected", REASON_SIZE
+
     return "active", None
 
 
@@ -120,7 +134,7 @@ def cell_class(
     An empty cell is either `c-stale` — the field was added to the registry
     after this row was analysed, so the AI never looked — or `c-none`, the
     ordinary "looked, found nothing" dash. Non-empty cells are coloured only
-    where colour means something: pets and price.
+    where colour means something: pets, price and size.
     """
     if is_empty(value):
         added_in = (field_def or {}).get("added_in", 1)
@@ -144,6 +158,12 @@ def cell_class(
         if price > DEFAULT_MAX_PRICE:
             return CLASS_WARN
         return CLASS_PLAIN
+
+    if field_key == "size_sqm":
+        size = _as_int(value)
+        if size is None:
+            return CLASS_PLAIN
+        return CLASS_BAD if size < MIN_SIZE_SQM else CLASS_PLAIN
 
     return CLASS_PLAIN
 

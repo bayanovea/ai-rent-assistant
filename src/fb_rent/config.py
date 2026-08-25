@@ -26,6 +26,10 @@ REQUIREMENTS_PATH: Path = CONFIG_DIR / "requirements.md"
 # The soft target stays DEFAULT_MIN_PRICE..DEFAULT_MAX_PRICE.
 BUDGET_HARD_MAX_THB: int = 35_000
 
+# Hard floor on living area: anything smaller is auto-rejected by rules.py.
+# An unstated size is not a rejection — only a number below this one is.
+MIN_SIZE_SQM: int = 35
+
 # Marketplace defaults for the Phuket Property Rentals category.
 DEFAULT_CATEGORY_ID: str = "110729412288885"
 DEFAULT_MIN_PRICE: int = 15_000
