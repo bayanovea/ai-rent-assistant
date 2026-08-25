@@ -335,3 +335,109 @@ def test_scrape_without_gallery_urls_creates_no_directories(home, monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert not (home / "photos").exists()
+
+
+# --- photo-batch ---------------------------------------------------------
+
+
+def _shoot(home, fb_id: str, count: int = 2):
+    directory = home / "photos" / fb_id
+    directory.mkdir(parents=True, exist_ok=True)
+    for index in range(1, count + 1):
+        (directory / f"{index:02d}.jpg").write_bytes(b"jpeg")
+
+
+def _photo_batch_ids(home):
+    written = sorted((home / "ai").glob("photo-batch-*.json"))[-1]
+    return [item["fb_id"] for item in json.loads(written.read_text(encoding="utf-8"))["items"]]
+
+
+def test_photo_batch_queues_analysed_listings_with_photos(home):
+    conn = storage.init_db(config.DB_PATH)
+    registry = ai_schema.load_registry()
+    _add_listing(conn, "1")
+    _analyse(conn, registry, "1")
+    conn.close()
+    _shoot(home, "1")
+
+    result = _run("photo-batch")
+
+    assert result.exit_code == 0, result.output
+    assert _photo_batch_ids(home) == ["1"]
+
+
+def test_photo_batch_reports_listings_without_photos(home):
+    conn = storage.init_db(config.DB_PATH)
+    registry = ai_schema.load_registry()
+    _add_listing(conn, "1")
+    _analyse(conn, registry, "1")
+    conn.close()
+
+    result = _run("photo-batch")
+
+    assert result.exit_code == 0, result.output
+    assert "no photos on disk" in result.output
+    assert "Nothing pending" in result.output
+    assert list((home / "ai").glob("photo-batch-*.json")) == []
+
+
+def test_photo_batch_ids_reach_past_the_queue(home):
+    conn = storage.init_db(config.DB_PATH)
+    registry = ai_schema.load_registry()
+    _add_listing(conn, "1")
+    conn.close()
+    _shoot(home, "1")
+
+    result = _run("photo-batch", "--ids", "1")
+
+    assert result.exit_code == 0, result.output
+    assert _photo_batch_ids(home) == ["1"]
+
+
+def test_photo_batch_ids_without_photos_say_so(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    conn.close()
+
+    result = _run("photo-batch", "--ids", "1")
+
+    assert result.exit_code == 0, result.output
+    assert "No photos on disk" in result.output
+    assert "Nothing to analyse" in result.output
+
+
+def test_photo_batch_unknown_listing_is_named(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    conn.close()
+    _shoot(home, "999")
+
+    result = _run("photo-batch", "--ids", "999")
+
+    assert "Unknown listing(s): 999" in result.output
+
+
+def test_photo_batch_limit_must_be_positive(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    conn.close()
+
+    result = _run("photo-batch", "--limit", "0")
+
+    assert result.exit_code != 0
+    assert "--limit must be a positive number" in result.output
+
+
+def test_photo_batch_writes_to_an_explicit_out_path(home, tmp_path):
+    conn = storage.init_db(config.DB_PATH)
+    registry = ai_schema.load_registry()
+    _add_listing(conn, "1")
+    _analyse(conn, registry, "1")
+    conn.close()
+    _shoot(home, "1")
+    out = tmp_path / "nested" / "photo.json"
+
+    result = _run("photo-batch", "--out", str(out))
+
+    assert result.exit_code == 0, result.output
+    assert [i["fb_id"] for i in json.loads(out.read_text(encoding="utf-8"))["items"]] == ["1"]

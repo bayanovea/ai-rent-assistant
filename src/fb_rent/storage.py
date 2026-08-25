@@ -752,7 +752,7 @@ class PendingPhotos(NamedTuple):
     no_photos: list[dict[str, Any]]
 
 
-def _fields_of(raw: Any) -> dict[str, Any]:
+def fields_of(raw: Any) -> dict[str, Any]:
     """Return a stored ``*_data_json`` column as a dict, or an empty one."""
     if not raw:
         return {}
@@ -767,7 +767,7 @@ def _fields_of(raw: Any) -> dict[str, Any]:
 
 def photo_fields_of(row: dict[str, Any]) -> dict[str, Any]:
     """Return a row's ``photo_data_json`` as a dict, or an empty one."""
-    return _fields_of(row.get("photo_data_json"))
+    return fields_of(row.get("photo_data_json"))
 
 
 def fetch_pending_photos(
@@ -810,7 +810,7 @@ def fetch_pending_photos(
 
     for row in rows:
         listing = dict(row)
-        text_fields = _fields_of(listing.pop("data_json", None))
+        text_fields = fields_of(listing.pop("data_json", None))
         photo_data = photo_fields_of(listing)
         merged = {**text_fields, **photo_data}
         status, _reason = rules.decide(

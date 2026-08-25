@@ -34,7 +34,7 @@ from typing import Any
 
 import click
 
-from . import ai_batch, ai_schema, config, decisions, photos
+from . import ai_batch, ai_schema, config, decisions, photo_batch, photos
 from .browser import (
     LoginRequiredError,
     is_logged_in,
@@ -714,6 +714,121 @@ def ai_batch_cmd(
         written = ai_batch.write_batch(batch)
 
     click.echo(f"Batch written: {written} ({len(batch['items'])} listing(s))")
+
+
+@main.command("photo-batch")
+@click.option(
+    "--limit",
+    type=int,
+    default=25,
+    show_default=True,
+    help="Maximum number of listings to put in the batch.",
+)
+@click.option(
+    "--all",
+    "all_pending",
+    is_flag=True,
+    default=False,
+    help="Include every listing awaiting a photo pass, ignoring --limit.",
+)
+@click.option(
+    "--ids",
+    "ids",
+    multiple=True,
+    help="Analyse only these fb_ids (repeatable); overrides the queue order.",
+)
+@click.option(
+    "--out",
+    "out_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help=(
+        f"Write the batch to this file (default: {config.AI_DIR}/"
+        "photo-batch-<ts>.json)."
+    ),
+)
+def photo_batch_cmd(
+    limit: int, all_pending: bool, ids: tuple[str, ...], out_path: Path | None
+) -> None:
+    """Assemble the JSON batch of listings awaiting a photo pass."""
+    if limit <= 0 and not all_pending:
+        raise click.ClickException("--limit must be a positive number")
+    registry = _load_registry()
+    wanted_version = _photo_analysis_version(_raw_registry())
+    conn = _open_db()
+    try:
+        pending, no_photos = fetch_pending_photos(
+            conn, registry, photo_analysis_version=wanted_version
+        )
+
+        selected = list(pending)
+        if ids:
+            wanted = {str(i) for i in ids}
+            # An explicit id reaches past the queue, so a listing whose photos
+            # were already read can be looked at again on request.
+            queued = {str(row["fb_id"]): row for row in pending}
+            bare = {str(row["fb_id"]) for row in no_photos}
+            selected = []
+            unusable: list[str] = []
+            missing_ids: list[str] = []
+            for fb_id in sorted(wanted):
+                if fb_id in queued:
+                    selected.append(queued[fb_id])
+                    continue
+                if fb_id in bare or photos.photos_hash(fb_id) is None:
+                    unusable.append(fb_id)
+                    continue
+                row = conn.execute(
+                    "SELECT * FROM listings WHERE fb_id = ?", (fb_id,)
+                ).fetchone()
+                if row is None:
+                    missing_ids.append(fb_id)
+                else:
+                    selected.append(dict(row))
+            if unusable:
+                click.echo(
+                    "No photos on disk (run `fb-rent scrape --refresh` first): "
+                    f"{', '.join(unusable)}"
+                )
+            if missing_ids:
+                click.echo(f"Unknown listing(s): {', '.join(missing_ids)}")
+
+        if no_photos and not ids:
+            click.echo(
+                f"{len(no_photos)} listing(s) have no photos on disk — "
+                "run `fb-rent scrape --refresh` to fetch them."
+            )
+
+        if not selected:
+            click.echo(
+                "Nothing to analyse for the given --ids."
+                if ids
+                else "Nothing pending — every listing's photos are up to date."
+            )
+            return
+
+        batch = photo_batch.build_photo_batch(
+            conn,
+            registry,
+            listings=selected,
+            # An explicit --ids list is the user's own selection: capping it
+            # at --limit would drop listings they named.
+            limit=None if (all_pending or ids) else limit,
+            photo_analysis_version=wanted_version,
+        )
+    finally:
+        conn.close()
+
+    if out_path is not None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps(batch, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        written = out_path
+    else:
+        written = photo_batch.write_photo_batch(batch)
+
+    click.echo(f"Photo batch written: {written} ({len(batch['items'])} listing(s))")
 
 
 @main.command("ai-apply")

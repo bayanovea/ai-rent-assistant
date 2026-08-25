@@ -143,22 +143,34 @@ def build_batch(
     }
 
 
+def timestamped_path(
+    directory: Path, prefix: str, generated_at: Any
+) -> Path:
+    """Return a free ``<directory>/<prefix>-<date>-<time>.json`` path.
+
+    Shared with the photo pass, which names its batches the same way.
+    """
+    digits = re.sub(r"\D", "", str(generated_at or ""))[:14]
+    if len(digits) < 14:
+        # A caller-supplied `generated_at` that is not an ISO timestamp would
+        # otherwise collapse into `batch--.json`.
+        digits = re.sub(r"\D", "", _now_iso())[:14]
+    stem = f"{prefix}-{digits[:8]}-{digits[8:]}"
+    path = directory / f"{stem}.json"
+    # Two batches within the same second must not silently overwrite.
+    suffix = 2
+    while path.exists():
+        path = directory / f"{stem}-{suffix}.json"
+        suffix += 1
+    return path
+
+
 def write_batch(batch: dict[str, Any], out_dir: Path | str | None = None) -> Path:
     """Write ``batch`` to ``<out_dir>/batch-<ts>.json`` and return the path."""
     directory = Path(out_dir) if out_dir is not None else config.AI_DIR
     directory.mkdir(parents=True, exist_ok=True)
 
-    digits = re.sub(r"\D", "", str(batch.get("generated_at") or ""))[:14]
-    if len(digits) < 14:
-        # A caller-supplied `generated_at` that is not an ISO timestamp would
-        # otherwise collapse into `batch--.json`.
-        digits = re.sub(r"\D", "", _now_iso())[:14]
-    path = directory / f"batch-{digits[:8]}-{digits[8:]}.json"
-    # Two batches within the same second must not silently overwrite.
-    suffix = 2
-    while path.exists():
-        path = directory / f"batch-{digits[:8]}-{digits[8:]}-{suffix}.json"
-        suffix += 1
+    path = timestamped_path(directory, "batch", batch.get("generated_at"))
     path.write_text(
         json.dumps(batch, ensure_ascii=False, indent=2), encoding="utf-8"
     )

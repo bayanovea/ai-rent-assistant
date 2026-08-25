@@ -213,13 +213,13 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 - Create: `tests/test_photo_batch.py`
 - Modify: `src/fb_rent/cli.py`
 
-- [ ] `build_photo_batch(conn, registry, *, limit, ids, now=None) -> dict` — верхний уровень: `schema_version`, `photo_analysis_version`, `generated_at`, `requirements_md`, `fields` (только `fields_for("photo")`), `items`. Параметр `now=` обязателен для детерминизма тестов
-- [ ] item: `fb_id`, `url`, `photos_hash`, `photos` (список путей), `current_fields` (текущие значения текстового прохода **только по фотополям** — модель должна видеть, что текст уже наобещал, чтобы поймать расхождение), `listing_title`
-- [ ] `write_photo_batch(batch, out_dir=None) -> Path` — по образцу `write_batch` (`ai_batch.py:146`): имя `photo-batch-<ts>.json` из цифр `generated_at`, суффикс `-2` при коллизии
-- [ ] команда `fb-rent photo-batch` с флагами `--limit` (дефолт 25), `--all`, `--ids`, `--out` — зеркало `ai-batch` (`cli.py:534`), включая ветку «пусто → echo + return с кодом 0»
-- [ ] `validate_photo_results(results, registry)` — обязательны `fb_id` и `photos_hash`; `fields` — объект; незнакомые реестру ключи и enum вне `values` роняют файл целиком (как `_validate_results`, `ai_batch.py:222`); **`verdict` не требуется** — вердикт остаётся за текстовым проходом
-- [ ] написать тесты: структура батча, отсечение rejected, `--ids`, попадание только фотополей в `fields`, все ветки валидации
-- [ ] прогнать тесты
+- [x] `build_photo_batch(conn, registry, *, limit, ids, now=None) -> dict` — верхний уровень: `schema_version`, `photo_analysis_version`, `generated_at`, `requirements_md`, `fields` (только `fields_for("photo")`), `items`. Параметр `now=` обязателен для детерминизма тестов
+- [x] item: `fb_id`, `url`, `photos_hash`, `photos` (список путей), `current_fields` (текущие значения текстового прохода **только по фотополям** — модель должна видеть, что текст уже наобещал, чтобы поймать расхождение), `listing_title`
+- [x] `write_photo_batch(batch, out_dir=None) -> Path` — по образцу `write_batch` (`ai_batch.py:146`): имя `photo-batch-<ts>.json` из цифр `generated_at`, суффикс `-2` при коллизии
+- [x] команда `fb-rent photo-batch` с флагами `--limit` (дефолт 25), `--all`, `--ids`, `--out` — зеркало `ai-batch` (`cli.py:534`), включая ветку «пусто → echo + return с кодом 0»
+- [x] `validate_photo_results(results, registry)` — обязательны `fb_id` и `photos_hash`; `fields` — объект; незнакомые реестру ключи и enum вне `values` роняют файл целиком (как `_validate_results`, `ai_batch.py:222`); **`verdict` не требуется** — вердикт остаётся за текстовым проходом
+- [x] написать тесты: структура батча, отсечение rejected, `--ids`, попадание только фотополей в `fields`, все ветки валидации
+- [x] прогнать тесты
 
 ### Task 7: `photo-apply` — запись и пересчёт
 
