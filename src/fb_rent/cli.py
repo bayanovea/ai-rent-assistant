@@ -888,6 +888,70 @@ def ai_apply_cmd(path: Path, dry_run: bool) -> None:
         _echo_err(f"warning: {warning}")
 
 
+@main.command("photo-apply")
+@click.argument(
+    "path", type=click.Path(exists=True, dir_okay=False, path_type=Path)
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Validate and report without writing anything to the DB.",
+)
+def photo_apply_cmd(path: Path, dry_run: bool) -> None:
+    """Apply a photo result file to the local database."""
+    registry = _load_registry()
+    try:
+        result = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"{path} is not valid JSON: {exc}") from exc
+
+    conn = _open_db()
+    try:
+        try:
+            report = photo_batch.apply_photo_results(
+                conn, registry, result, dry_run=dry_run
+            )
+        except photo_batch.BatchError as exc:
+            raise click.ClickException(str(exc)) from exc
+    finally:
+        conn.close()
+
+    prefix = "Dry-run: would apply" if dry_run else "Applied"
+    click.echo(f"{prefix} {report.applied} photo analysis/analyses")
+
+    # The disagreements are the point of the pass: a photo that merely
+    # confirms the text changes nothing the user needs to look at.
+    if report.overrides:
+        click.echo(f"Photos disagreed with the text in {len(report.overrides)}:")
+        for fb_id, key, old, new in report.overrides:
+            click.echo(f"  - {fb_id}.{key}: {old} -> {new}")
+
+    if report.rejected:
+        click.echo(f"Newly auto-rejected {len(report.rejected)}:")
+        for fb_id, reason in report.rejected:
+            click.echo(f"  - {fb_id}: {reason}")
+
+    if report.skipped:
+        click.echo(f"Skipped {len(report.skipped)}: {', '.join(report.skipped)}")
+
+    if report.proposed_new_fields:
+        click.echo(f"Proposed new fields ({len(report.proposed_new_fields)}):")
+        for proposal in report.proposed_new_fields:
+            why = proposal.get("why") or ""
+            click.echo(
+                f"  - {proposal.get('key')} ({proposal.get('type', 'text')}): "
+                f"{proposal.get('label', '')}" + (f" — {why}" if why else "")
+            )
+        click.echo(
+            "  Add one with `fb-rent ai-field add --key ... --source photo "
+            "[--backfill]`."
+        )
+
+    for warning in report.warnings:
+        _echo_err(f"warning: {warning}")
+
+
 @main.group("ai-field")
 def ai_field_group() -> None:
     """Inspect and extend the AI field registry (config/ai_fields.json)."""

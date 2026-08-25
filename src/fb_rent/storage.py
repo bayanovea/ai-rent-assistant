@@ -684,6 +684,61 @@ def upsert_ai_analysis(
     return "updated"
 
 
+def upsert_photo_analysis(
+    conn: sqlite3.Connection,
+    row: dict[str, Any],
+    *,
+    now: str | None = None,
+) -> str:
+    """Write one photo pass onto an existing ``ai_analysis`` row.
+
+    Unlike :func:`upsert_ai_analysis` this never inserts: the photo pass runs
+    on top of a text analysis, and ``ai_analysis`` cannot hold a row without
+    the text pass's ``verdict`` and ``source_hash``. A listing the text pass
+    never read raises :class:`ValueError`; the caller reports it as skipped.
+
+    ``score`` is optional and only written when the key is present — it is a
+    shared column, recomputed by whichever pass ran last.
+    """
+    fb_id = row.get("fb_id")
+    if not fb_id:
+        raise ValueError("photo analysis must include 'fb_id'")
+    for required in ("photo_schema_version", "photos_hash"):
+        if row.get(required) in (None, ""):
+            raise ValueError(f"photo analysis must include {required!r}")
+
+    data_json = row.get("photo_data_json")
+    if data_json is None:
+        data_json = {}
+    if not isinstance(data_json, str):
+        data_json = json.dumps(data_json, ensure_ascii=False, default=str)
+
+    fields = {
+        "fb_id": fb_id,
+        "photo_data_json": data_json,
+        "photo_comment": row.get("photo_comment"),
+        "photos_hash": row["photos_hash"],
+        "photo_schema_version": row["photo_schema_version"],
+        "photos_analyzed_at": row.get("photos_analyzed_at") or now or _now_iso(),
+        "photo_model": row.get("photo_model"),
+    }
+    if "score" in row:
+        fields["score"] = row["score"]
+
+    existing = conn.execute(
+        "SELECT fb_id FROM ai_analysis WHERE fb_id = ?", (fb_id,)
+    ).fetchone()
+    if existing is None:
+        raise ValueError(f"{fb_id} has no text analysis to attach photos to")
+
+    assignments = ", ".join(f"{k} = :{k}" for k in fields if k != "fb_id")
+    conn.execute(
+        f"UPDATE ai_analysis SET {assignments} WHERE fb_id = :fb_id", fields
+    )
+    conn.commit()
+    return "updated"
+
+
 def fetch_pending(
     conn: sqlite3.Connection, registry: ai_schema.Registry
 ) -> PendingListings:

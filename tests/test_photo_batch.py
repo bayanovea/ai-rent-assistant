@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from fb_rent import ai_schema, config, photo_batch, photos, storage
+from fb_rent import ai_schema, config, photo_batch, photos, rules, storage
 
 
 @pytest.fixture()
@@ -233,3 +233,304 @@ def test_validate_photo_results_rejects_values_outside_the_vocabulary(registry):
         photo_batch.validate_photo_results(
             [_entry(fields={"photo_quality": {"v": "beautiful"}})], registry
         )
+
+
+# --- apply_photo_results -------------------------------------------------
+
+
+def _result(registry, *entries, **overrides):
+    result = {
+        "schema_version": registry.schema_version,
+        "model": "claude-sonnet-5",
+        "results": list(entries),
+    }
+    result.update(overrides)
+    return result
+
+
+def _score_of(conn, fb_id: str):
+    return conn.execute(
+        "SELECT score FROM ai_analysis WHERE fb_id = ?", (fb_id,)
+    ).fetchone()["score"]
+
+
+def test_apply_photo_results_writes_the_photo_columns(conn, registry, photos_home):
+    _analysed(conn, registry, "1")
+    _shoot(photos_home, "1")
+    digest = photos.photos_hash("1")
+
+    report = photo_batch.apply_photo_results(
+        conn,
+        registry,
+        _result(
+            registry,
+            {
+                "fb_id": "1",
+                "photos_hash": digest,
+                "comment": "Ремонт свежий, но кухня — плитка.",
+                "fields": {
+                    "condition": {"v": "good", "conf": "high", "ev": "фото 2: ремонт"}
+                },
+            },
+        ),
+        now="2026-08-25T12:00:00Z",
+    )
+
+    assert report.applied == 1
+    row = conn.execute("SELECT * FROM ai_analysis WHERE fb_id = '1'").fetchone()
+    assert storage.photo_fields_of(dict(row))["condition"]["v"] == "good"
+    assert row["photo_comment"] == "Ремонт свежий, но кухня — плитка."
+    assert row["photos_hash"] == digest
+    assert row["photo_schema_version"] == registry.schema_version
+    assert row["photos_analyzed_at"] == "2026-08-25T12:00:00Z"
+    assert row["photo_model"] == "claude-sonnet-5"
+    # The text pass's own columns are untouched.
+    assert row["verdict"] == "Годится."
+    assert storage.fields_of(row["data_json"])["pets"]["v"] == "allowed"
+
+
+def test_apply_photo_results_reports_where_photos_contradicted_the_text(
+    conn, registry, photos_home
+):
+    _analysed(conn, registry, "1")
+    _shoot(photos_home, "1")
+
+    report = photo_batch.apply_photo_results(
+        conn,
+        registry,
+        _result(
+            registry,
+            {
+                "fb_id": "1",
+                "photos_hash": photos.photos_hash("1"),
+                "fields": {
+                    # The text said `full`; the pictures show a bare room.
+                    "furnished": {"v": "none", "conf": "high", "ev": "фото 1: пусто"},
+                    # Nothing in the text to disagree with — not an override.
+                    "living_room": {"v": "yes", "conf": "high", "ev": "фото 3"},
+                },
+            },
+        ),
+    )
+
+    assert report.overrides == [("1", "furnished", "full", "none")]
+    row = conn.execute("SELECT * FROM ai_analysis WHERE fb_id = '1'").fetchone()
+    assert storage.photo_fields_of(dict(row))["furnished"]["v"] == "none"
+
+
+def test_apply_photo_results_rescores_from_the_merged_fields(
+    conn, registry, photos_home
+):
+    _analysed(conn, registry, "1")
+    _shoot(photos_home, "1")
+    before = _score_of(conn, "1")
+
+    photo_batch.apply_photo_results(
+        conn,
+        registry,
+        _result(
+            registry,
+            {
+                "fb_id": "1",
+                "photos_hash": photos.photos_hash("1"),
+                "fields": {
+                    "living_room": {"v": "yes", "conf": "high", "ev": "фото 3: зал"}
+                },
+            },
+        ),
+    )
+
+    after = _score_of(conn, "1")
+    assert after != before
+    # The merge, not the photo fields alone: `pets: allowed` came from the text.
+    assert after == rules.score(
+        {
+            "pets": {"v": "allowed"},
+            "furnished": {"v": "full"},
+            "living_room": {"v": "yes"},
+        }
+    )
+
+
+def test_apply_photo_results_can_drop_a_listing_into_rejected(
+    conn, registry, photos_home
+):
+    _analysed(conn, registry, "1")
+    _shoot(photos_home, "1")
+
+    report = photo_batch.apply_photo_results(
+        conn,
+        registry,
+        _result(
+            registry,
+            {
+                "fb_id": "1",
+                "photos_hash": photos.photos_hash("1"),
+                "fields": {
+                    "property_type": {
+                        "v": "studio",
+                        "conf": "high",
+                        "ev": "фото 1: одна комната",
+                    },
+                    "size_sqm": {"v": 18, "conf": "medium", "ev": "фото 1"},
+                },
+            },
+        ),
+    )
+
+    assert [fb for fb, _ in report.rejected] == ["1"]
+    row = conn.execute("SELECT * FROM ai_analysis WHERE fb_id = '1'").fetchone()
+    merged = {
+        **storage.fields_of(row["data_json"]),
+        **storage.photo_fields_of(dict(row)),
+    }
+    status, _reason = rules.decide(merged, 22000, "good")
+    assert status == "rejected"
+
+
+def test_apply_photo_results_dry_run_writes_nothing(conn, registry, photos_home):
+    _analysed(conn, registry, "1")
+    _shoot(photos_home, "1")
+
+    report = photo_batch.apply_photo_results(
+        conn,
+        registry,
+        _result(
+            registry,
+            {
+                "fb_id": "1",
+                "photos_hash": photos.photos_hash("1"),
+                "fields": {"furnished": {"v": "none", "conf": "high", "ev": "фото 1"}},
+            },
+        ),
+        dry_run=True,
+    )
+
+    assert report.applied == 1
+    assert report.overrides == [("1", "furnished", "full", "none")]
+    row = conn.execute("SELECT * FROM ai_analysis WHERE fb_id = '1'").fetchone()
+    assert row["photo_data_json"] is None
+    assert row["photos_analyzed_at"] is None
+    assert row["score"] == 5
+
+
+def test_apply_photo_results_skips_a_stale_photos_hash(conn, registry, photos_home):
+    _analysed(conn, registry, "1")
+    _shoot(photos_home, "1")
+
+    report = photo_batch.apply_photo_results(
+        conn,
+        registry,
+        _result(
+            registry,
+            {
+                "fb_id": "1",
+                "photos_hash": "hash-of-pictures-long-gone",
+                "fields": {"condition": {"v": "worn", "conf": "high", "ev": "фото 2"}},
+            },
+        ),
+    )
+
+    assert report.applied == 0
+    assert report.skipped == ["1"]
+    assert any("photos_hash" in w for w in report.warnings)
+    row = conn.execute("SELECT * FROM ai_analysis WHERE fb_id = '1'").fetchone()
+    assert row["photo_data_json"] is None
+
+
+def test_apply_photo_results_skips_a_listing_without_a_text_analysis(
+    conn, registry, photos_home
+):
+    _add_listing(conn, "1")
+    _shoot(photos_home, "1")
+
+    report = photo_batch.apply_photo_results(
+        conn,
+        registry,
+        _result(
+            registry,
+            {
+                "fb_id": "1",
+                "photos_hash": photos.photos_hash("1"),
+                "fields": {},
+            },
+        ),
+    )
+
+    assert report.skipped == ["1"]
+    assert report.applied == 0
+
+
+def test_apply_photo_results_is_idempotent(conn, registry, photos_home):
+    _analysed(conn, registry, "1")
+    _shoot(photos_home, "1")
+    entry = {
+        "fb_id": "1",
+        "photos_hash": photos.photos_hash("1"),
+        "fields": {"living_room": {"v": "yes", "conf": "high", "ev": "фото 3"}},
+    }
+
+    photo_batch.apply_photo_results(
+        conn, registry, _result(registry, entry), now="2026-08-25T12:00:00Z"
+    )
+    first = dict(
+        conn.execute("SELECT * FROM ai_analysis WHERE fb_id = '1'").fetchone()
+    )
+    photo_batch.apply_photo_results(
+        conn, registry, _result(registry, entry), now="2026-08-25T12:00:00Z"
+    )
+    second = dict(
+        conn.execute("SELECT * FROM ai_analysis WHERE fb_id = '1'").fetchone()
+    )
+
+    assert first == second
+    # And the queue is empty afterwards — the same round trip run twice.
+    pending, _no_photos = storage.fetch_pending_photos(conn, registry)
+    assert pending == []
+
+
+def test_apply_photo_results_collects_proposed_new_fields(
+    conn, registry, photos_home
+):
+    _analysed(conn, registry, "1")
+    _shoot(photos_home, "1")
+
+    report = photo_batch.apply_photo_results(
+        conn,
+        registry,
+        _result(
+            registry,
+            {"fb_id": "1", "photos_hash": photos.photos_hash("1"), "fields": {}},
+            proposed_new_fields=[
+                {"key": "balcony_view", "type": "text", "label": "Вид с балкона"},
+                {"key": "condition", "type": "enum", "label": "уже есть"},
+            ],
+        ),
+    )
+
+    assert [p["key"] for p in report.proposed_new_fields] == ["balcony_view"]
+    assert any("already exists" in w for w in report.warnings)
+
+
+def test_apply_photo_results_rejects_the_whole_file_on_an_unknown_key(
+    conn, registry, photos_home
+):
+    _analysed(conn, registry, "1")
+    _shoot(photos_home, "1")
+
+    with pytest.raises(photo_batch.BatchError, match="unknown field keys"):
+        photo_batch.apply_photo_results(
+            conn,
+            registry,
+            _result(
+                registry,
+                {
+                    "fb_id": "1",
+                    "photos_hash": photos.photos_hash("1"),
+                    "fields": {"vibe": {"v": "cosy"}},
+                },
+            ),
+        )
+
+    row = conn.execute("SELECT * FROM ai_analysis WHERE fb_id = '1'").fetchone()
+    assert row["photo_data_json"] is None

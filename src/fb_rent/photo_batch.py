@@ -14,6 +14,7 @@ only reports what is in frame.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
@@ -197,3 +198,145 @@ def validate_photo_results(
             + ". Use one of the declared values, or widen the field with "
             "`fb-rent ai-field add`."
         )
+
+
+@dataclass
+class PhotoApplyReport:
+    """What :func:`apply_photo_results` did, in counters plus explanations."""
+
+    applied: int = 0
+    overrides: list[tuple[str, str, Any, Any]] = dataclass_field(default_factory=list)
+    rejected: list[tuple[str, str]] = dataclass_field(default_factory=list)
+    skipped: list[str] = dataclass_field(default_factory=list)
+    proposed_new_fields: list[dict[str, Any]] = dataclass_field(default_factory=list)
+    warnings: list[str] = dataclass_field(default_factory=list)
+    dry_run: bool = False
+
+
+def _overrides(
+    fb_id: str, text_fields: dict[str, Any], photo_data: dict[str, Any]
+) -> list[tuple[str, str, Any, Any]]:
+    """Fields where the photos contradicted something the text already said.
+
+    Only a disagreement counts: a photo confirming the text, or filling a
+    gap the text left empty, is the pass working as designed. A photo that
+    *erases* a stated value is not an override either — an empty answer is
+    "could not see", not "the text is wrong".
+    """
+    found: list[tuple[str, str, Any, Any]] = []
+    for key in photo_data:
+        old = rules.value_of(text_fields, key)
+        new = rules.value_of(photo_data, key)
+        if rules.is_empty(old) or rules.is_empty(new):
+            continue
+        if old != new:
+            found.append((fb_id, key, old, new))
+    return found
+
+
+def apply_photo_results(
+    conn: Connection,
+    registry: ai_schema.Registry,
+    result: dict[str, Any],
+    *,
+    dry_run: bool = False,
+    now: str | None = None,
+) -> PhotoApplyReport:
+    """Validate a photo result file, store its fields and re-decide.
+
+    The photo fields are merged over the text pass's own (``{**data_json,
+    **photo_data_json}``) and both :func:`.rules.decide` and
+    :func:`.rules.score` are recomputed from the merge. ``decide`` would be
+    recomputed on every read anyway; ``score`` would not — it is a stored
+    column — so a photo that lifts or sinks a listing would never reach the
+    sort order without this write.
+
+    A ``photos_hash`` that no longer matches the directory **skips** the
+    entry. This is deliberately stricter than the text pass, which accepts a
+    stale ``source_hash`` and leaves the row queued: a description can be
+    re-read, but an analysis of pictures that are no longer on disk is a
+    description of some other flat, and storing it would attribute another
+    listing's rooms to this one.
+    """
+    report = PhotoApplyReport(dry_run=dry_run)
+    report.warnings.extend(ai_batch._validate_envelope(result, registry))
+
+    results = result["results"]
+    validate_photo_results(results, registry)
+
+    for proposal in result.get("proposed_new_fields") or []:
+        if not isinstance(proposal, dict):
+            continue
+        key = proposal.get("key")
+        if key and registry.field(key) is not None:
+            report.warnings.append(
+                f"proposed field {key!r} already exists in the registry — ignored"
+            )
+            continue
+        report.proposed_new_fields.append(proposal)
+
+    model = result.get("model")
+    result_version = int(result["schema_version"])
+    timestamp = now or ai_batch._now_iso()
+
+    for entry in results:
+        fb_id = str(entry["fb_id"])
+        photo_data = entry.get("fields") or {}
+
+        row = conn.execute(
+            """
+            SELECT l.price_thb, a.data_json, a.data_quality
+            FROM listings AS l
+            JOIN ai_analysis AS a ON a.fb_id = l.fb_id
+            WHERE l.fb_id = ?
+            """,
+            (fb_id,),
+        ).fetchone()
+        if row is None:
+            report.skipped.append(fb_id)
+            report.warnings.append(
+                f"{fb_id}: no listing with a text analysis in the database"
+            )
+            continue
+
+        current_hash = photos.photos_hash(fb_id)
+        if entry["photos_hash"] != current_hash:
+            report.skipped.append(fb_id)
+            report.warnings.append(
+                f"{fb_id}: photos_hash no longer matches the files on disk — "
+                "not written, the analysis describes pictures that are gone"
+            )
+            continue
+
+        text_fields = storage.fields_of(row["data_json"])
+        merged = {**text_fields, **photo_data}
+        report.overrides.extend(_overrides(fb_id, text_fields, photo_data))
+
+        data_quality = row["data_quality"]
+        before, _ = rules.decide(text_fields, row["price_thb"], data_quality)
+        status, reason = rules.decide(merged, row["price_thb"], data_quality)
+        if status == "rejected" and before != "rejected" and reason:
+            report.rejected.append((fb_id, reason))
+
+        report.applied += 1
+        if dry_run:
+            continue
+
+        storage.upsert_photo_analysis(
+            conn,
+            {
+                "fb_id": fb_id,
+                # The version the pass actually saw, not the registry's: a
+                # result produced before an `ai-field add --source photo`
+                # must leave the newer fields stale and stay queued.
+                "photo_schema_version": result_version,
+                "photos_analyzed_at": entry.get("analyzed_at") or timestamp,
+                "photos_hash": entry["photos_hash"],
+                "photo_model": model,
+                "photo_comment": entry.get("comment"),
+                "photo_data_json": photo_data,
+                "score": rules.score(merged),
+            },
+        )
+
+    return report
