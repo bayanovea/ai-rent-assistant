@@ -224,6 +224,9 @@ def test_export_html_empty_db(conn, tmp_path: Path):
     assert "<title>fb-rent listings</title>" in text
     assert "fb-rent — 0 listings" in text
     assert "const DATA = [];" in text
+    # Открывают таблицу ради лучшего, поэтому она сортируется сама.
+    assert 'let sortKey = "score";' in text
+    assert "let sortDir = -1;" in text
 
 
 def _inline_payload(text: str, name: str):

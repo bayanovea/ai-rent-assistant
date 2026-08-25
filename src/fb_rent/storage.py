@@ -1373,8 +1373,11 @@ function rowHTML(row) {
 }
 
 let tab = "active";
-let sortKey = null;
-let sortDir = 1;
+// Таблицу открывают, чтобы посмотреть лучшее, поэтому она сразу отсортирована
+// по Score вниз. Строки без анализа уходят в конец: sortValue отдаёт для них
+// null, а null в компараторе всегда последний, независимо от направления.
+let sortKey = "score";
+let sortDir = -1;
 
 function sortValue(row, key) {
   const cell = cellOf(row, key);
