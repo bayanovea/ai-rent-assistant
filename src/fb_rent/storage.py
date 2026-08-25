@@ -15,13 +15,14 @@ the source of truth, because only user decisions are irreplaceable.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from . import ai_schema, rules
+from . import ai_schema, extractors, rules
 
 
 CSV_COLUMNS: tuple[str, ...] = (
@@ -45,6 +46,7 @@ CREATE TABLE IF NOT EXISTS listings (
     price_thb       INTEGER,
     price_raw       TEXT,
     district        TEXT,
+    content_key     TEXT,
     bedrooms        INTEGER,
     property_type   TEXT,
     description     TEXT,
@@ -63,9 +65,19 @@ CREATE TABLE IF NOT EXISTS ai_analysis (
     source_hash    TEXT NOT NULL,
     model          TEXT,
     verdict        TEXT NOT NULL,
+    comment        TEXT,
     score          INTEGER,
     data_quality   TEXT,
     data_json      TEXT NOT NULL
+);
+"""
+
+_DUPLICATES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS duplicates (
+    fb_id            TEXT PRIMARY KEY,
+    canonical_fb_id  TEXT NOT NULL,
+    content_key      TEXT NOT NULL,
+    noticed_at       TEXT NOT NULL
 );
 """
 
@@ -81,11 +93,96 @@ CREATE TABLE IF NOT EXISTS decisions (
 _INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_last_seen ON listings(last_seen_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_price ON listings(price_thb);",
+    "CREATE INDEX IF NOT EXISTS idx_content_key ON listings(content_key);",
 )
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# An ad shorter than this is not a fingerprint: "Выбор дня" or a bare price
+# line would collapse unrelated listings into one.
+_CONTENT_KEY_MIN_CHARS = 60
+
+
+def content_key(listing: dict[str, Any]) -> str | None:
+    """Fingerprint a listing by the ad text itself, not by its FB id.
+
+    Agencies repost the same ad to lift it back up the feed, and Facebook
+    issues a fresh ``fb_id`` every time, so id-keyed dedup lets the same flat
+    in six times. The fingerprint is the ad body — read out of ``text_lines``,
+    the same slice the AI reads, because the ``description`` column sometimes
+    holds the sidebar instead — plus the price, so a repost at a new price
+    stays a separate listing. Returns ``None`` when the text is too thin to
+    identify anything, and such a listing is never treated as a duplicate.
+    """
+    body = extractors.description_from_text_lines(
+        text_lines_of(listing.get("raw_json"))
+    ) or (listing.get("description") or "")
+    normalised = " ".join(body.split()).lower()
+    if len(normalised) < _CONTENT_KEY_MIN_CHARS:
+        return None
+    price = listing.get("price_thb")
+    digest = hashlib.sha256(f"{price}\n{normalised}".encode("utf-8"))
+    return digest.hexdigest()
+
+
+def canonical_for(
+    conn: sqlite3.Connection, fb_id: str, key: str | None
+) -> str | None:
+    """The fb_id already holding this ad text, if another row has it."""
+    if not key:
+        return None
+    row = conn.execute(
+        "SELECT fb_id FROM listings WHERE content_key = ? AND fb_id != ? "
+        "ORDER BY first_seen_at LIMIT 1",
+        (key, fb_id),
+    ).fetchone()
+    return row["fb_id"] if row else None
+
+
+def duplicate_fb_ids(conn: sqlite3.Connection) -> set[str]:
+    """Ids already known to be reposts, so a rescrape can skip them early."""
+    return {
+        row["fb_id"] for row in conn.execute("SELECT fb_id FROM duplicates")
+    }
+
+
+def _record_duplicate(
+    conn: sqlite3.Connection,
+    fb_id: str,
+    canonical_fb_id: str,
+    key: str,
+    ts: str,
+) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO duplicates "
+        "(fb_id, canonical_fb_id, content_key, noticed_at) VALUES (?, ?, ?, ?)",
+        (fb_id, canonical_fb_id, key, ts),
+    )
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns that arrived after the first databases were created.
+
+    ``verdict`` used to hold the whole write-up; it now holds the one-line
+    recommendation and ``comment`` holds the reasoning behind it.
+    """
+    have = {row["name"] for row in conn.execute("PRAGMA table_info(ai_analysis)")}
+    if "comment" not in have:
+        conn.execute("ALTER TABLE ai_analysis ADD COLUMN comment TEXT")
+
+    have = {row["name"] for row in conn.execute("PRAGMA table_info(listings)")}
+    if "content_key" not in have:
+        conn.execute("ALTER TABLE listings ADD COLUMN content_key TEXT")
+        rows = conn.execute("SELECT * FROM listings").fetchall()
+        for row in rows:
+            conn.execute(
+                "UPDATE listings SET content_key = ? WHERE fb_id = ?",
+                (content_key(dict(row)), row["fb_id"]),
+            )
+        conn.commit()
 
 
 def init_db(path: Path | str) -> sqlite3.Connection:
@@ -101,7 +198,9 @@ def init_db(path: Path | str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute(_SCHEMA)
     conn.execute(_AI_SCHEMA)
+    conn.execute(_DUPLICATES_SCHEMA)
     conn.execute(_DECISIONS_SCHEMA)
+    _migrate(conn)
     for stmt in _INDEXES:
         conn.execute(stmt)
     conn.commit()
@@ -116,9 +215,15 @@ def upsert_listing(
 ) -> str:
     """Insert a new listing or update an existing one keyed by ``fb_id``.
 
-    Returns ``"inserted"`` or ``"updated"``. On update ``first_seen_at`` is
-    preserved; ``last_seen_at``, ``price_*``, ``description``, ``raw_json``
-    and other mutable fields are refreshed.
+    Returns ``"inserted"``, ``"updated"`` or ``"duplicate"``. On update
+    ``first_seen_at`` is preserved; ``last_seen_at``, ``price_*``,
+    ``description``, ``raw_json`` and other mutable fields are refreshed.
+
+    A new row whose ad text already exists under a different ``fb_id`` is a
+    repost: it is recorded in ``duplicates`` and not inserted, so one flat
+    occupies one line of the table however often the agency republishes it.
+    Rows already in ``listings`` keep updating normally — an id that once
+    earned its own row is never demoted behind the user's back.
     """
     fb_id = listing.get("fb_id")
     if not fb_id:
@@ -128,6 +233,14 @@ def upsert_listing(
     existing = conn.execute(
         "SELECT first_seen_at FROM listings WHERE fb_id = ?", (fb_id,)
     ).fetchone()
+
+    key = content_key(listing)
+    if existing is None:
+        canonical = canonical_for(conn, fb_id, key)
+        if canonical is not None:
+            _record_duplicate(conn, fb_id, canonical, key or "", ts)
+            conn.commit()
+            return "duplicate"
 
     raw_json = listing.get("raw_json")
     if raw_json is not None and not isinstance(raw_json, str):
@@ -140,6 +253,7 @@ def upsert_listing(
         "price_thb": listing.get("price_thb"),
         "price_raw": listing.get("price_raw"),
         "district": listing.get("district"),
+        "content_key": key,
         "bedrooms": listing.get("bedrooms"),
         "property_type": listing.get("property_type"),
         "description": listing.get("description"),
@@ -165,6 +279,55 @@ def upsert_listing(
     )
     conn.commit()
     return "updated"
+
+
+def dedupe_listings(
+    conn: sqlite3.Connection, *, dry_run: bool = False, now: str | None = None
+) -> list[dict[str, Any]]:
+    """Collapse rows that hold the same ad text, keeping one per group.
+
+    Returns one entry per group it touched: ``{"canonical", "removed"}``.
+    The keeper is whichever copy carries the most work — a decision of yours
+    first, then an AI analysis, then the one seen first. The rest leave
+    ``listings`` together with their analyses and are remembered in
+    ``duplicates``, which is what stops the next scrape from re-adding them.
+    """
+    ts = now or _now_iso()
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in conn.execute("SELECT * FROM listings ORDER BY first_seen_at"):
+        item = dict(row)
+        key = item.get("content_key") or content_key(item)
+        if not key:
+            continue
+        groups.setdefault(key, []).append(item)
+
+    decided = {row["fb_id"] for row in conn.execute("SELECT fb_id FROM decisions")}
+    analysed = {row["fb_id"] for row in conn.execute("SELECT fb_id FROM ai_analysis")}
+
+    def rank(item: dict[str, Any]) -> tuple[int, int, str]:
+        fb_id = item["fb_id"]
+        return (
+            0 if fb_id in decided else 1,
+            0 if fb_id in analysed else 1,
+            str(item.get("first_seen_at") or ""),
+        )
+
+    collapsed: list[dict[str, Any]] = []
+    for key, items in groups.items():
+        if len(items) < 2:
+            continue
+        keeper, *rest = sorted(items, key=rank)
+        removed = [item["fb_id"] for item in rest]
+        collapsed.append({"canonical": keeper["fb_id"], "removed": removed})
+        if dry_run:
+            continue
+        for fb_id in removed:
+            _record_duplicate(conn, fb_id, keeper["fb_id"], key, ts)
+            conn.execute("DELETE FROM ai_analysis WHERE fb_id = ?", (fb_id,))
+            conn.execute("DELETE FROM listings WHERE fb_id = ?", (fb_id,))
+    if not dry_run:
+        conn.commit()
+    return collapsed
 
 
 def known_fb_ids(conn: sqlite3.Connection) -> set[str]:
@@ -225,6 +388,7 @@ def upsert_ai_analysis(
         "source_hash": row["source_hash"],
         "model": row.get("model"),
         "verdict": row["verdict"],
+        "comment": row.get("comment"),
         "score": row.get("score"),
         "data_quality": row.get("data_quality"),
         "data_json": data_json,
@@ -326,7 +490,7 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         SELECT l.*,
                a.schema_version AS ai_schema_version,
                a.analyzed_at, a.source_hash AS ai_source_hash, a.model,
-               a.verdict, a.score, a.data_quality, a.data_json,
+               a.verdict, a.comment, a.score, a.data_quality, a.data_json,
                d.status AS user_status, d.reason AS user_reason, d.decided_at
         FROM listings AS l
         LEFT JOIN ai_analysis AS a ON a.fb_id = l.fb_id
@@ -405,9 +569,13 @@ _HTML_TEMPLATE = r"""<!doctype html>
   h1 { margin: 0 0 0.2rem; font-size: 1rem; }
   .meta { color: #666; font-size: 0.75rem; margin-bottom: 0.6rem; }
   .bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+  .bar .spacer { flex: 1 1 auto; }
   .tab { border: 1px solid #ccd; background: #fff; border-radius: 999px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #333; }
   .tab:hover { background: #f2f5fb; }
   .tab.on { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+  #more { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #33405c; white-space: nowrap; }
+  #more:hover { background: #eef2fa; }
+  #more.on { background: #33405c; border-color: #33405c; color: #fff; }
   #q { border: 1px solid #ccd; border-radius: 4px; padding: 4px 8px; font-size: 12px; min-width: 220px; }
   .legend { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; font-size: 11px; color: #555; margin-bottom: 0.6rem; }
   .legend span.sw { display: inline-block; width: 14px; height: 14px; border: 1px solid #bbb; border-radius: 3px; vertical-align: -3px; margin-right: 4px; }
@@ -415,17 +583,35 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .wrap { overflow: auto; max-height: 78vh; border: 1px solid #dde; border-radius: 4px; }
   table.rt { border-collapse: separate; border-spacing: 0; white-space: nowrap; }
   .rt th, .rt td { border-bottom: 1px solid #eef0f4; border-right: 1px solid #f3f4f7; padding: 5px 8px; text-align: left; vertical-align: top; font-weight: normal; }
-  .rt th { position: sticky; top: 0; z-index: 2; background: #f7f8fb; font-weight: 600; cursor: pointer; user-select: none; box-shadow: 0 1px 0 #dde; }
-  .rt th:hover { background: #eef1f7; }
-  .rt th .grp { display: block; font-weight: normal; color: #99a; font-size: 10px; }
+  .rt th { background: #f7f8fb; font-weight: 600; user-select: none; }
+  .rt thead th.lbl { position: sticky; top: 24px; z-index: 2; cursor: pointer; box-shadow: 0 1px 0 #dde; }
+  .rt thead th.band { position: sticky; top: 0; z-index: 2; text-align: center; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 8px; color: #55607a; }
+  .rt thead th.lbl:hover { background: #eef1f7; }
+  /* Where the data comes from: parsed off the FB page vs. extracted by the AI. */
+  .rt .src-fb  { background: #f4f7fb; }
+  .rt .src-ai  { background: #f8f5fb; }
+  .rt .src-sys { background: #f7f8fb; }
+  .rt .band.src-fb  { color: #2a5f9e; background: #e9f0f9; }
+  .rt .band.src-ai  { color: #6b3fa0; background: #f1eaf9; }
+  .rt .band.src-sys { color: #55607a; background: #eef0f4; }
+  .rt td.src-ai { background: #fdfcfe; }
+  .rt .edge { border-left: 2px solid #c8cfe0; }
   .rt td:first-child, .rt th:first-child { position: sticky; left: 0; z-index: 1; background: #fff; box-shadow: 1px 0 0 #dde; }
-  .rt th:first-child { z-index: 3; background: #f7f8fb; }
+  .rt thead th:first-child { z-index: 4; background: #eef0f4; }
   .rt tbody tr:hover td { background: #f9fbff; }
   .id-cell { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #1a73e8; text-decoration: none; }
   .id-cell:hover { text-decoration: underline; }
-  .verdict, .title-cell { display: inline-block; max-width: 320px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+  /* Long values are clipped so the table stays scannable; a click unfolds
+     the cell in place, a second click folds it back. */
+  .clip { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; cursor: zoom-in; }
+  .clip.w-verdict { max-width: 240px; }
+  .clip.w-comment { max-width: 340px; color: #555; }
+  .rt td.open .clip { max-width: 460px; white-space: normal; overflow: visible; text-overflow: clip; cursor: zoom-out; }
+  .rt tbody td.open, .rt tbody tr:hover td.open { background: #fffdf3; }
   .who { color: #888; font-size: 10px; }
-  .num { font-variant-numeric: tabular-nums; }
+  .num { font-variant-numeric: tabular-nums; text-align: right; }
+  .badge { font-size: 9px; color: #8a7fa8; border: 1px solid #d8cfe8; border-radius: 3px; padding: 0 3px; margin-left: 4px; vertical-align: 1px; }
+  .badge.fb { color: #4a7099; border-color: #cbd9e8; }
   .c-good { background: #e6f4ea; color: #137333; }
   .c-warn { background: #fef7e0; color: #8a6d00; }
   .c-bad  { background: #fce8e6; color: #a50e0e; }
@@ -439,15 +625,19 @@ _HTML_TEMPLATE = r"""<!doctype html>
 </head>
 <body>
 <h1>fb-rent — __ROW_COUNT__ listings</h1>
-<div class="meta">Сгенерировано __GENERATED_AT__ · реестр полей v__SCHEMA_VERSION__ · сортировка — клик по заголовку · ID открывает объявление · наведите на ячейку, чтобы увидеть цитату-основание</div>
+<div class="meta">Сгенерировано __GENERATED_AT__ · реестр полей v__SCHEMA_VERSION__ · сортировка — клик по заголовку · ID открывает объявление · наведите на ячейку, чтобы увидеть цитату-основание · клик по обрезанной ячейке разворачивает её целиком</div>
 <div class="bar">
   <button class="tab" data-tab="active"></button>
   <button class="tab" data-tab="shortlist"></button>
   <button class="tab" data-tab="rejected"></button>
   <button class="tab" data-tab="all"></button>
   <input id="q" type="search" placeholder="поиск по всем колонкам…">
+  <span class="spacer"></span>
+  <button id="more"></button>
 </div>
 <div class="legend">
+  <span class="item"><span class="sw src-fb"></span>колонка из парсинга FB</span>
+  <span class="item"><span class="sw src-ai"></span>колонка от AI</span>
   <span class="item"><span class="sw c-good"></span>подходит (pets allowed, цена в бюджете)</span>
   <span class="item"><span class="sw c-warn"></span>под вопросом (unclear, 30–35k ฿)</span>
   <span class="item"><span class="sw c-bad"></span>стоп-фактор (животные запрещены, вне бюджета)</span>
@@ -455,18 +645,36 @@ _HTML_TEMPLATE = r"""<!doctype html>
   <span class="item"><span class="sw c-none"></span>AI смотрел, информации нет</span>
   <span class="item"><span class="sw" style="border-left:3px solid #d93025"></span>row-rejected — отклонено (AI или вами)</span>
 </div>
-<div class="wrap"><table class="rt"><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
+<div class="wrap"><table class="rt"><thead><tr id="bands"></tr><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
 <div class="empty" id="empty" hidden>Ничего не найдено.</div>
 <script>
 const COLUMNS = __COLUMNS_JSON__;
 const DATA = __DATA_JSON__;
 
 const TAB_LABELS = { active: "Active", shortlist: "Shortlist", rejected: "Rejected", all: "All" };
+const SRC_LABELS = { fb: "FB — парсинг", ai: "AI — анализ", sys: "Решение" };
+const CLIPPED_KINDS = { verdict: 1, comment: 1, field: 1, text: 1, reason: 1 };
+const TYPE_ICONS = {
+  house: "🏠", townhouse: "🏘️", villa: "🏡", condo: "🏢",
+  apartment: "🏬", studio: "🚪", unknown: "❔"
+};
+
+let showExtra = false;
+
+// Text longer than this gets clipped and becomes click-to-expand.
+const CLIP_AT = 30;
+// Cells the user unfolded, as "<fb_id>|<column>". Kept outside the DOM so
+// sorting or filtering does not fold everything back up.
+const openCells = new Set();
 
 function esc(s) {
   return String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;")
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function visibleColumns() {
+  return COLUMNS.filter(c => showExtra || !c.hidden);
 }
 
 function cellOf(row, key) {
@@ -484,14 +692,33 @@ function inTab(row, tab) {
   return tab === "all" ? true : row.status === tab;
 }
 
+/* 0 → red, 50 → amber, 100 → green, in the same muted register as the
+   c-good / c-warn / c-bad swatches so the scale reads as one palette. */
+function scoreStyle(n) {
+  const t = Math.max(0, Math.min(100, n)) / 100;
+  const hue = Math.round(t * 125);
+  return ' style="background: hsl(' + hue + ', 62%, 91%); color: hsl(' + hue + ', 55%, 26%); font-weight: 600"';
+}
+
+/* More rooms than we asked for is a plus, so the ramp only ever gets
+   greener; 0 bedrooms is a studio, which the rules reject outright. */
+function countStyle(n, cap) {
+  if (n === 0) return ' style="background: #fce8e6; color: #a50e0e"';
+  const t = Math.min(n, cap) / cap;
+  const light = 96 - Math.round(t * 14);
+  return ' style="background: hsl(136, ' + (30 + Math.round(t * 28)) + '%, ' + light + '%); color: #14532d"';
+}
+
 function tdHTML(row, col) {
   const cell = cellOf(row, col.key);
   const text = cell.t;
   const empty = text == null || text === "";
-  const classes = ["cell"];
+  const classes = ["cell", "src-" + col.src];
+  if (col.edge) classes.push("edge");
   if (cell.c) classes.push(cell.c);
-  if (col.kind === "num") classes.push("num");
-  const title = cell.ev ? ' title="' + esc(cell.ev) + '"' : "";
+  if (col.kind === "num" || col.kind === "score" || col.kind === "count") classes.push("num");
+  let title = cell.ev ? ' title="' + esc(cell.ev) + '"' : "";
+  let style = "";
 
   let inner;
   if (col.kind === "id") {
@@ -499,9 +726,14 @@ function tdHTML(row, col) {
     inner = row.url
       ? '<a class="id-cell" href="' + esc(row.url) + '" target="_blank" rel="noopener">' + label + '</a>'
       : '<span class="id-cell">' + label + '</span>';
-  } else if (col.kind === "verdict" || col.kind === "title") {
-    const cls = col.kind === "verdict" ? "verdict" : "title-cell";
-    inner = empty ? '—' : '<span class="' + cls + '" title="' + esc(text) + '">' + esc(text) + '</span>';
+  } else if (col.kind === "score") {
+    inner = empty ? '—' : esc(text);
+    if (!empty && cell.n != null) style = scoreStyle(cell.n);
+  } else if (col.kind === "count") {
+    inner = empty ? '—' : esc(text);
+    if (!empty && cell.n != null) style = countStyle(cell.n, col.key === "bedrooms" ? 4 : 3);
+  } else if (col.kind === "type") {
+    inner = empty ? '—' : (TYPE_ICONS[text] || "🏚️") + " " + esc(text);
   } else if (col.kind === "reason") {
     if (empty) {
       inner = '—';
@@ -512,14 +744,31 @@ function tdHTML(row, col) {
   } else {
     inner = empty ? '—' : esc(text);
   }
-  return '<td class="' + classes.join(" ") + '"' + title + '>' + inner + '</td>';
+
+  // A merged column (price, district) shows whichever source had the better
+  // value; the badge says which one that was.
+  if (!empty && cell.src && cell.src !== col.src) {
+    inner += '<span class="badge ' + esc(cell.src) + '">' + esc(cell.src) + '</span>';
+  }
+
+  const cellId = row.fb_id + "|" + col.key;
+  if (!empty && CLIPPED_KINDS[col.kind] && String(text).length > CLIP_AT) {
+    const width = col.kind === "verdict" || col.kind === "comment"
+      ? " w-" + col.kind : "";
+    inner = '<span class="clip' + width + '">' + inner + '</span>';
+    // With no quote to show, the tooltip carries the full text instead.
+    if (!cell.ev) title = ' title="' + esc(text) + '"';
+    if (openCells.has(cellId)) classes.push("open");
+  }
+  return '<td class="' + classes.join(" ") + '" data-cell="' + esc(cellId) + '"'
+    + title + style + '>' + inner + '</td>';
 }
 
 function rowHTML(row) {
   const cls = row.status === "rejected"
     ? "row-rejected"
     : (row.status === "shortlist" ? "row-shortlist" : "");
-  return '<tr class="' + cls + '">' + COLUMNS.map(c => tdHTML(row, c)).join("") + '</tr>';
+  return '<tr class="' + cls + '">' + visibleColumns().map(c => tdHTML(row, c)).join("") + '</tr>';
 }
 
 let tab = "active";
@@ -527,10 +776,40 @@ let sortKey = null;
 let sortDir = 1;
 
 function sortValue(row, key) {
-  const t = cellOf(row, key).t;
+  const cell = cellOf(row, key);
+  if (cell.n != null) return cell.n;
+  const t = cell.t;
   if (t == null || t === "") return null;
-  const n = Number(String(t).replace(/[\s ]/g, ""));
+  const n = Number(String(t).replace(/[\s ]/g, ""));
   return Number.isFinite(n) ? n : String(t).toLowerCase();
+}
+
+function renderHead() {
+  const cols = visibleColumns();
+  const bands = [];
+  cols.forEach(c => {
+    const last = bands[bands.length - 1];
+    if (last && last.src === c.src) last.n += 1;
+    else bands.push({ src: c.src, n: 1 });
+  });
+  document.getElementById("bands").innerHTML = bands.map((b, i) =>
+    '<th class="band src-' + b.src + (i ? ' edge' : '') + '" colspan="' + b.n + '">'
+    + esc(SRC_LABELS[b.src] || b.src) + '</th>'
+  ).join("");
+
+  document.getElementById("head").innerHTML = cols.map(c =>
+    '<th class="lbl src-' + c.src + (c.edge ? ' edge' : '') + '" data-key="' + esc(c.key) + '">'
+    + esc(c.label) + '</th>'
+  ).join("");
+
+  document.querySelectorAll("#head th").forEach(th => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.key;
+      sortDir = key === sortKey ? -sortDir : 1;
+      sortKey = key;
+      render();
+    });
+  });
 }
 
 function render() {
@@ -548,6 +827,7 @@ function render() {
     });
   }
 
+  renderHead();
   document.getElementById("body").innerHTML = rows.map(rowHTML).join("");
   document.getElementById("empty").hidden = rows.length > 0;
 
@@ -557,24 +837,31 @@ function render() {
     btn.textContent = TAB_LABELS[key] + " (" + n + ")";
     btn.classList.toggle("on", key === tab);
   });
+
+  const extra = COLUMNS.filter(c => c.hidden).length;
+  const more = document.getElementById("more");
+  more.textContent = (showExtra ? "▲ Скрыть доп. поля" : "▼ Ещё " + extra + " полей");
+  more.classList.toggle("on", showExtra);
 }
-
-document.getElementById("head").innerHTML = COLUMNS.map(c => {
-  const grp = c.group ? '<span class="grp">' + esc(c.group) + '</span>' : "";
-  return '<th data-key="' + esc(c.key) + '">' + esc(c.label) + grp + '</th>';
-}).join("");
-
-document.querySelectorAll("#head th").forEach(th => {
-  th.addEventListener("click", () => {
-    const key = th.dataset.key;
-    sortDir = key === sortKey ? -sortDir : 1;
-    sortKey = key;
-    render();
-  });
-});
 
 document.querySelectorAll(".tab").forEach(btn => {
   btn.addEventListener("click", () => { tab = btn.dataset.tab; render(); });
+});
+
+document.getElementById("body").addEventListener("click", ev => {
+  // The ID cell is a link to the listing — let it navigate.
+  if (ev.target.closest("a")) return;
+  const td = ev.target.closest("td");
+  if (!td || !td.querySelector(".clip")) return;
+  const id = td.dataset.cell;
+  if (openCells.has(id)) openCells.delete(id);
+  else openCells.add(id);
+  td.classList.toggle("open");
+});
+
+document.getElementById("more").addEventListener("click", () => {
+  showExtra = !showExtra;
+  render();
 });
 
 document.getElementById("q").addEventListener("input", render);
@@ -586,18 +873,78 @@ render();
 """
 
 # Columns that come from the listing row itself rather than from the AI field
-# registry. ``kind`` is what the embedded JS switches on when rendering a cell.
-_BASE_COLUMNS: tuple[dict[str, str], ...] = (
-    {"key": "fb_id", "label": "ID", "kind": "id"},
-    {"key": "title", "label": "Заголовок", "kind": "title"},
-    {"key": "score", "label": "Score", "kind": "num"},
-    {"key": "verdict", "label": "Вердикт", "kind": "verdict"},
-    {"key": "reason", "label": "Reason", "kind": "reason"},
-    {"key": "price_thb", "label": "Цена FB ฿", "kind": "num"},
-    {"key": "district", "label": "Район FB", "kind": "text"},
-    {"key": "data_quality", "label": "Качество данных", "kind": "text"},
-    {"key": "first_seen_at", "label": "Первый показ", "kind": "text"},
+# registry. ``kind`` is what the embedded JS switches on when rendering a cell;
+# ``src`` is which half of the pipeline filled it — the page groups columns
+# into bands by it so a parsed value is never mistaken for an extracted one.
+_BASE_COLUMNS: tuple[dict[str, Any], ...] = (
+    {"key": "fb_id", "label": "ID", "kind": "id", "src": "fb"},
+    {"key": "price", "label": "Цена ฿/мес", "kind": "num", "src": "fb"},
+    {"key": "area", "label": "Район", "kind": "text", "src": "fb"},
+    {"key": "first_seen_at", "label": "Первый показ", "kind": "text", "src": "fb"},
+    {"key": "score", "label": "Score", "kind": "score", "src": "ai"},
+    {"key": "verdict", "label": "Рекомендация", "kind": "verdict", "src": "ai"},
+    {"key": "comment", "label": "Комментарий AI", "kind": "comment", "src": "ai"},
+    {"key": "data_quality", "label": "Качество данных", "kind": "text", "src": "ai"},
 )
+
+# The one column that is neither parsed nor extracted: why the listing is out,
+# decided by `rules` or by the user. It closes the table.
+_TAIL_COLUMNS: tuple[dict[str, Any], ...] = (
+    {"key": "reason", "label": "Причина", "kind": "reason", "src": "sys"},
+)
+
+# Registry fields the base columns already cover: `area` and the monthly price
+# are merged with their parsed counterparts into a single column each.
+_MERGED_FIELD_KEYS: frozenset[str] = frozenset({"price_month_thb", "area"})
+
+# Registry fields shown up front. Everything else in the registry is an extra,
+# folded away behind the "Ещё N полей" button.
+_PRIMARY_FIELD_KEYS: tuple[str, ...] = (
+    "pets",
+    "property_type",
+    "bedrooms",
+    "bathrooms",
+    "size_sqm",
+    "extra_rooms",
+    "pool_gym",
+)
+
+# Order of the folded-away columns: the five that most often decide a viewing
+# come first, the rest keep the registry's own order.
+_EXTRA_FIELD_ORDER: tuple[str, ...] = (
+    "security",
+    "deposit",
+    "parking",
+    "aircon",
+    "kitchen",
+)
+
+# Values of the FB `district` field that name the island or the province
+# rather than a district — nothing to show.
+_DISTRICT_NOISE: frozenset[str] = frozenset(
+    {"phuket", "пхукет", "ภูเก็ต", "changwat phuket", "thailand", "таиланд"}
+)
+
+_DISTRICT_PREFIXES: tuple[str, ...] = ("amphoe ", "changwat ", "tambon ", "mueang ")
+
+
+def normalise_district(value: Any) -> str:
+    """Reduce FB's location string to the district itself.
+
+    ``Rawai, Phuket, Thailand`` → ``Rawai``, ``Amphoe Thalang`` → ``Thalang``.
+    A string that only names the island or the province carries no location,
+    so it collapses to an empty cell rather than repeating "Пхукет" 30 times.
+    """
+    if not value:
+        return ""
+    head = str(value).split(",")[0].strip()
+    lowered = head.lower()
+    for prefix in _DISTRICT_PREFIXES:
+        if lowered.startswith(prefix):
+            head = head[len(prefix):].strip()
+            lowered = head.lower()
+            break
+    return "" if lowered in _DISTRICT_NOISE else head
 
 
 def _format_number(value: Any) -> str:
@@ -620,18 +967,59 @@ def _display(value: Any) -> str:
     return str(value)
 
 
+def _extra_field_keys(registry: ai_schema.Registry) -> list[str]:
+    """Registry keys that live behind the "Ещё N полей" toggle, in order."""
+    known = set(_PRIMARY_FIELD_KEYS) | _MERGED_FIELD_KEYS
+    rest = [f["key"] for f in registry.fields if f["key"] not in known]
+    priority = [k for k in _EXTRA_FIELD_ORDER if k in rest]
+    return priority + [k for k in rest if k not in priority]
+
+
 def html_columns(registry: ai_schema.Registry) -> list[dict[str, Any]]:
-    """Return every export column: the fixed ones plus the registry's fields."""
+    """Return every export column: the fixed ones plus the registry's fields.
+
+    Registry fields follow the base columns in the AI band — first the ones
+    worth a glance in the default view, then the extras, which ship with
+    ``hidden`` set so the page can fold them away. ``edge`` marks the column
+    that opens a new source band, which is where the page draws its divider.
+    """
+    by_key = {field["key"]: field for field in registry.fields}
+
+    def field_column(key: str, *, hidden: bool) -> dict[str, Any]:
+        field = by_key[key]
+        if key == "property_type":
+            kind = "type"
+        elif key in ("bedrooms", "bathrooms"):
+            kind = "count"
+        elif field.get("type") == "int":
+            kind = "num"
+        else:
+            kind = "field"
+        return {
+            "key": key,
+            "label": field.get("label") or key,
+            "kind": kind,
+            "src": "ai",
+            "group": field.get("group") or "",
+            "hidden": hidden,
+        }
+
     columns: list[dict[str, Any]] = [dict(col) for col in _BASE_COLUMNS]
-    for field in registry.fields:
-        columns.append(
-            {
-                "key": field["key"],
-                "label": field.get("label") or field["key"],
-                "kind": "num" if field.get("type") == "int" else "field",
-                "group": field.get("group") or "",
-            }
-        )
+    columns += [
+        field_column(key, hidden=False)
+        for key in _PRIMARY_FIELD_KEYS
+        if key in by_key
+    ]
+    columns += [
+        field_column(key, hidden=True) for key in _extra_field_keys(registry)
+    ]
+    columns += [dict(col) for col in _TAIL_COLUMNS]
+
+    previous = None
+    for column in columns:
+        column.setdefault("hidden", False)
+        column["edge"] = previous is not None and column["src"] != previous
+        previous = column["src"]
     return columns
 
 
@@ -641,6 +1029,9 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
     Every cell carries its text, its colour class from :func:`rules.cell_class`
     and — where the AI supplied one — the quote backing the value, which the
     page shows as a tooltip so any claim can be traced to the source text.
+    Price and district exist twice in the pipeline (parsed off the card, then
+    read out of the ad text); each is merged into one cell that prefers the
+    AI's reading and records in ``src`` which one is on screen.
     """
     analyzed = bool(item.get("analyzed"))
     fields = item.get("fields") or {}
@@ -651,42 +1042,69 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
 
     status = item.get("status") or "active"
     reason = item.get("reason")
-    price = item.get("price_thb")
     first_seen = item.get("first_seen_at") or ""
+    score = item.get("score")
+
+    fb_price = item.get("price_thb")
+    ai_price = rules.value_of(fields, "price_month_thb")
+    price = ai_price if not rules.is_empty(ai_price) else fb_price
+    price_ev = _price_tooltip(fields, fb_price, ai_price)
+
+    fb_area = normalise_district(item.get("district"))
+    ai_area = rules.value_of(fields, "area")
+    area = ai_area if not rules.is_empty(ai_area) else fb_area
 
     cells: dict[str, dict[str, Any]] = {
         "fb_id": {"t": item.get("fb_id"), "c": ""},
-        "title": {"t": item.get("title") or "", "c": ""},
-        "score": {"t": _display(item.get("score")), "c": ""},
+        "price": {
+            "t": _display(price),
+            "c": rules.cell_class("price_month_thb", price, {"added_in": 1}, version),
+            "src": "ai" if not rules.is_empty(ai_price) else "fb",
+        },
+        "area": {
+            "t": _display(area),
+            "c": "",
+            "src": "ai" if not rules.is_empty(ai_area) else "fb",
+        },
+        "first_seen_at": {"t": str(first_seen)[:10], "c": ""},
+        "score": {
+            "t": _display(score),
+            "c": "" if analyzed else rules.CLASS_NONE,
+            "n": score if isinstance(score, int) else None,
+        },
         "verdict": {
             "t": item.get("verdict") or "",
             "c": "" if analyzed else rules.CLASS_NONE,
         },
-        "reason": {
-            "t": reason or "",
-            "c": rules.CLASS_BAD if status == "rejected" and reason else "",
+        "comment": {
+            "t": item.get("comment") or "",
+            "c": "" if analyzed else rules.CLASS_NONE,
         },
-        "price_thb": {
-            "t": _display(price),
-            "c": rules.cell_class("price_month_thb", price, {"added_in": 1}, version),
-        },
-        "district": {"t": item.get("district") or "", "c": ""},
         "data_quality": {
             "t": item.get("data_quality") or "",
             "c": rules.CLASS_WARN
             if analyzed and item.get("data_quality") not in (None, "", "good")
             else "",
         },
-        "first_seen_at": {"t": str(first_seen)[:10], "c": ""},
+        "reason": {
+            "t": reason or "",
+            "c": rules.CLASS_BAD if status == "rejected" and reason else "",
+        },
     }
+    if price_ev:
+        cells["price"]["ev"] = price_ev
 
     for field in registry.fields:
         key = field["key"]
+        if key in _MERGED_FIELD_KEYS:
+            continue
         value = rules.value_of(fields, key)
         cell: dict[str, Any] = {
             "t": _display(value),
             "c": rules.cell_class(key, value, field, version),
         }
+        if key in ("bedrooms", "bathrooms"):
+            cell["n"] = value if isinstance(value, int) else None
         raw = fields.get(key)
         if isinstance(raw, dict) and raw.get("ev"):
             cell["ev"] = str(raw["ev"])
@@ -700,6 +1118,31 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
         "analyzed": analyzed,
         "cells": cells,
     }
+
+
+def _price_tooltip(
+    fields: dict[str, Any], fb_price: Any, ai_price: Any
+) -> str:
+    """Everything the merged price cell folds away, as tooltip lines.
+
+    The card price and the price in the ad text disagree often enough that
+    hiding one of them silently would be a lie; the yearly rate goes here too
+    so the twelve-month tier survives the column merge.
+    """
+    parts: list[str] = []
+    quote = fields.get("price_month_thb")
+    if isinstance(quote, dict) and quote.get("ev"):
+        parts.append(str(quote["ev"]))
+    if (
+        not rules.is_empty(ai_price)
+        and not rules.is_empty(fb_price)
+        and ai_price != fb_price
+    ):
+        parts.append(f"AI: {_display(ai_price)} · карточка FB: {_display(fb_price)}")
+    yearly = rules.value_of(fields, "price_12m_thb")
+    if not rules.is_empty(yearly) and yearly != ai_price:
+        parts.append(f"12 месяцев: {_display(yearly)} ฿")
+    return "\n".join(parts)
 
 
 def _inline_json(payload: Any) -> str:

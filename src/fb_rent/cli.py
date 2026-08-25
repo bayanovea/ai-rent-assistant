@@ -51,6 +51,8 @@ from .extractors import (
 from .scraper_detail import scrape_detail
 from .scraper_list import scrape_list
 from .storage import (
+    dedupe_listings,
+    duplicate_fb_ids,
     export_csv,
     export_html,
     fetch_pending,
@@ -193,6 +195,9 @@ def scrape_cmd(
     conn = init_db(config.DB_PATH)
     try:
         seen_ids = set() if refresh else known_fb_ids(conn)
+        # Reposts stay skipped even under --refresh: their ad text already has
+        # a row, and fetching the detail page again would only re-prove it.
+        dupe_ids = duplicate_fb_ids(conn)
         if seen_ids and not refresh:
             click.echo(
                 f"Known listings in DB: {len(seen_ids)} "
@@ -228,6 +233,7 @@ def scrape_cmd(
 
             enriched: list[dict[str, Any]] = []
             skipped_known = 0
+            skipped_dupes = 0
             with click.progressbar(
                 length=len(cards),
                 label="Scraping listings",
@@ -243,6 +249,11 @@ def scrape_cmd(
                         )
                         bar.update(1, card)
                         continue
+                    if card["fb_id"] in dupe_ids:
+                        skipped_dupes += 1
+                        bar.update(1, card)
+                        continue
+
                     detail: dict[str, Any] | None = None
                     already_known = card["fb_id"] in seen_ids
                     if already_known:
@@ -272,6 +283,10 @@ def scrape_cmd(
                 click.echo(
                     f"Skipped detail fetch for {skipped_known} listing(s) already in DB."
                 )
+            if skipped_dupes:
+                click.echo(
+                    f"Skipped {skipped_dupes} known repost(s) of listings already in DB."
+                )
 
             if dry_run:
                 click.echo("Dry-run: skipping DB writes and CSV export.")
@@ -286,10 +301,13 @@ def scrape_cmd(
 
             inserted = 0
             updated = 0
+            duplicates = 0
             for item in enriched:
                 result = upsert_listing(conn, item)
                 if result == "inserted":
                     inserted += 1
+                elif result == "duplicate":
+                    duplicates += 1
                 else:
                     updated += 1
             _sync_decisions(conn)
@@ -298,6 +316,7 @@ def scrape_cmd(
 
             click.echo(
                 f"Done. inserted: {inserted}, updated: {updated}, "
+                f"duplicates: {duplicates + skipped_dupes}, "
                 f"skipped_known: {skipped_known}, csv: {csv_path}, html: {html_path}"
             )
         finally:
@@ -306,6 +325,43 @@ def scrape_cmd(
                     context.close()
             finally:
                 playwright.stop()
+    finally:
+        conn.close()
+
+
+@main.command("dedupe")
+@click.option(
+    "--dry-run", is_flag=True, help="List the reposts without deleting them."
+)
+def dedupe_cmd(dry_run: bool) -> None:
+    """Collapse reposts: one row per ad text, however often it was published.
+
+    Facebook issues a new listing id every time an agency republishes the
+    same ad, so id-keyed dedup lets one flat in several times. This keeps the
+    copy carrying the most work — your decision, then an AI analysis, then
+    the one seen first — drops the rest and remembers them, so the next
+    scrape skips them instead of adding them back.
+    """
+    conn = _open_db()
+    try:
+        collapsed = dedupe_listings(conn, dry_run=dry_run)
+        if not collapsed:
+            click.echo("No reposts found — every listing has its own ad text.")
+            return
+        removed = sum(len(group["removed"]) for group in collapsed)
+        prefix = "Dry-run: would remove" if dry_run else "Removed"
+        click.echo(
+            f"{prefix} {removed} repost(s) across {len(collapsed)} listing(s):"
+        )
+        for group in collapsed:
+            click.echo(
+                f"  - keeping {group['canonical']}, "
+                f"dropping {', '.join(group['removed'])}"
+            )
+        if not dry_run:
+            csv_path = export_csv(conn, config.CSV_PATH)
+            html_path = export_html(conn, config.HTML_PATH)
+            click.echo(f"Exports refreshed: {csv_path}, {html_path}")
     finally:
         conn.close()
 

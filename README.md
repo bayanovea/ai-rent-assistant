@@ -61,11 +61,18 @@ Everything lives in the sibling `data/` directory (i.e. `../data/` relative
 to this `scrapper/` package):
 
 - `browser-profile/` — persistent Chromium profile (cookies, localStorage)
-- `rentals.db` — SQLite database (source of truth)
+- `rentals.db` — SQLite database (source of truth). Deduplication is on
+  `fb_id` *and* on the ad text: agencies republish the same flat to lift it up
+  the feed and Facebook mints a new id each time, so a listing whose text and
+  price already exist is recorded in `duplicates` instead of getting its own
+  row. `fb-rent dedupe` collapses reposts that predate that check
 - `rentals.csv` — flat export of the scraped `listings` columns only,
   regenerated on every scrape
-- `rentals.html` — the full table: AI fields, verdict, score and decisions.
-  Self-contained, no CDN and no network; regenerated on every scrape
+- `rentals.html` — the full table: AI fields, recommendation, score and
+  decisions. Columns are banded by where the value came from — parsed off the
+  FB page or extracted by the AI — and the rarely-scanned fields fold away
+  behind the "Ещё N полей" toggle. Self-contained, no CDN and no network;
+  regenerated on every scrape
 - `ai/` — batches written by `fb-rent ai-batch` and the result files you hand
   back to `fb-rent ai-apply` (`batch-<ts>.json` / `result-<ts>.json`);
   disposable, they are just the transport between the CLI and the AI
@@ -136,8 +143,10 @@ fb-rent export --html-path /tmp/rentals.html # custom HTML destination
 ## AI enrichment
 
 The scraper only gets you raw text. The enrichment loop turns that text into
-filled columns, a per-listing verdict and a score, so the search happens on one
-HTML page instead of 40 Facebook tabs.
+filled columns, a per-listing recommendation and a score, so the search happens
+on one HTML page instead of 40 Facebook tabs. Each listing gets a one-line
+`verdict` ("Стоит посмотреть — дом с гостиной в бюджете") for the table plus a
+longer `comment` holding the reasoning and whatever facts have no column yet.
 
 The "AI" here is Claude Code itself (Opus, high thinking effort) — there is no
 API client and no extra runtime dependency. The CLI's job is the contract:
@@ -160,7 +169,7 @@ same facts always produce the same outcome. Exactly three conditions
 auto-reject: pets explicitly forbidden, a price above 35 000 THB (the hard
 ceiling above the 15 000–30 000 target), and an explicit studio. Everything
 else — a condo, no parking, an unmentioned living room — is a remark in the
-verdict, never a rejection.
+comment, never a rejection.
 
 Alongside the fields the AI records `data_quality` per listing: `good` (it
 read the ad itself), `sidebar_noise` (Facebook's "Выбор дня" block landed in

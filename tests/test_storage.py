@@ -482,12 +482,21 @@ def test_export_html_colours_pets_and_marks_rejected(conn, tmp_path: Path):
         assert needle in text
     assert rules.REASON_PETS in text
 
-    # Every registry field is reachable as a column, plus the fixed Reason one.
-    labels = [c["label"] for c in _inline_payload(text, "COLUMNS")]
+    # Every registry field is reachable as a column — the two that merge into
+    # a base column under their own label, the rest under the registry's.
+    columns = _inline_payload(text, "COLUMNS")
+    labels = [c["label"] for c in columns]
+    merged = storage._MERGED_FIELD_KEYS
     for field in registry.fields:
-        assert field["label"] in labels
-    assert "Reason" in labels
-    assert len(labels) == len(storage._BASE_COLUMNS) + len(registry.fields)
+        if field["key"] not in merged:
+            assert field["label"] in labels
+    assert "Причина" in labels
+    assert len(labels) == (
+        len(storage._BASE_COLUMNS)
+        + len(storage._TAIL_COLUMNS)
+        + len(registry.fields)
+        - len(merged)
+    )
 
 
 def test_export_html_marks_user_rejection_as_user(conn, tmp_path: Path):
@@ -548,7 +557,197 @@ def test_export_html_prices_coloured_against_budget(conn, tmp_path: Path):
         for r in _inline_payload(out.read_text(encoding="utf-8"), "DATA")
     }
 
-    assert rows["cheap"]["cells"]["price_thb"]["c"] == rules.CLASS_PLAIN
-    assert rows["edge"]["cells"]["price_thb"]["c"] == rules.CLASS_WARN
-    assert rows["over"]["cells"]["price_thb"]["c"] == rules.CLASS_BAD
-    assert rows["cheap"]["cells"]["price_thb"]["t"] == "22 000"
+    assert rows["cheap"]["cells"]["price"]["c"] == rules.CLASS_PLAIN
+    assert rows["edge"]["cells"]["price"]["c"] == rules.CLASS_WARN
+    assert rows["over"]["cells"]["price"]["c"] == rules.CLASS_BAD
+    assert rows["cheap"]["cells"]["price"]["t"] == "22 000"
+    # Nothing analysed these, so the price on screen is the parsed one.
+    assert rows["cheap"]["cells"]["price"]["src"] == "fb"
+
+
+# --- merged columns, district cleanup and the AI comment ----------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Rawai, Phuket, Thailand", "Rawai"),
+        ("Amphoe Thalang", "Thalang"),
+        ("Ban Ket Ho, Phuket, Thailand", "Ban Ket Ho"),
+        ("Patong", "Patong"),
+        # The island and the province name no district — better an empty cell
+        # than "Пхукет" repeated down the whole column.
+        ("Пхукет", ""),
+        ("Changwat Phuket, Phuket, Thailand", ""),
+        (None, ""),
+    ],
+)
+def test_normalise_district(raw, expected):
+    assert storage.normalise_district(raw) == expected
+
+
+def test_export_html_price_and_area_prefer_the_ai_reading(conn, tmp_path: Path):
+    # The card says 22 000 in Rawai; the ad text says 16 000 on a 12-month
+    # contract in Kathu. One column each, showing the AI's reading, with the
+    # card's own value kept in the tooltip rather than dropped.
+    registry = ai_schema.load_registry()
+    storage.upsert_listing(
+        conn,
+        _make_listing(fb_id="merged", price_thb=22000, district="Rawai, Phuket, Thailand"),
+    )
+    storage.upsert_ai_analysis(
+        conn,
+        _make_analysis(
+            fb_id="merged",
+            schema_version=registry.schema_version,
+            data_json={
+                "price_month_thb": {"v": 16000, "ev": "• 12 months: 16,000 THB/month"},
+                "area": {"v": "Kathu", "ev": "กะทู้, 83120"},
+            },
+        ),
+    )
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out, registry)
+    row = _inline_payload(out.read_text(encoding="utf-8"), "DATA")[0]
+
+    assert row["cells"]["price"]["t"] == "16 000"
+    assert row["cells"]["price"]["src"] == "ai"
+    assert "22 000" in row["cells"]["price"]["ev"]
+    assert row["cells"]["area"]["t"] == "Kathu"
+    assert row["cells"]["area"]["src"] == "ai"
+    # Neither registry field gets a second column of its own.
+    keys = [c["key"] for c in _inline_payload(out.read_text(encoding="utf-8"), "COLUMNS")]
+    assert "price_month_thb" not in keys
+    assert "area" in keys and keys.count("area") == 1
+
+
+def test_html_columns_fold_extras_behind_the_toggle():
+    registry = ai_schema.load_registry()
+    columns = storage.html_columns(registry)
+    hidden = [c["key"] for c in columns if c["hidden"]]
+
+    # The five that most often decide whether a viewing is worth it open the
+    # folded group.
+    assert hidden[:5] == ["security", "deposit", "parking", "aircon", "kitchen"]
+    for key in ("pets", "bedrooms", "property_type"):
+        assert next(c for c in columns if c["key"] == key)["hidden"] is False
+
+    # Bands are contiguous, and `edge` marks where one gives way to the next.
+    sources = [c["src"] for c in columns]
+    assert sources[0] == "fb" and sources[-1] == "sys"
+    edges = [c["key"] for c in columns if c["edge"]]
+    assert edges == ["score", "reason"]
+
+
+def test_verdict_and_comment_are_stored_side_by_side(conn):
+    storage.upsert_listing(conn, _make_listing())
+    storage.upsert_ai_analysis(
+        conn,
+        _make_analysis(
+            verdict="Стоит посмотреть — дом с гостиной",
+            comment="Дом 2 спальни в Раваи, интернет включён в цену.",
+        ),
+    )
+
+    row = storage.fetch_enriched(conn)[0]
+    assert row["verdict"] == "Стоит посмотреть — дом с гостиной"
+    assert row["comment"] == "Дом 2 спальни в Раваи, интернет включён в цену."
+
+
+# --- reposts: one flat, one row -----------------------------------------
+
+
+def _with_body(fb_id: str, body: str, price: int = 16000):
+    """A listing whose detail page carried ``body`` as its ad text."""
+    return _make_listing(
+        fb_id=fb_id,
+        price_thb=price,
+        raw_json={"text_lines": ["Описание", body, "Информация о продавце"]},
+    )
+
+
+_AD = (
+    "🔥 Condo for rent near Central Phuket, 1 bedroom, fully furnished, "
+    "pool and gym, 12-month contract, contact us for a viewing"
+)
+
+
+def test_repost_under_a_new_id_does_not_get_its_own_row(conn):
+    # Agencies republish to lift an ad back up the feed and Facebook mints a
+    # fresh fb_id each time; the ad text is what identifies the flat.
+    assert storage.upsert_listing(conn, _with_body("first", _AD)) == "inserted"
+    assert storage.upsert_listing(conn, _with_body("repost", _AD)) == "duplicate"
+
+    assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 1
+    row = conn.execute(
+        "SELECT canonical_fb_id FROM duplicates WHERE fb_id = 'repost'"
+    ).fetchone()
+    assert row["canonical_fb_id"] == "first"
+    # The scraper reads this set to skip the repost before fetching its page.
+    assert storage.duplicate_fb_ids(conn) == {"repost"}
+
+
+def test_rescraping_the_same_listing_still_updates_it(conn):
+    storage.upsert_listing(conn, _with_body("first", _AD))
+    assert storage.upsert_listing(conn, _with_body("first", _AD)) == "updated"
+    assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 1
+    assert conn.execute("SELECT count(*) FROM duplicates").fetchone()[0] == 0
+
+
+def test_same_ad_at_a_different_price_is_a_separate_listing(conn):
+    storage.upsert_listing(conn, _with_body("cheap", _AD, price=16000))
+    assert storage.upsert_listing(
+        conn, _with_body("pricier", _AD, price=19000)
+    ) == "inserted"
+    assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 2
+
+
+def test_thin_text_is_never_treated_as_a_repost(conn):
+    # Two listings whose scrape caught only the "Выбор дня" sidebar share that
+    # text without being the same flat — fingerprinting them would merge
+    # unrelated ads, so a body this short yields no key at all.
+    assert storage.content_key({"description": "Выбор дня"}) is None
+    storage.upsert_listing(conn, _with_body("thin-a", "Выбор дня"))
+    assert storage.upsert_listing(conn, _with_body("thin-b", "Выбор дня")) == "inserted"
+    assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 2
+
+
+def test_dedupe_listings_keeps_the_copy_carrying_the_most_work(conn):
+    # Seen first, analysed, decided on — three copies, and the keeper is the
+    # one the user already ruled on, not merely the oldest.
+    for fb_id in ("oldest", "analysed", "decided"):
+        conn.execute(
+            "INSERT INTO listings (fb_id, url, title, price_thb, content_key,"
+            " raw_json, first_seen_at, last_seen_at) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                fb_id,
+                f"https://www.facebook.com/marketplace/item/{fb_id}/",
+                "t",
+                16000,
+                "shared-key",
+                json.dumps({"text_lines": ["Описание", _AD]}),
+                {"oldest": "2026-08-01", "analysed": "2026-08-02", "decided": "2026-08-03"}[fb_id],
+                "2026-08-25",
+            ),
+        )
+    storage.upsert_ai_analysis(conn, _make_analysis(fb_id="analysed"))
+    conn.execute(
+        "INSERT INTO decisions (fb_id, status, reason, decided_at) VALUES (?,?,?,?)",
+        ("decided", "shortlist", "звонил хозяину", "2026-08-25T12:00:00Z"),
+    )
+    conn.commit()
+
+    assert storage.dedupe_listings(conn, dry_run=True) == [
+        {"canonical": "decided", "removed": ["analysed", "oldest"]}
+    ]
+    # A dry run touches nothing.
+    assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 3
+
+    storage.dedupe_listings(conn)
+    left = [r["fb_id"] for r in conn.execute("SELECT fb_id FROM listings")]
+    assert left == ["decided"]
+    # The dropped copy's analysis goes with it, and both are remembered so a
+    # rescrape skips them instead of adding them back.
+    assert conn.execute("SELECT count(*) FROM ai_analysis").fetchone()[0] == 0
+    assert storage.duplicate_fb_ids(conn) == {"oldest", "analysed"}

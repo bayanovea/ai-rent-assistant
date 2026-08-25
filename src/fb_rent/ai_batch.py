@@ -351,6 +351,7 @@ def apply_results(
                 "source_hash": reported_hash or current_hash,
                 "model": model,
                 "verdict": entry["verdict"],
+                "comment": entry.get("comment"),
                 "score": rules.score(fields),
                 "data_quality": data_quality,
                 "data_json": fields,
