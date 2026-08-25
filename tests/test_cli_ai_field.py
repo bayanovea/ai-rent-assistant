@@ -183,3 +183,97 @@ def test_add_keeps_the_registry_world_readable(registry_file):
     # The atomic write goes through mkstemp (0600); os.replace must not
     # narrow a version-controlled file down to owner-only.
     assert registry_file.stat().st_mode & 0o077 == 0o044
+
+
+def test_photo_source_backfill_moves_only_the_photo_version(registry_file):
+    raw_before = _read(registry_file)
+    before = raw_before["schema_version"]
+    analysis_before = raw_before.get("analysis_version", before)
+
+    result = _run(
+        "ai-field", "add",
+        "--registry", str(registry_file),
+        "--key", "mould", "--label", "Mould", "--type", "text",
+        "--source", "photo", "--backfill",
+    )
+
+    assert result.exit_code == 0, result.output
+    raw = _read(registry_file)
+    assert raw["fields"][-1]["source"] == "photo"
+    # The camera has to look again; the text pass has nothing new to read.
+    assert raw["photo_analysis_version"] == before + 1
+    assert raw["analysis_version"] == analysis_before
+    assert "photo-batch" in result.output
+    assert "ai-batch" not in result.output
+
+
+def test_both_source_backfill_moves_both_versions(registry_file):
+    before = _read(registry_file)["schema_version"]
+
+    result = _run(
+        "ai-field", "add",
+        "--registry", str(registry_file),
+        "--key", "mould", "--label", "Mould", "--type", "text",
+        "--source", "both", "--backfill",
+    )
+
+    assert result.exit_code == 0, result.output
+    raw = _read(registry_file)
+    assert raw["fields"][-1]["source"] == "both"
+    assert raw["analysis_version"] == before + 1
+    assert raw["photo_analysis_version"] == before + 1
+    assert "ai-batch" in result.output
+    assert "photo-batch" in result.output
+
+
+def test_default_source_backfill_leaves_the_photo_version_alone(registry_file):
+    raw_before = _read(registry_file)
+    before = raw_before["schema_version"]
+    photo_before = raw_before.get("photo_analysis_version", before)
+
+    result = _run(
+        "ai-field", "add",
+        "--registry", str(registry_file),
+        "--key", "balcony", "--label", "Balcony", "--type", "text",
+        "--backfill",
+    )
+
+    assert result.exit_code == 0, result.output
+    raw = _read(registry_file)
+    # `text` is the default, so the key is left off the field entirely.
+    assert "source" not in raw["fields"][-1]
+    assert raw["analysis_version"] == before + 1
+    assert raw["photo_analysis_version"] == photo_before
+
+
+def test_unknown_source_is_rejected(registry_file):
+    before = registry_file.read_text(encoding="utf-8")
+
+    result = _run(
+        "ai-field", "add",
+        "--registry", str(registry_file),
+        "--key", "balcony", "--label", "Balcony", "--type", "text",
+        "--source", "video",
+    )
+
+    assert result.exit_code != 0
+    assert registry_file.read_text(encoding="utf-8") == before
+
+
+def test_list_prints_the_source_column(registry_file):
+    _run(
+        "ai-field", "add",
+        "--registry", str(registry_file),
+        "--key", "mould", "--label", "Mould", "--type", "text",
+        "--source", "photo",
+    )
+
+    result = _run("ai-field", "list", "--registry", str(registry_file))
+
+    assert result.exit_code == 0, result.output
+    assert "photo_analysis_version" in result.output
+    mould_line = next(l for l in result.output.splitlines() if "mould" in l)
+    assert "photo" in mould_line
+    # Fields that omit `source` still print one — the assumed default.
+    price_line = next(l for l in result.output.splitlines() if " price" in l)
+    assert "text" in price_line

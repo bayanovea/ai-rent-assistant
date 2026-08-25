@@ -971,14 +971,16 @@ def ai_field_list_cmd(registry_path: Path | None) -> None:
     raw = _raw_registry(registry_path)
     click.echo(
         f"schema_version: {registry.schema_version} "
-        f"(analysis_version: {_analysis_version(raw)})"
+        f"(analysis_version: {_analysis_version(raw)}, "
+        f"photo_analysis_version: {_photo_analysis_version(raw)})"
     )
     for field in registry.fields:
         values = field.get("values")
         suffix = f" [{', '.join(values)}]" if values else ""
         click.echo(
             f"  {field['key']:<20} {field.get('group', ''):<9} "
-            f"{field['type']:<5} v{field['added_in']}  {field['label']}{suffix}"
+            f"{field['type']:<5} {ai_schema.field_source(field):<5} "
+            f"v{field['added_in']}  {field['label']}{suffix}"
         )
 
 
@@ -996,6 +998,14 @@ def ai_field_list_cmd(registry_path: Path | None) -> None:
     "--values",
     default=None,
     help="Comma-separated allowed values (required for --type enum).",
+)
+@click.option(
+    "--source",
+    "source",
+    default=ai_schema.DEFAULT_SOURCE,
+    show_default=True,
+    type=click.Choice(sorted(ai_schema.KNOWN_SOURCES)),
+    help="Which pass fills the field: the text one, the photo one, or both.",
 )
 @click.option("--group", default="core", show_default=True, help="Column group.")
 @click.option("--prompt", default=None, help="Extraction instruction for the AI.")
@@ -1023,6 +1033,7 @@ def ai_field_add_cmd(
     label: str,
     ftype: str,
     values: str | None,
+    source: str,
     group: str,
     prompt: str | None,
     after: str | None,
@@ -1053,6 +1064,10 @@ def ai_field_add_cmd(
         "type": ftype,
         "added_in": new_version,
     }
+    if source != ai_schema.DEFAULT_SOURCE:
+        # `text` is the assumed default, so writing it out would only add noise
+        # to a registry where 28 fields already omit the key.
+        field["source"] = source
     if value_list:
         field["values"] = value_list
     if prompt:
@@ -1076,8 +1091,15 @@ def ai_field_add_cmd(
     # Read the old analysis version before the bump: without --backfill it
     # stays where it is, which is what keeps analysed rows out of the queue.
     previous_analysis = _analysis_version(raw)
+    previous_photo = _photo_analysis_version(raw)
     raw["schema_version"] = new_version
-    raw[_ANALYSIS_VERSION_KEY] = new_version if backfill else previous_analysis
+    # A backfill moves only the version of the pass that can actually fill the
+    # field: a photo-only field must not re-queue every listing for the text
+    # pass, and `both` needs each pass to look again.
+    moves_text = backfill and source in ("text", "both")
+    moves_photo = backfill and source in ("photo", "both")
+    raw[_ANALYSIS_VERSION_KEY] = new_version if moves_text else previous_analysis
+    raw[_PHOTO_ANALYSIS_VERSION_KEY] = new_version if moves_photo else previous_photo
 
     _write_registry(target, raw)
 
@@ -1086,9 +1108,14 @@ def ai_field_add_cmd(
         f"{new_version})"
     )
     if backfill:
+        commands = []
+        if moves_text:
+            commands.append("`fb-rent ai-batch`")
+        if moves_photo:
+            commands.append("`fb-rent photo-batch`")
         click.echo(
             "Backfill requested: already-analysed listings are pending again — "
-            "run `fb-rent ai-batch`."
+            f"run {' and '.join(commands)}."
         )
     else:
         click.echo(

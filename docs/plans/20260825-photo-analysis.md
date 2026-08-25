@@ -285,12 +285,12 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 - Modify: `src/fb_rent/cli.py`
 - Modify: `tests/test_cli_ai_field.py`
 
-- [ ] добавить флаг `--source` к `ai-field add` через `click.Choice(sorted(ai_schema.KNOWN_SOURCES))`, дефолт `text` — ровно как сделан `--type` (`cli.py:734`)
-- [ ] при `--backfill` бампить `photo_analysis_version` вместо `analysis_version`, если поле имеет `source` `photo` или `both`; для `both` — обе версии
-- [ ] запись реестра оставить через существующий `_write_registry` (`cli.py:849`) — атомарность и валидация до подмены уже там; сохранить опцию `--registry` (тесты работают на копии реального реестра, `test_cli_ai_field.py:20-25`)
-- [ ] `ai-field list` печатает колонку источника
-- [ ] написать тесты: `--source photo --backfill` двигает только `photo_analysis_version`; `--source both --backfill` двигает обе; дефолт не трогает фото-версию
-- [ ] прогнать тесты
+- [x] добавить флаг `--source` к `ai-field add` через `click.Choice(sorted(ai_schema.KNOWN_SOURCES))`, дефолт `text` — ровно как сделан `--type` (`cli.py:734`)
+- [x] при `--backfill` бампить `photo_analysis_version` вместо `analysis_version`, если поле имеет `source` `photo` или `both`; для `both` — обе версии
+- [x] запись реестра оставить через существующий `_write_registry` (`cli.py:849`) — атомарность и валидация до подмены уже там; сохранить опцию `--registry` (тесты работают на копии реального реестра, `test_cli_ai_field.py:20-25`)
+- [x] `ai-field list` печатает колонку источника
+- [x] написать тесты: `--source photo --backfill` двигает только `photo_analysis_version`; `--source both --backfill` двигает обе; дефолт не трогает фото-версию
+- [x] прогнать тесты
 
 ### Task 12: Проверка приёмочных критериев
 
