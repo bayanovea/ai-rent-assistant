@@ -246,3 +246,92 @@ def test_ids_are_not_capped_by_the_default_limit(home):
 
     assert result.exit_code == 0, result.output
     assert _batch_ids(home) == ["1", "2", "3"]
+
+
+# --- scrape --no-photos -------------------------------------------------
+
+
+def _stub_scrape(monkeypatch, gallery_urls):
+    """Replace the whole browser stack with one card and one detail page."""
+
+    class _Response:
+        ok = True
+
+        def body(self) -> bytes:
+            import io
+
+            from PIL import Image
+
+            buf = io.BytesIO()
+            Image.new("RGB", (200, 100), "red").save(buf, "PNG")
+            return buf.getvalue()
+
+    class _Request:
+        def get(self, url: str) -> _Response:
+            return _Response()
+
+    class _Context:
+        request = _Request()
+
+        def close(self) -> None:
+            pass
+
+    class _Playwright:
+        def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "start_playwright", lambda: _Playwright())
+    monkeypatch.setattr(cli, "launch_persistent", lambda pw, headless=True: _Context())
+    monkeypatch.setattr(cli, "is_logged_in", lambda ctx: True)
+    monkeypatch.setattr(cli.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(
+        cli,
+        "scrape_list",
+        lambda ctx, url, max_items: [
+            {
+                "fb_id": "900",
+                "url": "https://www.facebook.com/marketplace/item/900",
+                "title": "2 Bed 1 Bath - House",
+                "price_raw": "22 000 ฿",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        cli,
+        "scrape_detail",
+        lambda ctx, url: {
+            "url": url,
+            "title": "2 Bed 1 Bath - House",
+            "description": "Дом в посёлке.",
+            "published_at": None,
+            "price_raw": "22 000 ฿",
+            "raw_json": {"text_lines": [], "gallery_urls": gallery_urls},
+        },
+    )
+
+
+def test_scrape_no_photos_creates_no_directories(home, monkeypatch):
+    _stub_scrape(monkeypatch, ["https://scontent.xx.fbcdn.net/v/t39.30808-6/1.jpg"])
+
+    result = _run("scrape", "--max", "1", "--no-photos")
+
+    assert result.exit_code == 0, result.output
+    assert not (home / "photos").exists()
+
+
+def test_scrape_downloads_the_gallery_by_default(home, monkeypatch):
+    _stub_scrape(monkeypatch, ["https://scontent.xx.fbcdn.net/v/t39.30808-6/1.jpg"])
+
+    result = _run("scrape", "--max", "1")
+
+    assert result.exit_code == 0, result.output
+    assert sorted(p.name for p in (home / "photos" / "900").iterdir()) == ["01.jpg"]
+
+
+def test_scrape_without_gallery_urls_creates_no_directories(home, monkeypatch):
+    _stub_scrape(monkeypatch, [])
+
+    result = _run("scrape", "--max", "1")
+
+    assert result.exit_code == 0, result.output
+    assert not (home / "photos").exists()

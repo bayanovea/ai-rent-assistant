@@ -151,6 +151,60 @@ def _extract_description(page: "Page", lines: list[str]) -> str | None:
     return longest or None
 
 
+# Gallery photos live under FB's ``t39.30808-6`` CDN prefix; avatars and
+# icons sit under ``t39.30808-1`` / ``t1.30497-1`` and are filtered out by
+# the prefix alone.
+_GALLERY_IMG_SELECTOR = 'img[src*="/t39.30808-6/"]'
+
+
+def extract_gallery_urls(page: "Page") -> list[str]:
+    """Return the listing's gallery image URLs, in DOM (= gallery) order.
+
+    The spike found the whole gallery already in the DOM — no lightbox
+    click needed. What still has to be separated out are the "similar
+    listings" cards, which live under the same CDN prefix. The tell is
+    ``alt``: every gallery shot shares one caption ("Фото <заголовок>"),
+    while each suggestion card carries its own. So the modal ``alt`` group
+    is the gallery, and a locale-independent one at that.
+
+    Best-effort like the rest of this module: a churned DOM yields an empty
+    list, never an exception.
+    """
+    try:
+        handles = page.query_selector_all(_GALLERY_IMG_SELECTOR)
+    except Exception:  # noqa: BLE001 — DOM may be transient
+        return []
+
+    by_alt: dict[str, list[str]] = {}
+    for handle in handles:
+        try:
+            src = handle.get_attribute("src")
+            alt = handle.get_attribute("alt")
+        except Exception:  # noqa: BLE001 — element may be stale
+            continue
+        if not src or not alt or not alt.strip():
+            continue
+        by_alt.setdefault(alt.strip(), []).append(src)
+
+    if not by_alt:
+        return []
+
+    # Ties go to the group seen first — dicts keep insertion order, and the
+    # gallery renders above the suggestions.
+    best = max(by_alt.values(), key=len)
+    if len(best) < 2:
+        return []
+
+    seen: set[str] = set()
+    urls: list[str] = []
+    for src in best:
+        if src in seen:
+            continue
+        seen.add(src)
+        urls.append(src)
+    return urls
+
+
 def _page_text_lines(page: "Page") -> list[str]:
     try:
         raw = page.locator("body").first.inner_text() or ""
@@ -214,6 +268,7 @@ def scrape_detail(
             "final_url": page.url,
             "title": raw_page_title,
             "text_lines": lines[:200],
+            "gallery_urls": extract_gallery_urls(page),
         }
 
         return {

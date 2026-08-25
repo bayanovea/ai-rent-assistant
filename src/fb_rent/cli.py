@@ -34,7 +34,7 @@ from typing import Any
 
 import click
 
-from . import ai_batch, ai_schema, config, decisions
+from . import ai_batch, ai_schema, config, decisions, photos
 from .browser import (
     LoginRequiredError,
     is_logged_in,
@@ -140,6 +140,21 @@ def login_cmd() -> None:
             playwright.stop()
 
 
+def _download_photos(context: Any, detail: dict[str, Any], fb_id: str) -> None:
+    """Pull the listing's gallery to disk, unless it is already there.
+
+    A directory that already has photos is left alone: re-downloading would
+    change ``photos_hash`` and push the listing back into the photo queue
+    for pictures that did not actually change.
+    """
+    urls = (detail.get("raw_json") or {}).get("gallery_urls") or []
+    if not urls:
+        return
+    if photos.photos_hash(fb_id) is not None:
+        return
+    photos.download_and_resize(context, urls, str(fb_id))
+
+
 @main.command("scrape")
 @click.option(
     "--max",
@@ -176,19 +191,28 @@ def login_cmd() -> None:
     help="Re-scrape detail pages for listings already in the DB "
     "(by default, known fb_ids are skipped to save time).",
 )
+@click.option(
+    "--no-photos",
+    "no_photos",
+    is_flag=True,
+    default=False,
+    help="Skip downloading listing photos (faster runs, no photo pass).",
+)
 def scrape_cmd(
     max_items: int,
     days: int,
     dry_run: bool,
     skip_details: bool,
     refresh: bool,
+    no_photos: bool,
 ) -> None:
     """Scrape the marketplace and upsert results into the local SQLite DB."""
     url = build_marketplace_url(days_since_listed=days)
     click.echo(f"URL: {url}")
     click.echo(
         f"Options: max={max_items} days={days} "
-        f"dry_run={dry_run} skip_details={skip_details} refresh={refresh}"
+        f"dry_run={dry_run} skip_details={skip_details} refresh={refresh} "
+        f"no_photos={no_photos}"
     )
 
     config.ensure_home()
@@ -275,6 +299,10 @@ def scrape_cmd(
                                 f"  [{idx + 1}/{len(cards)}] detail unavailable, "
                                 f"keeping list-card data: {card['url']}"
                             )
+                        elif not no_photos and not dry_run:
+                            # Inside the jitter we already paid for — the
+                            # CDN fetches add ~1–2 s and no extra pause.
+                            _download_photos(context, detail, card["fb_id"])
                     merged = _merge_listing(card, detail)
                     enriched.append(_enrich(merged))
                     bar.update(1, card)

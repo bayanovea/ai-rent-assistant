@@ -14,6 +14,7 @@ from fb_rent.extractors import (
     parse_price,
     parse_published_at,
 )
+from fb_rent.scraper_detail import extract_gallery_urls
 from tests.fixtures import GOOD, SIDEBAR, load
 
 
@@ -340,3 +341,78 @@ def test_parse_published_at_defaults_to_now() -> None:
     )
     delta = datetime.now(timezone.utc) - parsed
     assert timedelta(hours=23, minutes=59) < delta < timedelta(hours=24, minutes=1)
+
+
+# --- extract_gallery_urls ------------------------------------------------
+
+_GALLERY = "https://scontent.xx.fbcdn.net/v/t39.30808-6/{}.jpg"
+_AVATAR = "https://scontent.xx.fbcdn.net/v/t39.30808-1/avatar.jpg"
+
+
+class _FakeImg:
+    def __init__(self, src: str, alt: str | None) -> None:
+        self._src = src
+        self._alt = alt
+
+    def get_attribute(self, name: str) -> str | None:
+        return {"src": self._src, "alt": self._alt}[name]
+
+
+class _FakePage:
+    """Minimal stand-in: only ``query_selector_all`` is ever called."""
+
+    def __init__(self, imgs, raises: bool = False) -> None:
+        self._imgs = imgs
+        self._raises = raises
+
+    def query_selector_all(self, selector: str):
+        if self._raises:
+            raise RuntimeError("DOM churned mid-query")
+        # The fake page stores only elements the real selector would match.
+        assert "t39.30808-6" in selector
+        return list(self._imgs)
+
+
+def test_extract_gallery_urls_picks_the_modal_alt_group() -> None:
+    """Gallery shots share one alt; suggestion cards each carry their own."""
+    page = _FakePage(
+        [
+            _FakeImg(_GALLERY.format(i), "Фото Дом в Катху") for i in range(3)
+        ]
+        + [
+            _FakeImg(_GALLERY.format("s1"), "Вилла в группе Аренда Пхукет"),
+            _FakeImg(_GALLERY.format("s2"), "Кондо в группе Аренда Пхукет"),
+        ]
+    )
+    assert extract_gallery_urls(page) == [_GALLERY.format(i) for i in range(3)]
+
+
+def test_extract_gallery_urls_dedupes_keeping_dom_order() -> None:
+    page = _FakePage(
+        [
+            _FakeImg(_GALLERY.format("a"), "Фото Дом"),
+            _FakeImg(_GALLERY.format("b"), "Фото Дом"),
+            _FakeImg(_GALLERY.format("a"), "Фото Дом"),
+        ]
+    )
+    assert extract_gallery_urls(page) == [_GALLERY.format("a"), _GALLERY.format("b")]
+
+
+@pytest.mark.parametrize(
+    "imgs",
+    [
+        [],
+        # Single shot per alt — no group is a gallery.
+        [_FakeImg(_GALLERY.format("s1"), "Вилла в группе Аренда")],
+        # Blank alt (avatars, spacers) never counts.
+        [_FakeImg(_AVATAR, ""), _FakeImg(_AVATAR, None)],
+        # Missing src is unusable.
+        [_FakeImg("", "Фото Дом"), _FakeImg("", "Фото Дом")],
+    ],
+)
+def test_extract_gallery_urls_empty_gallery(imgs) -> None:
+    assert extract_gallery_urls(_FakePage(imgs)) == []
+
+
+def test_extract_gallery_urls_swallows_selector_failure() -> None:
+    assert extract_gallery_urls(_FakePage([], raises=True)) == []
