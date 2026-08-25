@@ -764,7 +764,7 @@ def fetch_pending(
 
     Pending listings with neither a description nor any ``text_lines`` are
     moved to ``no_raw`` instead: nothing to feed the AI, they need a
-    ``scrape --refresh`` first.
+    ``scrape --ids <fb_id>`` first.
     """
     rows = conn.execute(
         """

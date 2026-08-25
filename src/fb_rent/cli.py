@@ -60,6 +60,7 @@ from .storage import (
     fetch_pending_photos,
     init_db,
     known_fb_ids,
+    marketplace_url,
     upsert_listing,
 )
 from .url_builder import build_marketplace_url, price_bands
@@ -284,6 +285,12 @@ def _download_photos(context: Any, detail: dict[str, Any], fb_id: str) -> None:
     show_default=True,
     help="Marketplace category/location id to search.",
 )
+@click.option(
+    "--ids",
+    "ids",
+    multiple=True,
+    help="Scrape these fb_ids directly, skipping the feed (repeatable).",
+)
 def scrape_cmd(
     max_items: int,
     days: int,
@@ -296,6 +303,7 @@ def scrape_cmd(
     max_price: int,
     band_count: int,
     category: str,
+    ids: tuple[str, ...],
 ) -> None:
     """Scrape the marketplace and upsert results into the local SQLite DB."""
     try:
@@ -314,10 +322,14 @@ def scrape_cmd(
     config.ensure_home()
     conn = init_db(config.DB_PATH)
     try:
-        seen_ids = set() if refresh else known_fb_ids(conn)
+        # An id asked for by name is always fetched: the reason to name one
+        # is that its stored copy is wrong — sidebar noise instead of the ad,
+        # no text at all, a gallery that never made it to disk.
+        targeted = bool(ids)
+        seen_ids = set() if (refresh or targeted) else known_fb_ids(conn)
         # Reposts stay skipped even under --refresh: their ad text already has
         # a row, and fetching the detail page again would only re-prove it.
-        dupe_ids = duplicate_fb_ids(conn)
+        dupe_ids = set() if targeted else duplicate_fb_ids(conn)
         if seen_ids and not refresh:
             click.echo(
                 f"Known listings in DB: {len(seen_ids)} "
@@ -339,24 +351,30 @@ def scrape_cmd(
                 )
                 sys.exit(3)
 
-            try:
-                cards = _collect_cards(
-                    context,
-                    bands,
-                    category=category,
-                    days=days,
-                    max_items=max_items,
-                )
-            except LoginRequiredError as exc:
-                _echo_err(str(exc))
-                sys.exit(3)
-
-            if not cards:
-                _echo_err(
-                    "Every band came back empty — the session has likely "
-                    "expired. Run `fb-rent login` and retry."
-                )
-                sys.exit(3)
+            if targeted:
+                cards = [
+                    {"fb_id": fb_id, "url": marketplace_url(fb_id), "title": None}
+                    for fb_id in dict.fromkeys(ids)
+                ]
+                click.echo(f"Targeting {len(cards)} listing(s) by id.")
+            else:
+                try:
+                    cards = _collect_cards(
+                        context,
+                        bands,
+                        category=category,
+                        days=days,
+                        max_items=max_items,
+                    )
+                except LoginRequiredError as exc:
+                    _echo_err(str(exc))
+                    sys.exit(3)
+                if not cards:
+                    _echo_err(
+                        "Every band came back empty — the session has likely "
+                        "expired. Run `fb-rent login` and retry."
+                    )
+                    sys.exit(3)
 
             click.echo(f"Collected {len(cards)} list cards.")
 
@@ -381,7 +399,9 @@ def scrape_cmd(
                 item_show_func=lambda c: str(c.get("fb_id")) if c else "",
             ) as bar:
                 for idx, card in enumerate(cards):
-                    if not card.get("url") or not card.get("title"):
+                    # A targeted id carries no title until its detail page
+                    # answers — that is the whole point of naming it.
+                    if not card.get("url") or (not targeted and not card.get("title")):
                         click.echo(
                             f"  [{idx + 1}/{len(cards)}] skipping card missing url/title: "
                             f"fb_id={card.get('fb_id')}"
@@ -426,6 +446,16 @@ def scrape_cmd(
                             # CDN fetches add ~1–2 s and no extra pause.
                             _download_photos(context, detail, card["fb_id"])
                     item = _enrich(_merge_listing(card, detail))
+                    if not item.get("title"):
+                        # Only reachable through --ids: the page is gone, or
+                        # served something that is not a listing. `title` is
+                        # NOT NULL and a row without one says nothing anyway.
+                        click.echo(
+                            f"  [{idx + 1}/{len(cards)}] no listing behind "
+                            f"{card['fb_id']} — skipped."
+                        )
+                        bar.update(1, card)
+                        continue
                     if dry_run:
                         enriched.append(item)
                     else:
@@ -704,7 +734,8 @@ def ai_status_cmd() -> None:
     if no_raw:
         click.echo(
             "  These listings have neither a description nor text lines — "
-            "run `fb-rent scrape --refresh` before analysing them:"
+            "re-read their pages with `fb-rent scrape --ids <fb_id>` before "
+            "analysing them:"
         )
         for row in no_raw[:10]:
             click.echo(f"    - {row['fb_id']} {row.get('url') or ''}")
@@ -800,7 +831,7 @@ def ai_batch_cmd(
                     selected.append(dict(row))
             if unusable:
                 click.echo(
-                    "No raw text to analyse (run `fb-rent scrape --refresh` "
+                    "No raw text to analyse (run `fb-rent scrape --ids` "
                     f"first): {', '.join(unusable)}"
                 )
             if missing_ids:
@@ -809,7 +840,7 @@ def ai_batch_cmd(
         if no_raw and not ids:
             click.echo(
                 f"{len(no_raw)} listing(s) have no raw text — "
-                "run `fb-rent scrape --refresh` to make them analysable."
+                "run `fb-rent scrape --ids <fb_id>` to make them analysable."
             )
         if stale and not ids:
             click.echo(

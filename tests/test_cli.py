@@ -101,7 +101,7 @@ def test_ids_on_a_listing_without_raw_text_says_so(home):
     result = _run("ai-batch", "--ids", "1")
 
     assert result.exit_code == 0, result.output
-    assert "scrape --refresh" in result.output
+    assert "scrape --ids" in result.output
     assert "Nothing to analyse" in result.output
     assert list((home / "ai").glob("batch-*.json")) == []
 
@@ -383,7 +383,7 @@ def _detail(url: str) -> dict:
     return {
         "url": url,
         "title": "2 Bed 1 Bath - House",
-        "description": f"Дом в посёлке, объявление {url.rsplit('/', 1)[-1]}.",
+        "description": f"Дом в посёлке, объявление {url.rstrip('/').rsplit('/', 1)[-1]}.",
         "published_at": None,
         "price_raw": "22 000 ฿",
         "raw_json": {"text_lines": [], "gallery_urls": []},
@@ -577,6 +577,44 @@ def test_an_impossible_band_split_is_refused(home, monkeypatch):
 
     assert result.exit_code == 1
     assert "cannot split" in result.output
+
+
+# --- scrape --ids --------------------------------------------------------
+
+
+def test_ids_reach_a_known_listing_without_touching_the_feed(home, monkeypatch):
+    """Naming an id is how a bad copy gets repaired — it outranks the DB."""
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1", description="Выбор дня")
+    conn.close()
+
+    def _no_feed(*args, **kwargs):
+        raise AssertionError("the feed must not be opened for --ids")
+
+    _stub_feed(monkeypatch, [], _detail)
+    monkeypatch.setattr(cli, "scrape_list", _no_feed)
+
+    result = _run("scrape", "--ids", "1", "--no-photos")
+
+    assert result.exit_code == 0, result.output
+    conn = storage.init_db(config.DB_PATH)
+    row = conn.execute(
+        "SELECT description FROM listings WHERE fb_id = ?", ("1",)
+    ).fetchone()
+    conn.close()
+    assert row["description"] == "Дом в посёлке, объявление 1."
+
+
+def test_an_id_with_no_listing_behind_it_is_skipped(home, monkeypatch):
+    _stub_feed(monkeypatch, [], lambda url: None)
+
+    result = _run("scrape", "--ids", "404", "--no-photos")
+
+    assert result.exit_code == 0, result.output
+    assert "no listing behind 404" in result.output
+    conn = storage.init_db(config.DB_PATH)
+    assert conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0] == 0
+    conn.close()
 
 
 # --- photo-batch ---------------------------------------------------------

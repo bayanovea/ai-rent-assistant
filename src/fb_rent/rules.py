@@ -95,7 +95,7 @@ def decide(
     ``data_quality`` other than ``good`` suppresses every rejection: the
     text the AI read was the sidebar or was missing entirely, so its
     "findings" are not evidence about this listing. Such a row needs a
-    ``scrape --refresh``, not a verdict. ``None`` means the analysis never
+    re-read (``scrape --ids``), not a verdict. ``None`` means the analysis never
     reported one and is treated as usable.
     """
     if data_quality and data_quality != "good":

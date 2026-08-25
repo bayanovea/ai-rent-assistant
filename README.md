@@ -145,6 +145,7 @@ CSV and HTML.
 | `--max-price`     | `30000` | Upper bound of the price window, in THB.                 |
 | `--bands`         | `1`     | Split that window into N queries and sweep them all.     |
 | `--category`      | Phuket  | Marketplace category/location id to search.              |
+| `--ids`           | —       | Scrape these fb_ids directly, skipping the feed.          |
 
 The detail budget counts pages actually opened, not cards walked: listings
 already in the DB and known reposts are skipped without spending it, so a
@@ -161,6 +162,23 @@ A listing already in the DB is re-seen as a bare list card — its detail page i
 not opened again — and such a sighting only refreshes what it actually carries.
 It never clears the ad text, `published_at` or the gallery URLs that the detail
 page put there.
+
+#### Repairing single listings
+
+`--ids` skips the feed and opens the named listings directly, whatever the DB
+already holds for them:
+
+```sh
+fb-rent scrape --ids 1234567890 --ids 9876543210
+```
+
+That is the repair path for the two things `ai-status` complains about: a
+listing whose stored text is Facebook's sidebar instead of the ad
+(`data_quality: sidebar_noise`), and one scraped before galleries were
+collected, whose photos cannot be downloaded because the links were never
+stored. `--refresh` re-walks the feed and only reaches such a listing if it is
+still in it; `--ids` always does. An id with nothing behind it any more
+(deleted listing) is reported and skipped.
 
 #### Widening the search
 
@@ -245,7 +263,7 @@ Alongside the fields the AI records `data_quality` per listing: `good` (it
 read the ad itself), `sidebar_noise` (Facebook's "Выбор дня" block landed in
 the text instead of the ad) or `missing` (no ad text at all). Anything other
 than `good` is amber in the export and means *re-scrape this one*
-(`fb-rent scrape --refresh`); it also suppresses the auto-rejections, because
+(`fb-rent scrape --ids <fb_id>`); it also suppresses the auto-rejections, because
 a verdict drawn from the wrong text is not evidence about this listing.
 
 ### `fb-rent ai-status`
@@ -253,8 +271,8 @@ a verdict drawn from the wrong text is not evidence about this listing.
 Prints the registry version and field count, then the queue: how many listings
 are analysed, pending (with the reason — never analysed, description changed,
 registry grew), stale, and how many have no raw text at all. Listings in that
-last bucket are listed by `fb_id` — they need `fb-rent scrape --refresh` before
-there is anything to analyse.
+last bucket are listed by `fb_id` — they need `fb-rent scrape --ids <fb_id>`
+before there is anything to analyse.
 
 ### `fb-rent ai-batch`
 
