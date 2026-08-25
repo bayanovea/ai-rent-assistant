@@ -541,6 +541,9 @@ def ai_status_cmd() -> None:
     registry = _load_registry()
     conn = _open_db()
     try:
+        # The photo queue honours user rejections, and decisions.json is the
+        # source of truth for those — refresh the mirror before counting.
+        _sync_decisions(conn)
         analyzed = conn.execute("SELECT COUNT(*) FROM ai_analysis").fetchone()[0]
         pending, stale, no_raw = _queue(conn, registry)
         photo_analyzed = conn.execute(
@@ -757,6 +760,9 @@ def photo_batch_cmd(
     wanted_version = _photo_analysis_version(_raw_registry())
     conn = _open_db()
     try:
+        # A listing rejected by hand must not reach the batch, and
+        # decisions.json is the source of truth for that verdict.
+        _sync_decisions(conn)
         pending, no_photos = fetch_pending_photos(
             conn, registry, photo_analysis_version=wanted_version
         )

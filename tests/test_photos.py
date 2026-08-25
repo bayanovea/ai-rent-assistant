@@ -65,11 +65,21 @@ def test_pick_photo_urls_keeps_short_galleries_whole():
     assert photos.pick_photo_urls(six) == six
 
 
-def test_pick_photo_urls_spreads_over_a_long_gallery():
+def test_pick_photo_urls_keeps_the_whole_gallery_by_default():
+    # The pass runs on listings the user already kept by hand, so nothing is
+    # sampled away: downloading is cheap, and a missed room is not.
+    assert config.PHOTO_MAX_COUNT is None
+
+    urls = [f"u{i}" for i in range(20)]
+    assert photos.pick_photo_urls(urls) == urls
+
+
+def test_pick_photo_urls_spreads_over_a_long_gallery_when_capped(monkeypatch):
+    monkeypatch.setattr(config, "PHOTO_MAX_COUNT", 6)
     urls = [f"u{i}" for i in range(20)]
     picked = photos.pick_photo_urls(urls)
 
-    assert len(picked) == config.PHOTO_MAX_COUNT
+    assert len(picked) == 6
     assert picked[0] == "u0"
     assert len(set(picked)) == len(picked)
     # The picks walk the gallery instead of clustering at its head.
@@ -116,14 +126,28 @@ def test_download_and_resize_skips_broken_urls(photos_home):
     assert context.request.calls == urls
 
 
-def test_download_and_resize_downloads_at_most_the_cap(photos_home):
+def test_download_and_resize_takes_the_whole_gallery(photos_home):
     urls = [f"https://cdn/{i}.jpg" for i in range(20)]
     context = _Context({url: _Response(_png_bytes(300, 300)) for url in urls})
 
     saved = photos.download_and_resize(context, urls, "333")
 
-    assert len(saved) == config.PHOTO_MAX_COUNT
-    assert len(context.request.calls) == config.PHOTO_MAX_COUNT
+    assert len(saved) == 20
+    assert len(context.request.calls) == 20
+    assert [path.name for path in saved[:2]] == ["01.jpg", "02.jpg"]
+    # Numbering keeps sorting right past the tenth shot.
+    assert saved[-1].name == "20.jpg"
+
+
+def test_download_and_resize_honours_an_explicit_cap(photos_home, monkeypatch):
+    monkeypatch.setattr(config, "PHOTO_MAX_COUNT", 6)
+    urls = [f"https://cdn/{i}.jpg" for i in range(20)]
+    context = _Context({url: _Response(_png_bytes(300, 300)) for url in urls})
+
+    saved = photos.download_and_resize(context, urls, "334")
+
+    assert len(saved) == 6
+    assert len(context.request.calls) == 6
 
 
 def test_download_and_resize_with_no_urls_creates_nothing(photos_home):

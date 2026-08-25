@@ -43,9 +43,11 @@ DETAIL_DELAY_MIN_SEC: float = 3.0
 DETAIL_DELAY_MAX_SEC: float = 7.0
 
 # Photo pass budget: how many gallery shots per listing get downloaded, and
-# how much of each one survives the resize. Six 1024px JPEGs are ~6.3k
-# tokens for a subagent — the ceiling that keeps the pass at ~x2.8 cost.
-PHOTO_MAX_COUNT: int = 6
+# how much of each one survives the resize. ``None`` means the whole gallery
+# — the pass runs only on listings the user has already kept by hand, so
+# completeness is worth more there than the tokens a capped sample saves.
+# Set an int to sample instead: the cover shot plus an even spread.
+PHOTO_MAX_COUNT: int | None = None
 PHOTO_LONG_EDGE_PX: int = 1024
 PHOTO_JPEG_QUALITY: int = 80
 

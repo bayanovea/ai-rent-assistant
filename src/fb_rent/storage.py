@@ -857,10 +857,19 @@ def fetch_pending_photos(
     """Split analysed listings into "needs a photo pass" and "has no photos".
 
     Only listings the text pass already read are candidates, and only those
-    the rules still call ``active``: an auto-rejected ad is not worth six
-    images. A candidate is pending when it never had a photo pass, when the
-    photo set on disk changed under it (``photos_hash``), or when it was
-    read against an older registry than ``photo_analysis_version`` (which
+    still worth looking at: an ad that has been rejected is not worth a
+    single image, let alone a gallery.
+
+    Who did the rejecting decides. A user verdict from ``decisions`` wins
+    outright, the way it does in :func:`fetch_enriched` — a hand-rejected
+    listing is dropped even when the rules like it, and a hand-kept one
+    stays even when the rules do not. Only where the user has said nothing
+    does :func:`rules.decide` get a vote. This is what makes a review-first
+    workflow possible: reject by hand, then spend tokens on the survivors.
+
+    A candidate is pending when it never had a photo pass, when the photo
+    set on disk changed under it (``photos_hash``), or when it was read
+    against an older registry than ``photo_analysis_version`` (which
     defaults to the registry's own ``schema_version``). Reasons mirror the
     text queue: ``new`` / ``changed`` / ``schema``.
 
@@ -876,9 +885,11 @@ def fetch_pending_photos(
         """
         SELECT l.*, a.data_json, a.data_quality,
                a.photo_data_json, a.photos_hash AS analysed_photos_hash,
-               a.photo_schema_version, a.photos_analyzed_at
+               a.photo_schema_version, a.photos_analyzed_at,
+               d.status AS user_status
         FROM listings AS l
         JOIN ai_analysis AS a ON a.fb_id = l.fb_id
+        LEFT JOIN decisions AS d ON d.fb_id = l.fb_id
         ORDER BY l.last_seen_at DESC
         """
     ).fetchall()
@@ -890,12 +901,17 @@ def fetch_pending_photos(
         listing = dict(row)
         text_fields = fields_of(listing.pop("data_json", None))
         photo_data = photo_fields_of(listing)
-        merged = {**text_fields, **photo_data}
-        status, _reason = rules.decide(
-            merged, listing.get("price_thb"), listing.get("data_quality")
-        )
-        if status == "rejected":
-            continue
+        user_status = listing.pop("user_status", None)
+        if user_status:
+            if user_status == "rejected":
+                continue
+        else:
+            merged = {**text_fields, **photo_data}
+            status, _reason = rules.decide(
+                merged, listing.get("price_thb"), listing.get("data_quality")
+            )
+            if status == "rejected":
+                continue
 
         analysed_hash = listing.pop("analysed_photos_hash")
         analysed_version = listing.pop("photo_schema_version")

@@ -133,6 +133,24 @@ def test_missing_amenities_stay_active():
     assert decide(fields, 20_000) == ("active", None)
 
 
+def test_photos_of_something_else_cost_score():
+    # A render or a shot of another unit means the flat itself was never
+    # shown — that is a defect, and it has to cost something.
+    baseline = score({})
+    assert score(wrap(photo_quality="render")) == baseline - 8
+    assert score(wrap(photo_quality="other_unit")) == baseline - 8
+    assert score(wrap(photo_quality="floorplan")) == baseline - 6
+
+
+def test_genuine_photos_are_the_norm_not_a_bonus():
+    # Most rows have had no photo pass yet. Paying a bonus for "the pictures
+    # were real" would rank them below analysed ones for no reason about the
+    # flat itself.
+    baseline = score({})
+    assert score(wrap(photo_quality="real")) == baseline
+    assert score(wrap(photo_quality="unclear")) == baseline
+
+
 # --- cell colours -------------------------------------------------------
 
 

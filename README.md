@@ -88,8 +88,8 @@ to this `scrapper/` package):
   FB page or extracted by the AI — and the rarely-scanned fields fold away
   behind the "Ещё N полей" toggle. Self-contained, no CDN and no network;
   regenerated on every scrape
-- `photos/<fb_id>/` — up to 6 photos per listing, `01.jpg`…`06.jpg`, downscaled
-  to 1024 px on the long edge. Written during `scrape`, read by the photo pass,
+- `photos/<fb_id>/` — the listing's whole gallery, `01.jpg`, `02.jpg`, …,
+  downscaled to 1024 px on the long edge. Written during `scrape`, read by the photo pass,
   and disposable: a directory deleted (or a listing re-scraped with
   `--refresh`) is simply downloaded again. Auto-rejecting a listing or merging
   it away in `fb-rent dedupe` purges its directory
@@ -309,17 +309,21 @@ render rather than a photo of the actual flat (`photo_quality: render`).
 
 Photos are downloaded during `fb-rent scrape` (skip with `--no-photos`), taken
 straight from the detail page's DOM — the gallery is there without opening the
-lightbox. Three limiters keep the pass at roughly ×2.8 the token cost of the
-text-only loop instead of ×12:
+lightbox. What keeps the pass affordable is not sampling the pictures but
+choosing which listings get looked at at all:
 
-- **6 photos per listing** — the cover plus 5 spread evenly over the rest. A
-  gallery is mostly three angles of the same bedroom; walking it evenly covers
-  the rooms instead
-- **1024 px on the long edge**, JPEG q80 — ~1050 tokens per photo, ~6.3k per
-  listing. Mould in a corner and wall texture are still legible. Facebook hands
-  out 960 px anyway, so this is in practice "do not upscale"
-- **survivors only** — the queue skips anything the text pass already
-  auto-rejected, which is about a quarter of every batch
+- **survivors only, and the user decides who survives.** The queue skips
+  anything already rejected, and a hand-written verdict in `decisions.json`
+  outranks the rules in both directions — a listing you reject never reaches
+  the batch, one you keep does even when the rules would drop it. Review the
+  table first, reject what you can see is wrong, and the pass runs on what is
+  left
+- **the whole gallery** is downloaded and read. Downloading is cheap and a
+  missed room is not; `PHOTO_MAX_COUNT` in `config.py` can cap it (the cover
+  plus an even spread over the rest) if a run ever needs rationing
+- **1024 px on the long edge**, JPEG q80 — ~920 tokens per photo. Mould in a
+  corner and wall texture are still legible. Facebook hands out 960 px anyway,
+  so this is in practice "do not upscale"
 
 The reader is a **Sonnet subagent, one per listing**: the images never enter
 the orchestrator's context at all, and up to ~12 subagents run at once, so 50

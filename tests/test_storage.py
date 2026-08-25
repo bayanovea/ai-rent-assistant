@@ -1204,6 +1204,47 @@ def test_fetch_pending_photos_skips_rejected_listings(conn, photos_home):
     assert no_photos == []
 
 
+def _decide(conn, fb_id: str, status: str, reason: str = ""):
+    conn.execute(
+        "INSERT INTO decisions (fb_id, status, reason, decided_at) VALUES (?, ?, ?, ?)",
+        (fb_id, status, reason, "2026-08-25T10:00:00Z"),
+    )
+
+
+def test_fetch_pending_photos_skips_a_hand_rejected_listing(conn, photos_home):
+    # The point of the review-first workflow: once the user has said no, not
+    # a single image is worth paying for.
+    _text_analysed(conn, "user-said-no")
+    _shoot(photos_home, "user-said-no")
+    _decide(conn, "user-said-no", "rejected", "уже сдана")
+
+    pending, no_photos = storage.fetch_pending_photos(conn, _registry())
+    assert pending == []
+    assert no_photos == []
+
+
+def test_fetch_pending_photos_keeps_what_the_user_kept(conn, photos_home):
+    # A user verdict beats the rules in both directions, as in fetch_enriched:
+    # a listing the rules reject is back in the queue once the user keeps it.
+    forbidden = {"v": "not_allowed", "conf": "high", "ev": ""}
+    _text_analysed(conn, "user-said-yes", pets=forbidden)
+    _shoot(photos_home, "user-said-yes")
+    _decide(conn, "user-said-yes", "active", "договорился про собаку")
+
+    pending, _ = storage.fetch_pending_photos(conn, _registry())
+    assert [p["fb_id"] for p in pending] == ["user-said-yes"]
+
+
+def test_fetch_pending_photos_queues_a_shortlisted_listing(conn, photos_home):
+    forbidden = {"v": "not_allowed", "conf": "high", "ev": ""}
+    _text_analysed(conn, "short", pets=forbidden)
+    _shoot(photos_home, "short")
+    _decide(conn, "short", "shortlist")
+
+    pending, _ = storage.fetch_pending_photos(conn, _registry())
+    assert [p["fb_id"] for p in pending] == ["short"]
+
+
 def test_fetch_pending_photos_reports_listings_without_photos(conn, photos_home):
     _text_analysed(conn, "bare")
     (photos_home / "empty-dir").mkdir(parents=True)

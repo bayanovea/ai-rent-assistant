@@ -1,10 +1,11 @@
 """Listing photos on disk: which ones to keep, how small, and where.
 
-The photo pass is expensive per image, so the cheap decisions happen here
-rather than in front of the model: at most :data:`config.PHOTO_MAX_COUNT`
-shots per listing, each shrunk to :data:`config.PHOTO_LONG_EDGE_PX` on the
-long edge. Facebook already serves ~960px, so the resize is a ceiling, not
-an upscale.
+Downloading is cheap and tokens are not, so this module keeps the whole
+gallery by default (:data:`config.PHOTO_MAX_COUNT` is ``None``) and leaves
+the spending decision to the pass itself, which runs only on listings the
+user has already kept by hand. Each shot is shrunk to
+:data:`config.PHOTO_LONG_EDGE_PX` on the long edge; Facebook already serves
+~960px, so the resize is a ceiling, not an upscale.
 
 :func:`photos_hash` is the idempotency key of the whole pass — it says
 "these are still the pictures the model looked at", and a mismatch is what
@@ -37,10 +38,13 @@ def pick_photo_urls(urls: list[str]) -> list[str]:
     Galleries walk the flat room by room and linger on whatever the seller
     liked most, so three angles of the same bedroom sit next to each other.
     Spreading the picks covers more rooms than the first six ever would.
+
+    With :data:`config.PHOTO_MAX_COUNT` set to ``None`` there is nothing to
+    spread over: the whole gallery is kept, in gallery order.
     """
     urls = list(urls)
     limit = config.PHOTO_MAX_COUNT
-    if len(urls) <= limit:
+    if limit is None or len(urls) <= limit:
         return urls
 
     rest = urls[1:]

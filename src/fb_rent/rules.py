@@ -187,6 +187,12 @@ _ENUM_WEIGHTS: dict[str, dict[str, int]] = {
     "parking": {"yes": 5, "no": -3},
     "security": {"yes": 4, "no": -1},
     "condition": {"new": 3, "good": 2, "worn": -3},
+    # Photos that show something other than the flat on offer are a defect,
+    # not an absence: you cannot judge the place at all. `real` scores zero
+    # on purpose — most rows have had no photo pass yet, and paying a bonus
+    # for "the pictures were genuine" would rank them below analysed ones
+    # for no reason about the flat itself.
+    "photo_quality": {"render": -8, "other_unit": -8, "floorplan": -6},
 }
 
 # Baseline for a listing we know nothing about beyond it being active.
