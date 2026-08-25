@@ -150,3 +150,78 @@ def test_default_path_used_when_none(monkeypatch, tmp_path: Path):
     dec.save_decision(None, "123", "active")
     assert target.exists()
     assert dec.load_decisions(None)["123"]["status"] == "active"
+
+
+# --- the 1-5 mark -------------------------------------------------------
+
+
+def test_rating_decides_the_status():
+    assert dec.status_for_rating(5) == "shortlist"
+    assert dec.status_for_rating(4.5) == "shortlist"
+    assert dec.status_for_rating(4) == "active"
+    assert dec.status_for_rating(3.5) == "active"
+    assert dec.status_for_rating(3) == "rejected"
+    assert dec.status_for_rating(1) == "rejected"
+
+
+def test_rating_is_stored_and_read_back(path: Path):
+    dec.save_decision(path, "123", "active", "тесновато", rating=3.5)
+    entry = dec.load_decisions(path)["123"]
+    assert entry["rating"] == 3.5
+    assert entry["status"] == "active"
+
+
+def test_a_decision_without_a_rating_keeps_none(path: Path):
+    dec.save_decision(path, "123", "rejected", "Патонг")
+    assert dec.load_decisions(path)["123"]["rating"] is None
+
+
+def test_a_rating_outside_the_scale_is_refused(path: Path):
+    with pytest.raises(ValueError):
+        dec.save_decision(path, "123", "active", rating=0)
+    with pytest.raises(ValueError):
+        dec.save_decision(path, "123", "active", rating=5.5)
+
+
+def test_rating_reaches_the_table(path: Path):
+    conn = storage.init_db(":memory:")
+    conn.execute(
+        """
+        INSERT INTO listings (fb_id, url, title, first_seen_at, last_seen_at)
+        VALUES ('123', 'https://example.com/123', 'Villa', '2026-08-01T00:00:00Z',
+                '2026-08-01T00:00:00Z')
+        """
+    )
+    conn.commit()
+
+    dec.save_decision(path, "123", "shortlist", None, rating=4.5)
+    dec.sync_to_db(conn, path=path)
+
+    row = storage.fetch_enriched(conn)[0]
+    assert row["rating"] == 4.5
+    assert row["status"] == "shortlist"
+
+    registry = storage.ai_schema.load_registry()
+    cells = storage.html_row(row, registry)["cells"]
+    assert cells["rating"]["t"] == "4.5"
+    assert cells["rating"]["n"] == 4.5
+    conn.close()
+
+
+def test_an_unrated_listing_shows_an_empty_cell(path: Path):
+    conn = storage.init_db(":memory:")
+    conn.execute(
+        """
+        INSERT INTO listings (fb_id, url, title, first_seen_at, last_seen_at)
+        VALUES ('123', 'https://example.com/123', 'Villa', '2026-08-01T00:00:00Z',
+                '2026-08-01T00:00:00Z')
+        """
+    )
+    conn.commit()
+
+    row = storage.fetch_enriched(conn)[0]
+    registry = storage.ai_schema.load_registry()
+    cells = storage.html_row(row, registry)["cells"]
+    assert cells["rating"]["t"] == ""
+    assert cells["rating"]["n"] is None
+    conn.close()

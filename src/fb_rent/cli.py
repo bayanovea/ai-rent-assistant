@@ -1454,10 +1454,12 @@ def _write_registry(target: Path, raw: dict[str, Any]) -> None:
 # --- User decisions ------------------------------------------------------
 
 
-def _record_decision(fb_id: str, status: str, reason: str | None) -> None:
+def _record_decision(
+    fb_id: str, status: str, reason: str | None, rating: float | None = None
+) -> None:
     """Write one decision to the JSON file and mirror it into the DB."""
     try:
-        entry = decisions.save_decision(None, fb_id, status, reason)
+        entry = decisions.save_decision(None, fb_id, status, reason, rating=rating)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -1467,8 +1469,9 @@ def _record_decision(fb_id: str, status: str, reason: str | None) -> None:
     finally:
         conn.close()
 
+    mark = f" [{entry['rating']:g}]" if entry.get("rating") is not None else ""
     suffix = f" — {entry['reason']}" if entry.get("reason") else ""
-    click.echo(f"{fb_id}: {status}{suffix}")
+    click.echo(f"{fb_id}: {status}{mark}{suffix}")
     click.echo(f"Saved to {config.DECISIONS_PATH}. Run `fb-rent export` to refresh the table.")
 
 
@@ -1494,6 +1497,21 @@ def unreject_cmd(fb_id: str, reason: str | None) -> None:
 def shortlist_cmd(fb_id: str, reason: str | None) -> None:
     """Mark a listing as a candidate worth contacting."""
     _record_decision(fb_id, "shortlist", reason)
+
+
+@main.command("rate")
+@click.argument("fb_id")
+@click.argument("rating", type=float)
+@click.option("--reason", default=None, help="A note to keep with the mark.")
+def rate_cmd(fb_id: str, rating: float, reason: str | None) -> None:
+    """Score a listing 1-5; the mark decides its status.
+
+    4.5 and up go to the shortlist, 3 and below are rejected, and what falls
+    between stays in the active set — carrying the mark, which is what says
+    the listing has already been looked at.
+    """
+    status = decisions.status_for_rating(rating)
+    _record_decision(fb_id, status, reason, rating)
 
 
 if __name__ == "__main__":

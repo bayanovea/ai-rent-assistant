@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS decisions (
     fb_id      TEXT PRIMARY KEY,
     status     TEXT NOT NULL,
     reason     TEXT,
+    rating     REAL,
     decided_at TEXT NOT NULL
 );
 """
@@ -280,6 +281,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 (marketplace_url(row["fb_id"]), row["fb_id"]),
             )
         conn.commit()
+
+    have = {row["name"] for row in conn.execute("PRAGMA table_info(decisions)")}
+    if "rating" not in have:
+        # The mirror is rebuilt from decisions.json on every sync, so the
+        # column starts empty and fills itself on the next `export`.
+        conn.execute("ALTER TABLE decisions ADD COLUMN rating REAL")
 
     have = {row["name"] for row in conn.execute("PRAGMA table_info(listings)")}
     if "content_key" not in have:
@@ -1048,7 +1055,8 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                a.verdict, a.comment, a.score, a.data_quality, a.data_json,
                a.photo_data_json, a.photo_comment, a.photo_model,
                a.photo_schema_version, a.photos_analyzed_at, a.photos_hash,
-               d.status AS user_status, d.reason AS user_reason, d.decided_at
+               d.status AS user_status, d.reason AS user_reason,
+               d.rating AS user_rating, d.decided_at
         FROM listings AS l
         LEFT JOIN ai_analysis AS a ON a.fb_id = l.fb_id
         LEFT JOIN decisions AS d ON d.fb_id = l.fb_id
@@ -1085,6 +1093,7 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         item["ai_reason"] = ai_reason
 
         user_status = item.get("user_status")
+        item["rating"] = item.get("user_rating")
         if user_status:
             item["status"] = user_status
             item["reason"] = item.get("user_reason")
@@ -1289,7 +1298,7 @@ function tdHTML(row, col) {
   const classes = ["cell", "src-" + col.src];
   if (col.edge) classes.push("edge");
   if (cell.c) classes.push(cell.c);
-  if (col.kind === "num" || col.kind === "score" || col.kind === "count") classes.push("num");
+  if (col.kind === "num" || col.kind === "score" || col.kind === "count" || col.kind === "rating") classes.push("num");
   let title = cell.ev ? ' title="' + esc(cell.ev) + '"' : "";
   let style = "";
 
@@ -1311,6 +1320,10 @@ function tdHTML(row, col) {
   } else if (col.kind === "score") {
     inner = empty ? '—' : esc(text);
     if (!empty && cell.n != null) style = scoreStyle(cell.n);
+  } else if (col.kind === "rating") {
+    // Ваша оценка 1–5: пусто значит «ещё не смотрели».
+    inner = empty ? '—' : esc(text);
+    if (!empty && cell.n != null) style = countStyle(cell.n, 5);
   } else if (col.kind === "count") {
     inner = empty ? '—' : esc(text);
     if (!empty && cell.n != null) style = countStyle(cell.n, col.key === "bedrooms" ? 4 : 3);
@@ -1492,6 +1505,7 @@ def is_photo_field(field: dict[str, Any]) -> bool:
 # The one column that is neither parsed nor extracted: why the listing is out,
 # decided by `rules` or by the user. It closes the table.
 _TAIL_COLUMNS: tuple[dict[str, Any], ...] = (
+    {"key": "rating", "label": "Моя оценка", "kind": "rating", "src": "sys"},
     {"key": "reason", "label": "Причина", "kind": "reason", "src": "sys"},
 )
 
@@ -1666,6 +1680,7 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
 
     status = item.get("status") or "active"
     reason = item.get("reason")
+    rating = item.get("rating")
     first_seen = item.get("first_seen_at") or ""
     score = item.get("score")
 
@@ -1713,6 +1728,11 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
         "photo_comment": {
             "t": item.get("photo_comment") or "",
             "c": "" if photo_analyzed else rules.CLASS_NONE,
+        },
+        "rating": {
+            "t": f"{rating:g}" if isinstance(rating, (int, float)) else "",
+            "c": "",
+            "n": float(rating) if isinstance(rating, (int, float)) else None,
         },
         "reason": {
             "t": reason or "",

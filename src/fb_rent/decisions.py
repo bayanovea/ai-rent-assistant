@@ -10,7 +10,12 @@ The file format is a flat map keyed by ``fb_id``::
 
     {"9000000000000001": {"status": "rejected",
                            "reason": "Нет зелёной зоны",
+                           "rating": 2.5,
                            "decided_at": "2026-08-25T10:00:00Z"}}
+
+``rating`` is the user's own 1-5 mark for a listing and it is what decides
+``status`` — see :func:`status_for_rating`. It is optional: ``reject`` and
+``shortlist`` set a status without one.
 
 Writes go through a temp file plus ``os.replace``, so an interrupted run
 leaves the previous decisions intact rather than a truncated file.
@@ -31,6 +36,24 @@ from . import config
 # The only verdicts a user may record. `active` exists so an AI auto-reject
 # can be overridden back into the working set.
 VALID_STATUSES: frozenset[str] = frozenset({"rejected", "active", "shortlist"})
+
+# The user's own 1-5 mark, and the two thresholds that turn it into a status.
+# Deliberately blunt: a listing worth 4.5 goes straight to the shortlist, one
+# worth 3 or less is out, and what falls between stays on the main sheet —
+# with a mark on it, which is what says "looked at, no need to come back".
+RATING_MIN = 1.0
+RATING_MAX = 5.0
+RATING_SHORTLIST_MIN = 4.5
+RATING_REJECT_MAX = 3.0
+
+
+def status_for_rating(rating: float) -> str:
+    """Return the status a 1-5 rating implies."""
+    if rating >= RATING_SHORTLIST_MIN:
+        return "shortlist"
+    if rating <= RATING_REJECT_MAX:
+        return "rejected"
+    return "active"
 
 
 def _now_iso() -> str:
@@ -66,17 +89,22 @@ def save_decision(
     status: str,
     reason: str | None = None,
     *,
+    rating: float | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
     """Record one decision, overwriting any previous verdict for ``fb_id``.
 
     Returns the stored entry. Raises :class:`ValueError` for an unknown
-    ``status``.
+    ``status`` or a ``rating`` outside 1-5.
     """
     if status not in VALID_STATUSES:
         raise ValueError(
             f"unknown decision status {status!r} "
             f"(known: {', '.join(sorted(VALID_STATUSES))})"
+        )
+    if rating is not None and not RATING_MIN <= rating <= RATING_MAX:
+        raise ValueError(
+            f"rating {rating} is outside {RATING_MIN:g}-{RATING_MAX:g}"
         )
 
     target = _path(path)
@@ -84,6 +112,7 @@ def save_decision(
     entry = {
         "status": status,
         "reason": reason,
+        "rating": rating,
         "decided_at": now or _now_iso(),
     }
     decisions[str(fb_id)] = entry
@@ -130,12 +159,19 @@ def sync_to_db(
         if status not in VALID_STATUSES:
             raise ValueError(f"listing {fb_id}: unknown decision status {status!r}")
         rows.append(
-            (str(fb_id), status, entry.get("reason"), entry.get("decided_at") or _now_iso())
+            (
+                str(fb_id),
+                status,
+                entry.get("reason"),
+                entry.get("rating"),
+                entry.get("decided_at") or _now_iso(),
+            )
         )
 
     conn.execute("DELETE FROM decisions")
     conn.executemany(
-        "INSERT INTO decisions (fb_id, status, reason, decided_at) VALUES (?, ?, ?, ?)",
+        "INSERT INTO decisions (fb_id, status, reason, rating, decided_at) "
+        "VALUES (?, ?, ?, ?, ?)",
         rows,
     )
     conn.commit()

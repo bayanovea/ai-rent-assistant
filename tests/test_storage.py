@@ -890,7 +890,7 @@ def test_html_columns_fold_extras_behind_the_toggle():
     assert sources[0] == "fb" and sources[-1] == "sys"
     assert sources == sorted(sources, key=["fb", "ai", "photo", "sys"].index)
     edges = [c["key"] for c in columns if c["edge"]]
-    assert edges == ["score", "pool_gym", "reason"]
+    assert edges == ["score", "pool_gym", "rating"]
     # The photo band ends with the comment the gallery pass wrote.
     photo = [c["key"] for c in columns if c["src"] == "photo"]
     assert photo[-1] == "photo_comment"

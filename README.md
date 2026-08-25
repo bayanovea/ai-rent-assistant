@@ -358,11 +358,19 @@ survives a DB wipe — it lives in `../data/decisions.json`, not in SQLite.
 fb-rent reject 1234567890 --reason "агент не отвечает"
 fb-rent unreject 1234567890 --reason "перезвонили, животные ок"
 fb-rent shortlist 1234567890 --reason "поехать смотреть в четверг"
+fb-rent rate 1234567890 4.5          # a 1-5 mark that sets the status itself
 fb-rent export                       # refresh the table
 ```
 
 `reject` takes a listing out (overriding an AI `active`), `unreject` puts it
 back (overriding an AI rejection), `shortlist` marks it as worth contacting.
+
+`rate` is the shorthand for reviewing a whole screen of listings: a mark of
+4.5 or more shortlists the listing, 3 or less rejects it, and anything between
+leaves it in the active set carrying the mark. The mark itself is the record
+that the listing has been looked at, so an unmarked row is one still waiting
+for you — sort on the **Моя оценка** column to tell the two apart.
+
 The HTML export has an Active / Shortlist / Rejected / All tab strip, shows the
 reason on rejected rows, and marks shortlisted ones with a yellow bar.
 
