@@ -15,9 +15,11 @@ the source of truth, because only user decisions are irreplaceable.
 from __future__ import annotations
 
 import csv
+import difflib
 import hashlib
 import json
 import sqlite3
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -113,6 +115,57 @@ def marketplace_url(fb_id: str) -> str:
     return f"https://www.facebook.com/marketplace/item/{fb_id}/"
 
 
+def _ad_text(listing: dict[str, Any]) -> str:
+    """The ad body: the `text_lines` slice, falling back to the column."""
+    return extractors.description_from_text_lines(
+        text_lines_of(listing.get("raw_json"))
+    ) or (listing.get("description") or "")
+
+
+# A listing is pinned to a unit by its floor and building letter. These are
+# only ever used to *reject* a match: two ads that name different floors of
+# the same project are two different flats, however alike they read.
+_FLOOR_PATTERNS = (
+    re.compile(r"(\d{1,2})\s*(?:st|nd|rd|th)?\s*floor", re.I),
+    re.compile(r"floor\s*:?\s*(\d{1,2})", re.I),
+    re.compile(r"ชั้น\s*(\d{1,2})"),
+)
+_BUILDING_PATTERNS = (
+    re.compile(r"building\s+([a-z])\b", re.I),
+    re.compile(r"(?:ตึก|อาคาร)\s*([a-zA-Z])"),
+    re.compile(r"корпус\s+([a-zA-Z])", re.I),
+)
+
+_WORD_RE = re.compile(r"[0-9a-zA-Zа-яёА-ЯЁ\u0e00-\u0e7f]+")
+
+# Agencies write from the same template, so two ads for different flats in
+# one project routinely read 80% alike. Only near-identical text counts.
+_TEXT_MATCH_RATIO = 0.9
+# Project names arrive misspelled ("Panason" / "Phanason") and half
+# transliterated, so they are compared loosely.
+_PROJECT_MATCH_RATIO = 0.85
+# Two agents measuring the same flat disagree by a metre or two.
+_SIZE_TOLERANCE_SQM = 3
+
+
+def _first_match(patterns: tuple[re.Pattern[str], ...], text: str) -> str | None:
+    for pattern in patterns:
+        found = pattern.search(text)
+        if found:
+            return found.group(1).upper()
+    return None
+
+
+def _normalise_project(name: Any) -> str | None:
+    if not name:
+        return None
+    stripped = re.sub(r"[^a-z0-9 ]", " ", str(name).lower())
+    stripped = re.sub(
+        r"\b(korpus|building|condo|condominium|phuket|the)\b", " ", stripped
+    )
+    return " ".join(stripped.split()) or None
+
+
 def content_key(listing: dict[str, Any]) -> str | None:
     """Fingerprint a listing by the ad text itself, not by its FB id.
 
@@ -124,10 +177,7 @@ def content_key(listing: dict[str, Any]) -> str | None:
     stays a separate listing. Returns ``None`` when the text is too thin to
     identify anything, and such a listing is never treated as a duplicate.
     """
-    body = extractors.description_from_text_lines(
-        text_lines_of(listing.get("raw_json"))
-    ) or (listing.get("description") or "")
-    normalised = " ".join(body.split()).lower()
+    normalised = " ".join(_ad_text(listing).split()).lower()
     if len(normalised) < _CONTENT_KEY_MIN_CHARS:
         return None
     price = listing.get("price_thb")
@@ -272,7 +322,13 @@ def upsert_listing(
 
     key = content_key(listing)
     if existing is None:
-        canonical = canonical_for(conn, fb_id, key)
+        # A listing collapsed by `dedupe` must not walk back in through a
+        # later scrape: its text no longer matches anything (that is the
+        # point of the near-duplicate rules), but the verdict stands.
+        known = conn.execute(
+            "SELECT canonical_fb_id FROM duplicates WHERE fb_id = ?", (fb_id,)
+        ).fetchone()
+        canonical = known["canonical_fb_id"] if known else canonical_for(conn, fb_id, key)
         if canonical is not None:
             _record_duplicate(
                 conn, fb_id, canonical, key or "", ts, listing.get("url")
@@ -319,49 +375,207 @@ def upsert_listing(
     return "updated"
 
 
-def dedupe_listings(
-    conn: sqlite3.Connection, *, dry_run: bool = False, now: str | None = None
-) -> list[dict[str, Any]]:
-    """Collapse rows that hold the same ad text, keeping one per group.
+def _listing_signature(
+    listing: dict[str, Any], fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Everything the near-duplicate check needs about one listing."""
+    text = _ad_text(listing)
+    return {
+        "fb_id": str(listing["fb_id"]),
+        "text_len": len(text),
+        "words": frozenset(_WORD_RE.findall(text.lower())),
+        "project": _normalise_project(rules.value_of(fields, "project_name")),
+        "price": rules.value_of(fields, "price_month_thb") or listing.get("price_thb"),
+        "bedrooms": rules.value_of(fields, "bedrooms"),
+        "size": rules.value_of(fields, "size_sqm"),
+        "floor": _first_match(_FLOOR_PATTERNS, text),
+        "building": _first_match(
+            _BUILDING_PATTERNS,
+            f"{rules.value_of(fields, 'project_name') or ''} {text}",
+        ),
+    }
 
-    Returns one entry per group it touched: ``{"canonical", "removed"}``.
-    The keeper is whichever copy carries the most work — a decision of yours
-    first, then an AI analysis, then the one seen first. The rest leave
-    ``listings`` together with their analyses and are remembered in
-    ``duplicates``, which is what stops the next scrape from re-adding them.
+
+def _contradicts(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """True when the two ads name a detail that cannot describe one flat."""
+    for key in ("floor", "building"):
+        if a[key] and b[key] and a[key] != b[key]:
+            return True
+    if (
+        isinstance(a["size"], int)
+        and isinstance(b["size"], int)
+        and abs(a["size"] - b["size"]) > _SIZE_TOLERANCE_SQM
+    ):
+        return True
+    return False
+
+
+def same_property(a: dict[str, Any], b: dict[str, Any]) -> str | None:
+    """Why two listings are the same flat, or ``None`` if they are not.
+
+    Two independent signals, both vetoed by a contradicting floor, building
+    or size:
+
+    ``text``
+        The ad body is all but identical — a repost with a line edited, which
+        the exact fingerprint misses.
+    ``facts``
+        Same project, same price, same bedroom count. This is what catches
+        one flat listed by several agents, who each write their own text.
     """
-    ts = now or _now_iso()
-    groups: dict[str, list[dict[str, Any]]] = {}
-    for row in conn.execute("SELECT * FROM listings ORDER BY first_seen_at"):
+    if _contradicts(a, b):
+        return None
+
+    union = a["words"] | b["words"]
+    if union:
+        overlap = len(a["words"] & b["words"]) / len(union)
+        if overlap >= _TEXT_MATCH_RATIO:
+            return "text"
+
+    if (
+        a["project"]
+        and b["project"]
+        and a["price"] is not None
+        and a["price"] == b["price"]
+        and a["bedrooms"] is not None
+        and a["bedrooms"] == b["bedrooms"]
+        and difflib.SequenceMatcher(None, a["project"], b["project"]).ratio()
+        >= _PROJECT_MATCH_RATIO
+    ):
+        return "facts"
+
+    return None
+
+
+def _load_for_dedupe(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Every listing with its analysis fields, oldest first."""
+    rows = conn.execute(
+        """
+        SELECT l.*, a.data_json AS ai_data
+        FROM listings AS l
+        LEFT JOIN ai_analysis AS a ON a.fb_id = l.fb_id
+        ORDER BY l.first_seen_at, l.fb_id
+        """
+    ).fetchall()
+
+    loaded: list[dict[str, Any]] = []
+    for row in rows:
         item = dict(row)
+        raw = item.pop("ai_data", None)
+        fields: dict[str, Any] = {}
+        if raw:
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict):
+                fields = parsed
+        item["_signature"] = _listing_signature(item, fields)
+        loaded.append(item)
+    return loaded
+
+
+def _group_duplicates(
+    items: list[dict[str, Any]], *, fuzzy: bool
+) -> list[tuple[list[dict[str, Any]], set[str]]]:
+    """Union listings that describe one flat, with the reasons they matched."""
+    parent = {item["fb_id"]: item["fb_id"] for item in items}
+    reasons: dict[str, set[str]] = {}
+
+    def find(fb_id: str) -> str:
+        while parent[fb_id] != fb_id:
+            parent[fb_id] = parent[parent[fb_id]]
+            fb_id = parent[fb_id]
+        return fb_id
+
+    def union(left: str, right: str, reason: str) -> None:
+        a, b = find(left), find(right)
+        if a == b:
+            reasons.setdefault(a, set()).add(reason)
+            return
+        parent[b] = a
+        merged = reasons.pop(b, set()) | reasons.get(a, set()) | {reason}
+        reasons[a] = merged
+
+    by_key: dict[str, str] = {}
+    for item in items:
         key = item.get("content_key") or content_key(item)
         if not key:
             continue
-        groups.setdefault(key, []).append(item)
+        if key in by_key:
+            union(by_key[key], item["fb_id"], "exact")
+        else:
+            by_key[key] = item["fb_id"]
+
+    if fuzzy:
+        for index, left in enumerate(items):
+            for right in items[index + 1:]:
+                if find(left["fb_id"]) == find(right["fb_id"]):
+                    continue
+                reason = same_property(left["_signature"], right["_signature"])
+                if reason:
+                    union(left["fb_id"], right["fb_id"], reason)
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        grouped.setdefault(find(item["fb_id"]), []).append(item)
+    return [
+        (members, reasons.get(root, set()))
+        for root, members in grouped.items()
+        if len(members) > 1
+    ]
+
+
+def dedupe_listings(
+    conn: sqlite3.Connection,
+    *,
+    dry_run: bool = False,
+    fuzzy: bool = True,
+    now: str | None = None,
+) -> list[dict[str, Any]]:
+    """Collapse listings that describe the same flat, keeping one per group.
+
+    Returns one entry per group it touched: ``{"canonical", "removed",
+    "reason"}``. The keeper is whichever copy carries the most work — a
+    decision of yours first, then an AI analysis, then the fullest ad text,
+    then the one seen first. The rest leave ``listings`` together with their
+    analyses and are remembered in ``duplicates``, which is what stops the
+    next scrape from fetching them again.
+
+    With ``fuzzy`` (the default) the near-duplicate rules in
+    :func:`same_property` run too, which is what merges one flat advertised
+    by several agents. They read the AI's extracted fields, so a listing
+    only joins such a group once it has been analysed.
+    """
+    ts = now or _now_iso()
+    items = _load_for_dedupe(conn)
 
     decided = {row["fb_id"] for row in conn.execute("SELECT fb_id FROM decisions")}
     analysed = {row["fb_id"] for row in conn.execute("SELECT fb_id FROM ai_analysis")}
 
-    def rank(item: dict[str, Any]) -> tuple[int, int, str]:
+    def rank(item: dict[str, Any]) -> tuple[int, int, int, str]:
         fb_id = item["fb_id"]
         return (
             0 if fb_id in decided else 1,
             0 if fb_id in analysed else 1,
+            -item["_signature"]["text_len"],
             str(item.get("first_seen_at") or ""),
         )
 
     collapsed: list[dict[str, Any]] = []
-    for key, items in groups.items():
-        if len(items) < 2:
-            continue
-        keeper, *rest = sorted(items, key=rank)
-        removed = [item["fb_id"] for item in rest]
-        collapsed.append({"canonical": keeper["fb_id"], "removed": removed})
+    for members, why in _group_duplicates(items, fuzzy=fuzzy):
+        keeper, *rest = sorted(members, key=rank)
+        collapsed.append({
+            "canonical": keeper["fb_id"],
+            "removed": [item["fb_id"] for item in rest],
+            "reason": ", ".join(sorted(why)),
+        })
         if dry_run:
             continue
-        for fb_id in removed:
-            url = next(i.get("url") for i in rest if i["fb_id"] == fb_id)
-            _record_duplicate(conn, fb_id, keeper["fb_id"], key, ts, url)
+        key = keeper.get("content_key") or content_key(keeper) or ""
+        for item in rest:
+            fb_id = item["fb_id"]
+            _record_duplicate(conn, fb_id, keeper["fb_id"], key, ts, item.get("url"))
             conn.execute("DELETE FROM ai_analysis WHERE fb_id = ?", (fb_id,))
             conn.execute("DELETE FROM listings WHERE fb_id = ?", (fb_id,))
     if not dry_run:

@@ -740,7 +740,7 @@ def test_dedupe_listings_keeps_the_copy_carrying_the_most_work(conn):
     conn.commit()
 
     assert storage.dedupe_listings(conn, dry_run=True) == [
-        {"canonical": "decided", "removed": ["analysed", "oldest"]}
+        {"canonical": "decided", "removed": ["analysed", "oldest"], "reason": "exact"}
     ]
     # A dry run touches nothing.
     assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 3
@@ -804,3 +804,99 @@ def test_dedupe_records_the_url_of_every_collapsed_repost(conn):
     assert grouped["first"] == [
         {"fb_id": "second", "url": "https://www.facebook.com/marketplace/item/second/"}
     ]
+
+
+# --- one flat, several agents -------------------------------------------
+
+
+def _analysed(conn, fb_id: str, body: str, price: int, **fields):
+    """A listing plus the AI fields the near-duplicate rules read."""
+    listing = _with_body(fb_id, body, price=price)
+    storage.upsert_listing(conn, listing)
+    data = {k: {"v": v, "conf": "high", "ev": ""} for k, v in fields.items()}
+    data["price_month_thb"] = {"v": price, "conf": "high", "ev": ""}
+    storage.upsert_ai_analysis(
+        conn, _make_analysis(fb_id=fb_id, source_hash="h-" + fb_id, data_json=data)
+    )
+    return listing
+
+
+_AD_B = (
+    "Rent this bright one bedroom flat in the same project, walking distance "
+    "to the mall, washing machine and a balcony, viewing any day"
+)
+
+
+def test_same_flat_from_two_agents_collapses(conn):
+    # Different agents write their own text, so the exact fingerprint misses
+    # them; project + price + bedrooms is what identifies the flat.
+    _analysed(conn, "agent-a", _AD, 17000, project_name="Phanason Green Place",
+              bedrooms=1, size_sqm=48)
+    _analysed(conn, "agent-b", _AD_B, 17000, project_name="Panason Green Place",
+              bedrooms=1, size_sqm=50)
+    assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 2
+
+    collapsed = storage.dedupe_listings(conn)
+    assert len(collapsed) == 1
+    assert collapsed[0]["reason"] == "facts"
+    assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 1
+    assert storage.duplicate_fb_ids(conn) == {collapsed[0]["removed"][0]}
+
+
+def test_different_floors_of_one_project_stay_apart(conn):
+    # Same project, same price, same size — but the ads name different
+    # floors, so they are two flats.
+    _analysed(conn, "floor-2", _AD + " Building B, 2nd Floor", 15000,
+              project_name="D Condo Reef", bedrooms=1, size_sqm=28)
+    _analysed(conn, "floor-1", _AD_B + " Building B, 1st Floor", 15000,
+              project_name="D Condo Reef", bedrooms=1, size_sqm=28)
+
+    assert storage.dedupe_listings(conn, dry_run=True) == []
+
+
+def test_different_buildings_of_one_project_stay_apart(conn):
+    _analysed(conn, "bld-a", _AD + " Building A", 15000,
+              project_name="The Origin", bedrooms=1)
+    _analysed(conn, "bld-b", _AD + " Building B", 15000,
+              project_name="The Origin", bedrooms=1)
+
+    assert storage.dedupe_listings(conn, dry_run=True) == []
+
+
+def test_same_project_at_a_different_price_stays_apart(conn):
+    _analysed(conn, "cheap", _AD, 15000, project_name="The Base Downtown", bedrooms=1)
+    _analysed(conn, "pricey", _AD_B, 16000, project_name="The Base Downtown", bedrooms=1)
+
+    assert storage.dedupe_listings(conn, dry_run=True) == []
+
+
+def test_exact_only_skips_the_near_duplicate_rules(conn):
+    _analysed(conn, "agent-a", _AD, 17000, project_name="Phanason Green Place", bedrooms=1)
+    _analysed(conn, "agent-b", _AD_B, 17000, project_name="Phanason Green Place", bedrooms=1)
+
+    assert storage.dedupe_listings(conn, dry_run=True, fuzzy=False) == []
+    assert len(storage.dedupe_listings(conn, dry_run=True, fuzzy=True)) == 1
+
+
+def test_a_collapsed_listing_cannot_return_on_the_next_scrape(conn):
+    # Its text no longer matches anything — that is the point of the fuzzy
+    # rules — so only the `duplicates` record keeps it out.
+    _analysed(conn, "keeper", _AD, 17000, project_name="Phanason Green Place", bedrooms=1)
+    _analysed(conn, "merged", _AD_B, 17000, project_name="Panason Green Place", bedrooms=1)
+    storage.dedupe_listings(conn)
+    gone = storage.duplicate_fb_ids(conn).pop()
+
+    again = _with_body(gone, "yet another agent writing this flat up from scratch again")
+    assert storage.upsert_listing(conn, again) == "duplicate"
+    assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 1
+
+
+def test_dedupe_keeps_the_copy_with_the_fullest_ad_text(conn):
+    # Neither is decided on or analysed differently, so the longer ad wins:
+    # it is the one worth reading.
+    _analysed(conn, "terse", _AD, 17000, project_name="Zcape", bedrooms=1)
+    _analysed(conn, "detailed", _AD_B + " " + _AD_B, 17000,
+              project_name="Zcape", bedrooms=1)
+
+    collapsed = storage.dedupe_listings(conn, dry_run=True)
+    assert collapsed[0]["canonical"] == "detailed"

@@ -61,13 +61,17 @@ Everything lives in the sibling `data/` directory (i.e. `../data/` relative
 to this `scrapper/` package):
 
 - `browser-profile/` — persistent Chromium profile (cookies, localStorage)
-- `rentals.db` — SQLite database (source of truth). Deduplication is on
-  `fb_id` *and* on the ad text: agencies republish the same flat to lift it up
-  the feed and Facebook mints a new id each time, so a listing whose text and
-  price already exist is recorded in `duplicates` instead of getting its own
-  row. The table then shows one line per flat, with every posting's id and
-  link listed in its ID cell. `fb-rent dedupe` collapses reposts that predate
-  that check
+- `rentals.db` — SQLite database (source of truth). Deduplication happens on
+  three levels: on `fb_id`, on the ad text, and on the flat itself. Agencies
+  republish the same listing to lift it up the feed, and Facebook mints a new
+  id every time; the same flat is also often handed to several agents, who
+  each write their own text. A listing whose text and price already exist is
+  recorded in `duplicates` at write time instead of getting its own row, and
+  `fb-rent dedupe` additionally merges listings that describe one flat —
+  matching on the project, price and bedroom count, and refusing to merge two
+  ads that name different floors, buildings or sizes. Whatever is merged is
+  remembered, so the next scrape skips it without opening its page. The table
+  shows one line per flat, with every posting's id and link in its ID cell
 - `rentals.csv` — flat export of the scraped `listings` columns only,
   regenerated on every scrape
 - `rentals.html` — the full table: AI fields, recommendation, score and

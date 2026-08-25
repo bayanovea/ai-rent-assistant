@@ -331,32 +331,42 @@ def scrape_cmd(
 
 @main.command("dedupe")
 @click.option(
-    "--dry-run", is_flag=True, help="List the reposts without deleting them."
+    "--dry-run", is_flag=True, help="List the duplicates without deleting them."
 )
-def dedupe_cmd(dry_run: bool) -> None:
-    """Collapse reposts: one row per ad text, however often it was published.
+@click.option(
+    "--exact-only",
+    is_flag=True,
+    help="Match identical ad text only; skip the near-duplicate rules.",
+)
+def dedupe_cmd(dry_run: bool, exact_only: bool) -> None:
+    """Collapse duplicates: one row per flat, however many ads it has.
 
-    Facebook issues a new listing id every time an agency republishes the
-    same ad, so id-keyed dedup lets one flat in several times. This keeps the
-    copy carrying the most work — your decision, then an AI analysis, then
-    the one seen first — drops the rest and remembers them, so the next
-    scrape skips them instead of adding them back.
+    Facebook issues a new listing id every time an ad is republished, and
+    the same flat is often handed to several agents who each write their own
+    text. Both cases end up as separate rows. This keeps the copy carrying
+    the most work — your decision, then an AI analysis, then the fullest ad
+    text — drops the rest and remembers them, so the next scrape skips them
+    instead of adding them back.
+
+    The near-duplicate rules read the AI's extracted fields, so run this
+    after `ai-apply`; `--exact-only` falls back to matching ad text verbatim.
     """
     conn = _open_db()
     try:
-        collapsed = dedupe_listings(conn, dry_run=dry_run)
+        collapsed = dedupe_listings(conn, dry_run=dry_run, fuzzy=not exact_only)
         if not collapsed:
-            click.echo("No reposts found — every listing has its own ad text.")
+            click.echo("No duplicates found — every listing is its own flat.")
             return
         removed = sum(len(group["removed"]) for group in collapsed)
         prefix = "Dry-run: would remove" if dry_run else "Removed"
         click.echo(
-            f"{prefix} {removed} repost(s) across {len(collapsed)} listing(s):"
+            f"{prefix} {removed} duplicate(s) across {len(collapsed)} listing(s):"
         )
         for group in collapsed:
             click.echo(
                 f"  - keeping {group['canonical']}, "
                 f"dropping {', '.join(group['removed'])}"
+                f"  [{group['reason']}]"
             )
         if not dry_run:
             csv_path = export_csv(conn, config.CSV_PATH)
