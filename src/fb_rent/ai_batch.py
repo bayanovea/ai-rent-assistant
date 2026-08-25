@@ -23,7 +23,7 @@ from pathlib import Path
 from sqlite3 import Connection
 from typing import Any
 
-from . import ai_schema, config, rules, storage
+from . import ai_schema, config, photos, rules, storage
 from .extractors import description_from_text_lines
 
 
@@ -340,6 +340,11 @@ def apply_results(
         )
         if status == "rejected" and reason:
             report.rejected.append((fb_id, reason))
+            if not dry_run:
+                # A rejected listing never reaches the photo pass, so its
+                # pictures are dead weight. Lifting the reject via `unreject`
+                # needs a `--refresh` scrape anyway, which shoots them again.
+                photos.purge_photos(fb_id)
 
         if dry_run:
             exists = conn.execute(

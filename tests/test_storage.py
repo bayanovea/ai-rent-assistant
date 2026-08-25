@@ -1094,6 +1094,39 @@ def test_dedupe_keeps_the_copy_with_the_fullest_ad_text(conn):
     assert collapsed[0]["canonical"] == "detailed"
 
 
+def test_dedupe_purges_photos_of_the_collapsed_copies(conn, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "PHOTOS_DIR", tmp_path / "photos")
+    for fb_id in ("keeper", "copy"):
+        conn.execute(
+            "INSERT INTO listings (fb_id, url, title, price_thb, content_key,"
+            " raw_json, first_seen_at, last_seen_at) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                fb_id,
+                f"https://www.facebook.com/marketplace/item/{fb_id}/",
+                "t",
+                16000,
+                "shared-key",
+                json.dumps({"text_lines": ["Описание", _AD]}),
+                "2026-08-01" if fb_id == "keeper" else "2026-08-02",
+                "2026-08-25",
+            ),
+        )
+    conn.commit()
+    for fb_id in ("keeper", "copy"):
+        directory = photos.photos_dir(fb_id)
+        directory.mkdir(parents=True)
+        (directory / "01.jpg").write_bytes(b"jpeg")
+
+    storage.dedupe_listings(conn, dry_run=True)
+    assert photos.photos_dir("copy").exists()
+
+    collapsed = storage.dedupe_listings(conn)
+
+    assert collapsed[0]["canonical"] == "keeper"
+    assert photos.photos_dir("keeper").exists()
+    assert not photos.photos_dir("copy").exists()
+
+
 # --- photo queue ---------------------------------------------------------
 
 

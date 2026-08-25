@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from fb_rent import ai_batch, ai_schema, storage
+from fb_rent import ai_batch, ai_schema, config, photos, storage
 
 
 @pytest.fixture()
@@ -191,6 +191,48 @@ def test_apply_results_reports_auto_rejections(conn, registry):
     )
 
     assert report.rejected == [("1", "Животные запрещены")]
+
+
+def test_apply_results_purges_photos_of_a_rejected_listing(
+    conn, registry, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(config, "PHOTOS_DIR", tmp_path / "photos")
+    _add_listing(conn, "1")
+    _add_listing(conn, "2")
+    for fb_id in ("1", "2"):
+        directory = photos.photos_dir(fb_id)
+        directory.mkdir(parents=True)
+        (directory / "01.jpg").write_bytes(b"jpeg")
+
+    rejected = _result("1", fields={"pets": {"v": "not_allowed", "ev": "no pets"}})
+    kept = _result("2")
+    ai_batch.apply_results(
+        conn,
+        registry,
+        {**kept, "results": rejected["results"] + kept["results"]},
+    )
+
+    assert not photos.photos_dir("1").exists()
+    assert photos.photos_dir("2").exists()
+
+
+def test_apply_results_dry_run_keeps_photos_of_a_rejected_listing(
+    conn, registry, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(config, "PHOTOS_DIR", tmp_path / "photos")
+    _add_listing(conn, "1")
+    directory = photos.photos_dir("1")
+    directory.mkdir(parents=True)
+    (directory / "01.jpg").write_bytes(b"jpeg")
+
+    ai_batch.apply_results(
+        conn,
+        registry,
+        _result("1", fields={"pets": {"v": "not_allowed", "ev": "no pets"}}),
+        dry_run=True,
+    )
+
+    assert photos.photos_dir("1").exists()
 
 
 def test_apply_results_rejects_unknown_field_keys(conn, registry):

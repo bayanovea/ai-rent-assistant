@@ -594,6 +594,8 @@ def dedupe_listings(
             _record_duplicate(conn, fb_id, keeper["fb_id"], key, ts, item.get("url"))
             conn.execute("DELETE FROM ai_analysis WHERE fb_id = ?", (fb_id,))
             conn.execute("DELETE FROM listings WHERE fb_id = ?", (fb_id,))
+            # The keeper's own photos stay: it is the row that survives.
+            photos.purge_photos(fb_id)
     if not dry_run:
         conn.commit()
     return collapsed
