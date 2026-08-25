@@ -208,16 +208,24 @@ def scrape_list(
             for handle in handles:
                 if len(seen) >= max_items:
                     break
+                # The feed keeps every card it has ever rendered, so each
+                # scroll re-offers all of them. Deciding on the href alone
+                # costs one round trip; `_extract_card` costs an `inner_text`
+                # per card, which on a long sweep is the whole scroll budget
+                # spent re-reading cards already collected.
+                try:
+                    fb_id = _extract_fb_id(handle.get_attribute("href") or "")
+                except Exception:  # noqa: BLE001 — stale/detached handles during FB rerender
+                    continue
+                if fb_id is None or fb_id in seen:
+                    continue
                 try:
                     card = _extract_card(handle)
                 except Exception:  # noqa: BLE001 — stale/detached handles during FB rerender
                     continue
                 if card is None:
                     continue
-                fb_id = card["fb_id"]
-                if fb_id in seen:
-                    continue
-                seen[fb_id] = card
+                seen[card["fb_id"]] = card
 
             if len(seen) >= max_items:
                 break
