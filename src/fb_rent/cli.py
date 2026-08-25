@@ -29,6 +29,7 @@ import sqlite3
 import sys
 import tempfile
 import time
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 
@@ -61,7 +62,7 @@ from .storage import (
     known_fb_ids,
     upsert_listing,
 )
-from .url_builder import build_marketplace_url
+from .url_builder import build_marketplace_url, price_bands
 
 
 def _echo_err(msg: str) -> None:
@@ -141,6 +142,51 @@ def login_cmd() -> None:
             playwright.stop()
 
 
+def _collect_cards(
+    context: Any,
+    bands: list[tuple[int, int]],
+    *,
+    category: str,
+    days: int,
+    max_items: int,
+) -> list[dict[str, Any]]:
+    """Walk the feed once per price band and return the cards, deduplicated.
+
+    Cards come back in round-robin order rather than band after band: the
+    detail budget is shared by the whole run, and taken in order it would be
+    spent entirely inside the cheapest band before the dearer ones are
+    reached. Each band contributes its freshest card first.
+    """
+    sweeping = len(bands) > 1
+    collected: list[list[dict[str, Any]]] = []
+    for number, (low, high) in enumerate(bands, start=1):
+        band_url = build_marketplace_url(
+            category_id=category,
+            min_price=low,
+            max_price=high,
+            days_since_listed=days,
+        )
+        label = (
+            f"[{number}/{len(bands)}] {low}-{high} THB: " if sweeping else "URL: "
+        )
+        click.echo(f"{label}{band_url}")
+        # A band with no listings in it is an answer, not a dead session —
+        # the verdict on the session waits until every band has been asked.
+        band_cards = scrape_list(
+            context, band_url, max_items=max_items, allow_empty=sweeping
+        )
+        if sweeping:
+            click.echo(f"    {len(band_cards)} cards.")
+        collected.append(band_cards)
+
+    cards_by_id: dict[str, dict[str, Any]] = {}
+    for row in zip_longest(*collected):
+        for card in row:
+            if card is not None:
+                cards_by_id.setdefault(card["fb_id"], card)
+    return list(cards_by_id.values())
+
+
 def _download_photos(context: Any, detail: dict[str, Any], fb_id: str) -> None:
     """Pull the listing's gallery to disk, unless it is already there.
 
@@ -207,6 +253,37 @@ def _download_photos(context: Any, detail: dict[str, Any], fb_id: str) -> None:
     show_default=True,
     help="Maximum detail pages to open in one run.",
 )
+@click.option(
+    "--min-price",
+    "min_price",
+    type=int,
+    default=config.DEFAULT_MIN_PRICE,
+    show_default=True,
+    help="Lower bound of the price window, in THB.",
+)
+@click.option(
+    "--max-price",
+    "max_price",
+    type=int,
+    default=config.DEFAULT_MAX_PRICE,
+    show_default=True,
+    help="Upper bound of the price window, in THB.",
+)
+@click.option(
+    "--bands",
+    "band_count",
+    type=int,
+    default=1,
+    show_default=True,
+    help="Split the price window into N narrower queries and sweep them all.",
+)
+@click.option(
+    "--category",
+    "category",
+    default=config.DEFAULT_CATEGORY_ID,
+    show_default=True,
+    help="Marketplace category/location id to search.",
+)
 def scrape_cmd(
     max_items: int,
     days: int,
@@ -215,12 +292,21 @@ def scrape_cmd(
     refresh: bool,
     no_photos: bool,
     detail_cap_opt: int,
+    min_price: int,
+    max_price: int,
+    band_count: int,
+    category: str,
 ) -> None:
     """Scrape the marketplace and upsert results into the local SQLite DB."""
-    url = build_marketplace_url(days_since_listed=days)
-    click.echo(f"URL: {url}")
+    try:
+        bands = price_bands(min_price, max_price, band_count)
+    except ValueError as exc:
+        _echo_err(str(exc))
+        sys.exit(1)
+
     click.echo(
         f"Options: max={max_items} days={days} "
+        f"price={min_price}-{max_price} bands={len(bands)} category={category} "
         f"dry_run={dry_run} skip_details={skip_details} refresh={refresh} "
         f"no_photos={no_photos} detail_cap={detail_cap_opt}"
     )
@@ -254,9 +340,22 @@ def scrape_cmd(
                 sys.exit(3)
 
             try:
-                cards = scrape_list(context, url, max_items=max_items)
+                cards = _collect_cards(
+                    context,
+                    bands,
+                    category=category,
+                    days=days,
+                    max_items=max_items,
+                )
             except LoginRequiredError as exc:
                 _echo_err(str(exc))
+                sys.exit(3)
+
+            if not cards:
+                _echo_err(
+                    "Every band came back empty — the session has likely "
+                    "expired. Run `fb-rent login` and retry."
+                )
                 sys.exit(3)
 
             click.echo(f"Collected {len(cards)} list cards.")

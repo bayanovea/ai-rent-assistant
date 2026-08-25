@@ -12,7 +12,7 @@ from fb_rent.config import (
     DEFAULT_MAX_PRICE,
     DEFAULT_MIN_PRICE,
 )
-from fb_rent.url_builder import build_marketplace_url
+from fb_rent.url_builder import build_marketplace_url, price_bands
 
 
 def _parse(url: str) -> tuple[urlparse, dict[str, list[str]]]:
@@ -106,3 +106,39 @@ def test_query_param_order_is_stable() -> None:
         "sortBy",
         "exact",
     ]
+
+
+def test_one_band_is_the_whole_window() -> None:
+    assert price_bands(15_000, 30_000, 1) == [(15_000, 30_000)]
+
+
+def test_bands_touch_without_overlapping_or_leaving_gaps() -> None:
+    bands = price_bands(15_000, 30_000, 3)
+
+    assert bands == [(15_000, 19_999), (20_000, 24_999), (25_000, 30_000)]
+    assert bands[0][0] == 15_000 and bands[-1][1] == 30_000
+    for lower, upper in zip(bands, bands[1:]):
+        assert upper[0] == lower[1] + 1
+
+
+def test_a_remainder_is_spread_over_the_bands() -> None:
+    bands = price_bands(0, 9, 4)
+
+    widths = [high - low + 1 for low, high in bands]
+    assert sum(widths) == 10
+    assert max(widths) - min(widths) <= 1
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        (15_000, 30_000, 0),
+        (15_000, 30_000, -1),
+        (30_000, 15_000, 2),
+        (-1, 30_000, 2),
+        (20_000, 20_001, 5),
+    ],
+)
+def test_impossible_splits_are_refused(args) -> None:
+    with pytest.raises(ValueError):
+        price_bands(*args)

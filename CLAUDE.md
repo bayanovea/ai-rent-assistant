@@ -38,6 +38,14 @@ drops `None` values on update: writing them erased the ad text, the gallery
 URLs and the `content_key` on every run that re-saw the table — which a wide
 sweep does by definition.
 
+**A price band is a question, not a filter.** One query hands out a few
+hundred cards and then stops, so volume comes from `--bands N` — several
+narrow queries instead of one wide one. Two consequences the code encodes:
+`scrape_list(allow_empty=True)` during a sweep, because an empty band says
+nothing about the session (only *every* band empty does), and a round-robin
+over the bands rather than concatenation, because the detail budget is shared
+and band-after-band order spends all of it in the cheapest range.
+
 **The detail budget counts pages, not cards.** `details_fetched < detail_cap`,
 never `idx < detail_cap`: a sorted feed puts known listings and reposts on the
 first screens, and an index-based cap spends the whole budget on cards whose

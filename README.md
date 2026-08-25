@@ -141,6 +141,10 @@ CSV and HTML.
 | `--refresh`       | off     | Re-scrape detail pages for listings already in the DB.   |
 | `--no-photos`     | off     | Skip downloading listing photos (faster, no photo pass). |
 | `--detail-cap`    | `60`    | Maximum detail pages to open in one run.                 |
+| `--min-price`     | `15000` | Lower bound of the price window, in THB.                 |
+| `--max-price`     | `30000` | Upper bound of the price window, in THB.                 |
+| `--bands`         | `1`     | Split that window into N queries and sweep them all.     |
+| `--category`      | Phuket  | Marketplace category/location id to search.              |
 
 The detail budget counts pages actually opened, not cards walked: listings
 already in the DB and known reposts are skipped without spending it, so a
@@ -158,12 +162,40 @@ not opened again — and such a sighting only refreshes what it actually carries
 It never clears the ad text, `published_at` or the gallery URLs that the detail
 page put there.
 
+#### Widening the search
+
+One query is a ceiling, not just a filter. `sortBy=creation_time_descend` gives
+the freshest listings first, but the feed stops handing out new cards after a
+few hundred however far the scraper scrolls — `--max 500` does not collect five
+times what `--max 100` does. The way past it is to ask several narrower
+questions: `--bands N` splits the `--min-price` … `--max-price` window into N
+adjacent ranges and runs the list scrape once per range, each with its own
+`--max`. The bands touch but never overlap, so a listing belongs to exactly
+one of them; a card that shows up in two anyway (Facebook leaks results past
+its own filters) is scraped once.
+
+Cards are then taken band by band in rotation — the freshest of the cheap
+band, the freshest of the dear one, and so on. Order matters because the
+detail budget is shared by the whole run: taken band after band, a `--bands 4`
+sweep with a budget of 60 would spend all of it inside the cheapest quarter of
+the price range.
+
+An empty band is an answer, not a failure — the sweep continues. Only a run
+where *every* band came back empty is reported as a dead session.
+
+`--days` widens the other axis — the number goes straight into
+`daysSinceListed` and Facebook decides what it honours — and `--category`
+points the same machinery at another Marketplace category/location id.
+
 Examples:
 
 ```sh
 fb-rent scrape --max 10 --dry-run       # smoke check, no writes
 fb-rent scrape --max 40                 # regular run
 fb-rent scrape --max 60 --skip-details  # fast incremental sweep
+
+# wide sweep: 4 price bands x 60 cards, 150 detail pages, photos later
+fb-rent scrape --bands 4 --max 60 --days 30 --detail-cap 150 --no-photos
 ```
 
 ### `fb-rent export`

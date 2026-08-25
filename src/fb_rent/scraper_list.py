@@ -150,12 +150,18 @@ def scrape_list(
     context: "BrowserContext",
     url: str,
     max_items: int,
+    allow_empty: bool = False,
 ) -> list[dict[str, Any]]:
     """Scrape up to ``max_items`` unique listing cards from ``url``.
 
     Scrolls the feed until either ``max_items`` unique cards are collected
     or two consecutive scroll attempts produce no new cards. As a hard
     safety net, aborts after ``max_items * 2`` scroll attempts regardless.
+
+    An empty feed normally means the session died, so it is reported as
+    such. ``allow_empty`` returns ``[]`` instead: a price-band sweep asks
+    several narrow questions and one of them having no answer says nothing
+    about the session — the caller decides once every band is in.
 
     Raises
     ------
@@ -184,6 +190,8 @@ def scrape_list(
                 raise LoginRequiredError(
                     "Facebook redirected to login. Run `fb-rent login` and retry."
                 ) from exc
+            if allow_empty:
+                return []
             raise LoginRequiredError(
                 "No marketplace cards rendered — session likely expired or "
                 "the marketplace layout changed. Run `fb-rent login` and retry."
@@ -226,6 +234,8 @@ def scrape_list(
             scroll_attempts += 1
 
         if not seen:
+            if allow_empty:
+                return []
             raise LoginRequiredError(
                 "Marketplace returned zero listings — likely session expired. "
                 "Run `fb-rent login` and retry."

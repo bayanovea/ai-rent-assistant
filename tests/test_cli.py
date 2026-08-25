@@ -287,7 +287,7 @@ def _stub_scrape(monkeypatch, gallery_urls):
     monkeypatch.setattr(
         cli,
         "scrape_list",
-        lambda ctx, url, max_items: [
+        lambda ctx, url, max_items, allow_empty=False: [
             {
                 "fb_id": "900",
                 "url": "https://www.facebook.com/marketplace/item/900",
@@ -349,8 +349,13 @@ def _card(fb_id: str) -> dict:
     }
 
 
-def _stub_feed(monkeypatch, cards, on_detail):
-    """Browser stack serving a fixed feed and a scripted detail page."""
+def _stub_feed(monkeypatch, cards, on_detail, queried=None):
+    """Browser stack serving a scripted feed and detail page.
+
+    ``cards`` is either a fixed list or a callable taking the list URL, which
+    is what the price-band tests need: one feed per band. Every URL asked for
+    is appended to ``queried``.
+    """
 
     class _Context:
         def close(self) -> None:
@@ -360,11 +365,17 @@ def _stub_feed(monkeypatch, cards, on_detail):
         def stop(self) -> None:
             pass
 
+    def _list(ctx, url, max_items, allow_empty=False):
+        if queried is not None:
+            queried.append(url)
+        feed = cards(url) if callable(cards) else list(cards)
+        return feed[:max_items]
+
     monkeypatch.setattr(cli, "start_playwright", lambda: _Playwright())
     monkeypatch.setattr(cli, "launch_persistent", lambda pw, headless=True: _Context())
     monkeypatch.setattr(cli, "is_logged_in", lambda ctx: True)
     monkeypatch.setattr(cli.time, "sleep", lambda _s: None)
-    monkeypatch.setattr(cli, "scrape_list", lambda ctx, url, max_items: list(cards))
+    monkeypatch.setattr(cli, "scrape_list", _list)
     monkeypatch.setattr(cli, "scrape_detail", lambda ctx, url: on_detail(url))
 
 
@@ -453,6 +464,119 @@ def test_a_dead_session_mid_run_keeps_what_was_already_scraped(home, monkeypatch
     conn.close()
     assert sorted(rows) == ["1", "2"]
     assert all(rows.values())
+
+
+# --- scrape: price-band sweep -------------------------------------------
+
+
+def test_a_sweep_asks_one_query_per_band(home, monkeypatch):
+    queried: list[str] = []
+    _stub_feed(monkeypatch, [], _detail, queried=queried)
+
+    result = _run(
+        "scrape",
+        "--min-price",
+        "15000",
+        "--max-price",
+        "30000",
+        "--bands",
+        "3",
+        "--no-photos",
+    )
+
+    assert result.exit_code == 3  # nothing came back from any band
+    assert [
+        (
+            url.split("minPrice=")[1].split("&")[0],
+            url.split("maxPrice=")[1].split("&")[0],
+        )
+        for url in queried
+    ] == [("15000", "19999"), ("20000", "24999"), ("25000", "30000")]
+    assert "Every band came back empty" in result.output
+
+
+def test_a_listing_in_two_bands_is_scraped_once(home, monkeypatch):
+    """FB leaks results outside its own price filters, so bands overlap."""
+    feeds = {
+        "15000": [_card("1"), _card("2")],
+        "22500": [_card("2"), _card("3")],
+    }
+    fetched: list[str] = []
+
+    def on_detail(url: str) -> dict:
+        fetched.append(url.rsplit("/", 1)[-1])
+        return _detail(url)
+
+    _stub_feed(
+        monkeypatch,
+        lambda url: feeds[url.split("minPrice=")[1].split("&")[0]],
+        on_detail,
+    )
+
+    result = _run(
+        "scrape", "--min-price", "15000", "--max-price", "30000",
+        "--bands", "2", "--no-photos",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert sorted(fetched) == ["1", "2", "3"]
+    assert "Collected 3 list cards." in result.output
+
+
+def test_the_detail_budget_is_spread_across_the_bands(home, monkeypatch):
+    """Band after band, a small budget would never reach the dearer flats."""
+    feeds = {
+        "15000": [_card("cheap-1"), _card("cheap-2")],
+        "22500": [_card("dear-1"), _card("dear-2")],
+    }
+    fetched: list[str] = []
+
+    def on_detail(url: str) -> dict:
+        fetched.append(url.rsplit("/", 1)[-1])
+        return _detail(url)
+
+    _stub_feed(
+        monkeypatch,
+        lambda url: feeds[url.split("minPrice=")[1].split("&")[0]],
+        on_detail,
+    )
+
+    result = _run(
+        "scrape", "--min-price", "15000", "--max-price", "30000",
+        "--bands", "2", "--detail-cap", "2", "--no-photos",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert fetched == ["cheap-1", "dear-1"]
+
+
+def test_an_empty_band_does_not_stop_the_sweep(home, monkeypatch):
+    feeds = {"15000": [], "22500": [_card("7")]}
+    _stub_feed(
+        monkeypatch,
+        lambda url: feeds[url.split("minPrice=")[1].split("&")[0]],
+        _detail,
+    )
+
+    result = _run(
+        "scrape", "--min-price", "15000", "--max-price", "30000",
+        "--bands", "2", "--no-photos",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Collected 1 list cards." in result.output
+
+
+def test_an_impossible_band_split_is_refused(home, monkeypatch):
+    _stub_feed(monkeypatch, [_card("1")], _detail)
+
+    result = _run(
+        "scrape", "--min-price", "20000", "--max-price", "20001",
+        "--bands", "5", "--no-photos",
+    )
+
+    assert result.exit_code == 1
+    assert "cannot split" in result.output
 
 
 # --- photo-batch ---------------------------------------------------------

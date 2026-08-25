@@ -4,6 +4,11 @@ The list URL is deterministic and driven entirely by query parameters —
 `sortBy=creation_time_descend` keeps freshest listings on top so we do not
 need to paginate. `daysSinceListed` further bounds the result set to the
 last N days.
+
+One query is also a ceiling, not just a filter: the feed stops handing out
+new cards after a few hundred however far the scraper scrolls. :func:`price_bands`
+is the way past it — several narrower questions reach listings the single
+wide one never shows.
 """
 
 from __future__ import annotations
@@ -64,3 +69,38 @@ def build_marketplace_url(
     ]
     query = urlencode(params)
     return f"{_MARKETPLACE_BASE}/{category_id}/propertyrentals?{query}"
+
+
+def price_bands(
+    min_price: int, max_price: int, bands: int
+) -> list[tuple[int, int]]:
+    """Split a price window into ``bands`` non-overlapping ranges, low first.
+
+    The bands touch but never overlap — one ends a baht below the next
+    begins — so every listing falls in exactly one of them and the sweep
+    does not pay twice for the same card. A remainder is spread over the
+    bands rather than dumped on the last one.
+
+    Raises
+    ------
+    ValueError
+        If ``bands`` is not positive, the price window is inverted, or the
+        window holds fewer baht than the requested number of bands.
+    """
+    if bands <= 0:
+        raise ValueError("bands must be positive")
+    if min_price < 0 or max_price < 0:
+        raise ValueError("prices must be non-negative")
+    if min_price > max_price:
+        raise ValueError(
+            f"min_price ({min_price}) must be <= max_price ({max_price})"
+        )
+
+    span = max_price - min_price + 1
+    if bands > span:
+        raise ValueError(
+            f"cannot split {span} baht into {bands} bands"
+        )
+
+    edges = [min_price + (span * index) // bands for index in range(bands + 1)]
+    return [(edges[index], edges[index + 1] - 1) for index in range(bands)]
