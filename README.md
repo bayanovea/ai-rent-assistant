@@ -140,6 +140,18 @@ CSV and HTML.
 | `--skip-details`  | off     | List cards only, skip per-item detail pages.             |
 | `--refresh`       | off     | Re-scrape detail pages for listings already in the DB.   |
 | `--no-photos`     | off     | Skip downloading listing photos (faster, no photo pass). |
+| `--detail-cap`    | `60`    | Maximum detail pages to open in one run.                 |
+
+The detail budget counts pages actually opened, not cards walked: listings
+already in the DB and known reposts are skipped without spending it, so a
+sweep over a feed whose first screens are all familiar still reaches the new
+listings underneath. Raise it with `--detail-cap` for a wide run — at 3–7 s of
+jitter plus the page load, budget roughly 10 s per detail page.
+
+Listings are written to the DB one at a time, as they are scraped. A run that
+dies half way through (expired session, checkpoint, timeout) keeps everything
+up to that point; only the CSV/HTML exports are left stale, and `fb-rent
+export` refreshes them.
 
 A listing already in the DB is re-seen as a bare list card — its detail page is
 not opened again — and such a sighting only refreshes what it actually carries.

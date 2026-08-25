@@ -38,6 +38,12 @@ drops `None` values on update: writing them erased the ad text, the gallery
 URLs and the `content_key` on every run that re-saw the table — which a wide
 sweep does by definition.
 
+**The detail budget counts pages, not cards.** `details_fetched < detail_cap`,
+never `idx < detail_cap`: a sorted feed puts known listings and reposts on the
+first screens, and an index-based cap spends the whole budget on cards whose
+detail page is skipped anyway. Rows are upserted inside the loop, so a run that
+dies at minute 40 keeps its work; the exports are the only stale part.
+
 ## Subagent fan-out
 
 The photo pass reads images in subagents, one per listing

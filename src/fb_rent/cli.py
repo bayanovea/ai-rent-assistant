@@ -199,6 +199,14 @@ def _download_photos(context: Any, detail: dict[str, Any], fb_id: str) -> None:
     default=False,
     help="Skip downloading listing photos (faster runs, no photo pass).",
 )
+@click.option(
+    "--detail-cap",
+    "detail_cap_opt",
+    type=int,
+    default=config.DETAIL_REQUEST_CAP,
+    show_default=True,
+    help="Maximum detail pages to open in one run.",
+)
 def scrape_cmd(
     max_items: int,
     days: int,
@@ -206,6 +214,7 @@ def scrape_cmd(
     skip_details: bool,
     refresh: bool,
     no_photos: bool,
+    detail_cap_opt: int,
 ) -> None:
     """Scrape the marketplace and upsert results into the local SQLite DB."""
     url = build_marketplace_url(days_since_listed=days)
@@ -213,7 +222,7 @@ def scrape_cmd(
     click.echo(
         f"Options: max={max_items} days={days} "
         f"dry_run={dry_run} skip_details={skip_details} refresh={refresh} "
-        f"no_photos={no_photos}"
+        f"no_photos={no_photos} detail_cap={detail_cap_opt}"
     )
 
     config.ensure_home()
@@ -252,13 +261,19 @@ def scrape_cmd(
 
             click.echo(f"Collected {len(cards)} list cards.")
 
-            detail_cap = min(len(cards), config.DETAIL_REQUEST_CAP)
-            if skip_details:
-                detail_cap = 0
+            # The cap counts detail pages actually opened, not positions in
+            # the feed: known listings and reposts fill the first screens
+            # once the DB has grown, and an index-based cap would spend the
+            # whole budget on them before reaching a single new listing.
+            detail_cap = 0 if skip_details else detail_cap_opt
 
             enriched: list[dict[str, Any]] = []
             skipped_known = 0
             skipped_dupes = 0
+            details_fetched = 0
+            inserted = 0
+            updated = 0
+            duplicates = 0
             with click.progressbar(
                 length=len(cards),
                 label="Scraping listings",
@@ -283,7 +298,8 @@ def scrape_cmd(
                     already_known = card["fb_id"] in seen_ids
                     if already_known:
                         skipped_known += 1
-                    elif idx < detail_cap:
+                    elif details_fetched < detail_cap:
+                        details_fetched += 1
                         time.sleep(
                             random.uniform(
                                 config.DETAIL_DELAY_MIN_SEC,
@@ -294,6 +310,12 @@ def scrape_cmd(
                             detail = scrape_detail(context, card["url"])
                         except LoginRequiredError as exc:
                             _echo_err(str(exc))
+                            _echo_err(
+                                f"Stopped after {inserted + updated + duplicates} "
+                                "listing(s) — those are already in the DB. Run "
+                                "`fb-rent export` to refresh the exports, then "
+                                "`fb-rent login` and scrape again."
+                            )
                             sys.exit(3)
                         if detail is None:
                             click.echo(
@@ -304,8 +326,21 @@ def scrape_cmd(
                             # Inside the jitter we already paid for — the
                             # CDN fetches add ~1–2 s and no extra pause.
                             _download_photos(context, detail, card["fb_id"])
-                    merged = _merge_listing(card, detail)
-                    enriched.append(_enrich(merged))
+                    item = _enrich(_merge_listing(card, detail))
+                    if dry_run:
+                        enriched.append(item)
+                    else:
+                        # Written one at a time on purpose: a wide run walks
+                        # detail pages for the better part of an hour, and a
+                        # checkpoint or an expired session near the end used
+                        # to throw away everything scraped before it.
+                        result = upsert_listing(conn, item)
+                        if result == "inserted":
+                            inserted += 1
+                        elif result == "duplicate":
+                            duplicates += 1
+                        else:
+                            updated += 1
                     bar.update(1, card)
 
             if skipped_known:
@@ -328,17 +363,12 @@ def scrape_cmd(
                 click.echo(f"Would have processed {len(enriched)} listings.")
                 return
 
-            inserted = 0
-            updated = 0
-            duplicates = 0
-            for item in enriched:
-                result = upsert_listing(conn, item)
-                if result == "inserted":
-                    inserted += 1
-                elif result == "duplicate":
-                    duplicates += 1
-                else:
-                    updated += 1
+            if detail_cap and details_fetched >= detail_cap:
+                click.echo(
+                    f"Detail budget spent ({detail_cap} pages) — the rest kept "
+                    "list-card data only. Raise it with --detail-cap."
+                )
+
             _sync_decisions(conn)
             csv_path = export_csv(conn, config.CSV_PATH)
             html_path = export_html(conn, config.HTML_PATH)

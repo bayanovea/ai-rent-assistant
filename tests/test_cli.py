@@ -337,6 +337,124 @@ def test_scrape_without_gallery_urls_creates_no_directories(home, monkeypatch):
     assert not (home / "photos").exists()
 
 
+# --- scrape: detail budget and partial writes ---------------------------
+
+
+def _card(fb_id: str) -> dict:
+    return {
+        "fb_id": fb_id,
+        "url": f"https://www.facebook.com/marketplace/item/{fb_id}",
+        "title": "2 Bed 1 Bath - House",
+        "price_raw": "22 000 ฿",
+    }
+
+
+def _stub_feed(monkeypatch, cards, on_detail):
+    """Browser stack serving a fixed feed and a scripted detail page."""
+
+    class _Context:
+        def close(self) -> None:
+            pass
+
+    class _Playwright:
+        def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "start_playwright", lambda: _Playwright())
+    monkeypatch.setattr(cli, "launch_persistent", lambda pw, headless=True: _Context())
+    monkeypatch.setattr(cli, "is_logged_in", lambda ctx: True)
+    monkeypatch.setattr(cli.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(cli, "scrape_list", lambda ctx, url, max_items: list(cards))
+    monkeypatch.setattr(cli, "scrape_detail", lambda ctx, url: on_detail(url))
+
+
+def _detail(url: str) -> dict:
+    return {
+        "url": url,
+        "title": "2 Bed 1 Bath - House",
+        "description": f"Дом в посёлке, объявление {url.rsplit('/', 1)[-1]}.",
+        "published_at": None,
+        "price_raw": "22 000 ฿",
+        "raw_json": {"text_lines": [], "gallery_urls": []},
+    }
+
+
+def test_known_listings_do_not_spend_the_detail_budget(home, monkeypatch):
+    """The budget counts pages opened, not positions in the feed.
+
+    Known listings sit at the top of a sorted feed and their detail pages are
+    skipped, so an index-based cap handed the whole budget to listings that
+    never used it — and the new ones further down stayed without ad text.
+    """
+    conn = storage.init_db(config.DB_PATH)
+    for fb_id in ("1", "2", "3"):
+        _add_listing(conn, fb_id)
+    conn.close()
+
+    fetched: list[str] = []
+
+    def on_detail(url: str) -> dict:
+        fetched.append(url.rsplit("/", 1)[-1])
+        return _detail(url)
+
+    _stub_feed(monkeypatch, [_card(i) for i in "12345"], on_detail)
+
+    result = _run("scrape", "--max", "5", "--detail-cap", "2", "--no-photos")
+
+    assert result.exit_code == 0, result.output
+    assert fetched == ["4", "5"]
+    conn = storage.init_db(config.DB_PATH)
+    rows = {
+        row["fb_id"]: row["description"]
+        for row in conn.execute("SELECT fb_id, description FROM listings")
+    }
+    conn.close()
+    assert rows["4"] and rows["5"]
+
+
+def test_detail_cap_stops_after_its_own_number_of_pages(home, monkeypatch):
+    fetched: list[str] = []
+
+    def on_detail(url: str) -> dict:
+        fetched.append(url)
+        return _detail(url)
+
+    _stub_feed(monkeypatch, [_card(i) for i in "1234"], on_detail)
+
+    result = _run("scrape", "--max", "4", "--detail-cap", "2", "--no-photos")
+
+    assert result.exit_code == 0, result.output
+    assert len(fetched) == 2
+    assert "Detail budget spent" in result.output
+
+
+def test_a_dead_session_mid_run_keeps_what_was_already_scraped(home, monkeypatch):
+    """Rows are written as they are scraped, not all at once at the end.
+
+    A wide run walks detail pages for the better part of an hour; when the
+    session died on the last one, the whole run used to be thrown away.
+    """
+
+    def on_detail(url: str) -> dict:
+        if url.endswith("3"):
+            raise cli.LoginRequiredError("session expired")
+        return _detail(url)
+
+    _stub_feed(monkeypatch, [_card(i) for i in "123"], on_detail)
+
+    result = _run("scrape", "--max", "3", "--no-photos")
+
+    assert result.exit_code == 3
+    conn = storage.init_db(config.DB_PATH)
+    rows = {
+        row["fb_id"]: row["description"]
+        for row in conn.execute("SELECT fb_id, description FROM listings")
+    }
+    conn.close()
+    assert sorted(rows) == ["1", "2"]
+    assert all(rows.values())
+
+
 # --- photo-batch ---------------------------------------------------------
 
 
