@@ -56,6 +56,17 @@ PHOTO_FETCH_DELAY_MIN_SEC: float = 0.5
 PHOTO_FETCH_DELAY_MAX_SEC: float = 1.5
 PHOTO_JPEG_QUALITY: int = 80
 
+# Photo fingerprints: the cheap dedupe signal taken right after the detail
+# page — hashes only, nothing on disk. Two matched shots out of three is the
+# threshold because one shared shot is usually the pool, the building or an
+# agency logo, pictures that belong to the complex and not to the flat;
+# three out of three would miss the common repost that swaps the cover.
+PHOTO_FINGERPRINT_COUNT: int = 3
+PHOTO_MATCH_MIN: int = 2
+# A hash seen on more listings than this is a splash screen or a shared view
+# of the complex, so it leaves the index before any matching happens.
+PHOTO_HASH_COMMON_MAX: int = 4
+
 
 def _home() -> Path:
     """Return the fb-rent home directory, honouring ``FB_RENT_HOME`` env var."""

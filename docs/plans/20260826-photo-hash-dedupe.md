@@ -175,25 +175,25 @@ PHOTO_HASH_COMMON_MAX: int = 4     # хэш чаще этого — застав
 - Modify: `src/fb_rent/config.py`
 - Create: `tests/test_fingerprint.py`
 
-- [ ] добавить в `config.py` константы `PHOTO_FINGERPRINT_COUNT`,
+- [x] добавить в `config.py` константы `PHOTO_FINGERPRINT_COUNT`,
       `PHOTO_MATCH_MIN`, `PHOTO_HASH_COMMON_MAX` с комментарием, почему
       порог именно два снимка
-- [ ] создать `src/fb_rent/fingerprint.py` с модульным docstring:
+- [x] создать `src/fb_rent/fingerprint.py` с модульным docstring:
       зачем два хэша и почему сюда, а не в `photos.py`
-- [ ] реализовать `dhash(image)` — grayscale, resize до 9×8, сравнение
+- [x] реализовать `dhash(image)` — grayscale, resize до 9×8, сравнение
       соседних пикселей по строке, 64 бита в 16 hex-символов
-- [ ] реализовать `fingerprint(raw)` — `(md5_hex, dhash_hex)` или `None`
+- [x] реализовать `fingerprint(raw)` — `(md5_hex, dhash_hex)` или `None`
       на недекодируемых байтах
-- [ ] реализовать `fetch_fingerprints(context, urls, limit=None)` —
+- [x] реализовать `fetch_fingerprints(context, urls, limit=None)` —
       скачивание через `context.request.get`, пропуск неудач с сохранением
       позиции, никакой записи на диск
-- [ ] написать тесты `dhash`: одинаковая картинка → одинаковый хэш;
+- [x] написать тесты `dhash`: одинаковая картинка → одинаковый хэш;
       картинка, пересохранённая в JPEG с другим качеством → тот же хэш;
       явно другая картинка → другой хэш
-- [ ] написать тесты `fingerprint`: успех и мусорные байты (`None`)
-- [ ] написать тесты `fetch_fingerprints` с фейковым `context`: лимит,
+- [x] написать тесты `fingerprint`: успех и мусорные байты (`None`)
+- [x] написать тесты `fetch_fingerprints` с фейковым `context`: лимит,
       пропуск ответа `not ok`, сохранение позиций при дырке в середине
-- [ ] прогнать `pytest` — зелёно перед задачей 2
+- [x] прогнать `pytest` — зелёно перед задачей 2
 
 ### Task 2: Хранение хэшей в БД
 
