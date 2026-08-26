@@ -10,12 +10,13 @@ mostly rejected.
 Everything runs locally. There is no API key and no service: the AI is Claude
 Code itself, reading files the CLI writes.
 
-![From a Facebook card to a phone call](docs/diagrams/overview.svg)
+![The pipeline in five stages: collect, read the text, cut what is wrong, read the photos, shortlist](docs/diagrams/pipeline-flow.svg)
 
 Each stage exists to spare the next one work: the scrape merges reposts before
 the AI reads anything, the text pass auto-rejects on facts before you look, and
-the photo pass — the expensive one — runs only on what *you* left alive. The
-long version, with who writes what, is in [docs/pipeline.md](docs/pipeline.md).
+the photo pass — the expensive one — runs only on what *you* left alive.
+[docs/pipeline.md](docs/pipeline.md) has the same picture with a stage table,
+who writes what, and which stages can be run on their own.
 
 ## Install
 
