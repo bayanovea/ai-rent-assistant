@@ -9,6 +9,20 @@ project works, what the commands do and why the design is what it is live in
 carries the live measurements, the decisions worth not undoing, and the open
 gaps.
 
+## Working in this repo
+
+**Commit a coherent block the moment it is done — do not wait to be asked.**
+One commit is one change that stands on its own: the fix apart from the docs
+that describe it, the diagram apart from the prose that embeds it. Get the
+tests green first. Work left uncommitted at the end of a task is work the next
+session has to reconstruct.
+
+**Straight into `main`.** No branches, no PRs — one person works here and there
+is no remote. Do not open a branch "to be safe": it strands the work where
+nobody will look for it. Commit messages follow the log's existing style —
+Russian, with a conventional-commit prefix, and a body that says *why* when the
+why is not obvious.
+
 ## Photos
 
 **The gallery is in the DOM without a click.** Every detail page ships 10–28
