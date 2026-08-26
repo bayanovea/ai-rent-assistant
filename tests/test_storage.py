@@ -1092,6 +1092,11 @@ _AD_B = (
     "to the mall, washing machine and a balcony, viewing any day"
 )
 
+_AD_C = (
+    "Brand new unit ready to move in, mountain view, covered parking, "
+    "shuttle bus to the beach, one year contract preferred"
+)
+
 
 def test_same_flat_from_two_agents_collapses(conn):
     # Different agents write their own text, so the exact fingerprint misses
@@ -1107,6 +1112,24 @@ def test_same_flat_from_two_agents_collapses(conn):
     assert collapsed[0]["reason"] == "facts"
     assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 1
     assert storage.duplicate_fb_ids(conn) == {collapsed[0]["removed"][0]}
+
+
+def test_an_ad_naming_no_floor_does_not_chain_two_floors_together(conn):
+    # The trap the group-wide veto exists for: the silent ad contradicts
+    # nobody, so on `facts` alone it matches both stacked flats and would
+    # drag floor 2 and floor 8 into one row through itself.
+    _analysed(conn, "floor-2", _AD + " Building B, 2nd Floor", 20000,
+              project_name="The Base Bukit", bedrooms=1)
+    _analysed(conn, "floor-8", _AD_B + " Building B, 8th Floor", 20000,
+              project_name="The Base Bukit", bedrooms=1)
+    _analysed(conn, "silent", _AD_C, 20000,
+              project_name="The Base Bukit", bedrooms=1)
+
+    collapsed = storage.dedupe_listings(conn, dry_run=True)
+    assert len(collapsed) == 1
+    group = {collapsed[0]["canonical"], *collapsed[0]["removed"]}
+    assert "silent" in group
+    assert not {"floor-2", "floor-8"} <= group
 
 
 def test_different_floors_of_one_project_stay_apart(conn):
@@ -1638,6 +1661,26 @@ def test_matching_photos_lose_to_a_different_floor(conn):
     ), price=19000)
 
     assert storage.dedupe_listings(conn, dry_run=True) == []
+
+
+def test_photos_do_not_chain_two_floors_together(conn):
+    # Same trap on the photo side: an agency reuses shots across a stack,
+    # and the ad that names no floor is the bridge between the floors.
+    _photographed(conn, "floor-2", _AD + " Building B, 2nd Floor", _shots(
+        ("m1", "d1"), ("m2", "d2"), ("m3", "d3"),
+    ))
+    _photographed(conn, "silent", _AD_C, _shots(
+        ("m1", "d1"), ("m2", "d2"), ("m4", "d4"),
+    ))
+    _photographed(conn, "floor-8", _AD_B + " Building B, 8th Floor", _shots(
+        ("m1", "d1"), ("m4", "d4"), ("m5", "d5"),
+    ))
+
+    collapsed = storage.dedupe_listings(conn, dry_run=True, fuzzy=False)
+    assert len(collapsed) == 1
+    group = {collapsed[0]["canonical"], *collapsed[0]["removed"]}
+    assert "silent" in group
+    assert not {"floor-2", "floor-8"} <= group
 
 
 def test_the_photo_signal_survives_exact_only(conn):

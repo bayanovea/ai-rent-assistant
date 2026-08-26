@@ -651,9 +651,24 @@ def _load_for_dedupe(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 def _group_duplicates(
     items: list[dict[str, Any]], *, fuzzy: bool
 ) -> list[tuple[list[dict[str, Any]], set[str]]]:
-    """Union listings that describe one flat, with the reasons they matched."""
+    """Union listings that describe one flat, with the reasons they matched.
+
+    Every signal but ``exact`` is vetoed against the whole group, not just
+    against the listing it paired with. A union is transitive and
+    ``_contradicts`` is not: an ad that names neither floor nor building
+    contradicts nobody, so in a new complex where dozens of identical
+    one-bedrooms rent at the same price it matches every one of them on
+    ``facts`` and chains building A to building C through itself. Checking
+    the newcomer against every member keeps a group internally consistent,
+    which is what "one flat" means. ``exact`` skips the veto: a byte-identical
+    ad body is the same text, whatever the two copies claim about the floor.
+    """
     parent = {item["fb_id"]: item["fb_id"] for item in items}
     reasons: dict[str, set[str]] = {}
+    signatures = {item["fb_id"]: item["_signature"] for item in items}
+    members: dict[str, list[str]] = {
+        item["fb_id"]: [item["fb_id"]] for item in items
+    }
 
     def find(fb_id: str) -> str:
         while parent[fb_id] != fb_id:
@@ -661,12 +676,19 @@ def _group_duplicates(
             fb_id = parent[fb_id]
         return fb_id
 
-    def union(left: str, right: str, reason: str) -> None:
+    def union(left: str, right: str, reason: str, *, guarded: bool = True) -> None:
         a, b = find(left), find(right)
         if a == b:
             reasons.setdefault(a, set()).add(reason)
             return
+        if guarded and any(
+            _contradicts(signatures[x], signatures[y])
+            for x in members[a]
+            for y in members[b]
+        ):
+            return
         parent[b] = a
+        members[a].extend(members.pop(b))
         merged = reasons.pop(b, set()) | reasons.get(a, set()) | {reason}
         reasons[a] = merged
 
@@ -676,11 +698,10 @@ def _group_duplicates(
         if not key:
             continue
         if key in by_key:
-            union(by_key[key], item["fb_id"], "exact")
+            union(by_key[key], item["fb_id"], "exact", guarded=False)
         else:
             by_key[key] = item["fb_id"]
 
-    signatures = {item["fb_id"]: item["_signature"] for item in items}
     hashes_by_id = {
         item["fb_id"]: item.get("_photo_hashes") or []
         for item in items
@@ -690,8 +711,6 @@ def _group_duplicates(
     # hard a fact as ``content_key`` and belongs with the exact pass.
     for left_id, right_id in _photo_matches(hashes_by_id).pairs:
         if find(left_id) == find(right_id):
-            continue
-        if _contradicts(signatures[left_id], signatures[right_id]):
             continue
         union(left_id, right_id, "photos")
 
