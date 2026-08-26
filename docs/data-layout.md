@@ -35,7 +35,22 @@ merging it away in `dedupe`, purges its directory.
 
 One self-contained file: no server, no CDN, no internet. Click a header to
 sort, type in the search box to filter across every column, switch sets with
-the Active / Shortlist / Rejected / All tabs. Columns are banded by where the
+the Active / Shortlist / Rejected / All tabs.
+
+Both sorting and filtering take more than one column at a time. Shift-clicking
+a second header appends it as a tie-breaker instead of replacing the current
+key — the arrows are then numbered by priority, and a third shift-click drops
+the key back out. The "Фильтры" button opens a panel with one control per
+column, and the shape of the control is inferred from the data rather than
+declared in the registry: numbers and `Первый показ` get a from/to pair,
+a column whose values are few and short (район, pets, тип жилья) gets a row of
+chips including one for the empty cell, everything else gets a substring box.
+Filters combine with each other, with the search box and with the tab; the
+button counts how many are set and the panel says how many rows survived.
+A filter set on a folded-away column keeps its control on screen, so nothing
+can trim the table invisibly.
+
+Columns are banded by where the
 value came from — parsed off the Facebook page, extracted by the text pass, or
 seen in the photos — and the rarely-scanned fields fold away behind the
 "Ещё N полей" toggle. Rejected rows carry their reason; shortlisted ones get a

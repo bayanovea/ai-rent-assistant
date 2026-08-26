@@ -225,8 +225,18 @@ def test_export_html_empty_db(conn, tmp_path: Path):
     assert "fb-rent — 0 listings" in text
     assert "const DATA = [];" in text
     # Открывают таблицу ради лучшего, поэтому она сортируется сама.
-    assert 'let sortKey = "score";' in text
-    assert "let sortDir = -1;" in text
+    assert 'let sorts = [{ key: "score", dir: -1 }];' in text
+
+
+def test_export_html_ships_the_filter_panel(conn, tmp_path: Path):
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out)
+    text = out.read_text(encoding="utf-8")
+    # Фильтры и мульти-сортировка живут целиком в шаблоне; тест сторожит те
+    # узлы, по которым скрипт находит панель — без них она молча не соберётся.
+    assert 'id="filters"' in text
+    assert 'id="flt-grid"' in text
+    assert 'id="flt-reset"' in text
 
 
 def _inline_payload(text: str, name: str):

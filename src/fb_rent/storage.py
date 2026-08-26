@@ -1351,6 +1351,28 @@ _HTML_TEMPLATE = r"""<!doctype html>
   #more:hover { background: #eef2fa; }
   #more.on { background: #33405c; border-color: #33405c; color: #fff; }
   #q { border: 1px solid #ccd; border-radius: 4px; padding: 4px 8px; font-size: 12px; min-width: 220px; }
+  #flt { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #33405c; white-space: nowrap; }
+  #flt:hover { background: #eef2fa; }
+  #flt.on { background: #33405c; border-color: #33405c; color: #fff; }
+  /* Панель фильтров: по одному блоку на колонку, вид блока выбирает
+     filterSpec — диапазон для чисел и дат, чипы для перечислений, поле
+     подстроки для всего остального. */
+  #filters { display: none; border: 1px solid #dde; border-radius: 4px; background: #fbfcfe; padding: 0.6rem 0.75rem; margin-bottom: 0.6rem; }
+  #filters.on { display: block; }
+  .flt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0.5rem 0.9rem; }
+  .flt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .flt .name { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #55607a; }
+  .flt.set .name { color: #1a73e8; font-weight: 600; }
+  .flt input { border: 1px solid #ccd; border-radius: 3px; padding: 2px 5px; font-size: 11px; min-width: 0; }
+  .flt .range { display: flex; gap: 4px; align-items: center; }
+  .flt .range input { flex: 1 1 0; }
+  .flt .chips { display: flex; flex-wrap: wrap; gap: 3px; max-height: 92px; overflow-y: auto; }
+  .chip { border: 1px solid #ccd; background: #fff; border-radius: 999px; padding: 1px 8px; font-size: 11px; cursor: pointer; color: #444; }
+  .chip:hover { background: #f2f5fb; }
+  .chip.on { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+  .flt-tools { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.6rem; font-size: 11px; color: #666; }
+  #flt-reset { border: 1px solid #ccd; background: #fff; border-radius: 4px; padding: 2px 10px; font-size: 11px; cursor: pointer; color: #33405c; }
+  #flt-reset:hover { background: #eef2fa; }
   .legend { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; font-size: 11px; color: #555; margin-bottom: 0.6rem; }
   .legend span.sw { display: inline-block; width: 14px; height: 14px; border: 1px solid #bbb; border-radius: 3px; vertical-align: -3px; margin-right: 4px; }
   .legend .item { white-space: nowrap; }
@@ -1361,6 +1383,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .rt thead th.lbl { position: sticky; top: 24px; z-index: 2; cursor: pointer; box-shadow: 0 1px 0 #dde; }
   .rt thead th.band { position: sticky; top: 0; z-index: 2; text-align: center; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 8px; color: #55607a; }
   .rt thead th.lbl:hover { background: #eef1f7; }
+  .rt thead th.lbl.sorted { color: #1a73e8; }
+  .rt thead th .so { font-size: 9px; margin-left: 3px; color: #1a73e8; }
   /* Where the data comes from: parsed off the FB page, extracted by the AI
      from the text, or read off the photographs by the gallery pass. */
   .rt .src-fb  { background: #f4f7fb; }
@@ -1408,15 +1432,19 @@ _HTML_TEMPLATE = r"""<!doctype html>
 </head>
 <body>
 <h1>fb-rent — __ROW_COUNT__ listings</h1>
-<div class="meta">Сгенерировано __GENERATED_AT__ · реестр полей v__SCHEMA_VERSION__ · сортировка — клик по заголовку · ID открывает объявление · наведите на ячейку, чтобы увидеть цитату-основание · клик по обрезанной ячейке разворачивает её целиком</div>
+<div class="meta">Сгенерировано __GENERATED_AT__ · реестр полей v__SCHEMA_VERSION__ · сортировка — клик по заголовку, Shift+клик добавляет второй ключ · ID открывает объявление · наведите на ячейку, чтобы увидеть цитату-основание · клик по обрезанной ячейке разворачивает её целиком</div>
 <div class="bar">
   <button class="tab" data-tab="active"></button>
   <button class="tab" data-tab="shortlist"></button>
   <button class="tab" data-tab="rejected"></button>
   <button class="tab" data-tab="all"></button>
   <input id="q" type="search" placeholder="поиск по всем колонкам…">
+  <button id="flt"></button>
   <span class="spacer"></span>
   <button id="more"></button>
+</div>
+<div id="filters"><div class="flt-grid" id="flt-grid"></div>
+  <div class="flt-tools"><button id="flt-reset">Сбросить фильтры</button><span id="flt-note"></span></div>
 </div>
 <div class="legend">
   <span class="item"><span class="sw src-fb"></span>колонка из парсинга FB</span>
@@ -1580,8 +1608,9 @@ let tab = "active";
 // Таблицу открывают, чтобы посмотреть лучшее, поэтому она сразу отсортирована
 // по Score вниз. Строки без анализа уходят в конец: sortValue отдаёт для них
 // null, а null в компараторе всегда последний, независимо от направления.
-let sortKey = "score";
-let sortDir = -1;
+// Ключей может быть несколько (Shift+клик по заголовку): порядок в массиве —
+// это и есть приоритет, первый ключ решает, остальные разбирают равенство.
+let sorts = [{ key: "score", dir: -1 }];
 
 function sortValue(row, key) {
   const cell = cellOf(row, key);
@@ -1590,6 +1619,155 @@ function sortValue(row, key) {
   if (t == null || t === "") return null;
   const n = Number(String(t).replace(/[\s ]/g, ""));
   return Number.isFinite(n) ? n : String(t).toLowerCase();
+}
+
+function compareRows(a, b) {
+  for (const s of sorts) {
+    const x = sortValue(a, s.key), y = sortValue(b, s.key);
+    if (x === null && y === null) continue;
+    // Пустая ячейка всегда внизу — иначе разворот сортировки поднимал бы
+    // непроанализированные строки на первый экран.
+    if (x === null) return 1;
+    if (y === null) return -1;
+    const r = (typeof x === "number" && typeof y === "number")
+      ? x - y
+      : String(x).localeCompare(String(y), "ru");
+    if (r) return r * s.dir;
+  }
+  return 0;
+}
+
+/* ---- фильтры по колонкам ------------------------------------------------
+   FILTERS: ключ колонки → {kind, ...}. Пустой фильтр из объекта удаляется,
+   поэтому Object.keys(FILTERS).length — это счётчик на кнопке. */
+const FILTERS = {};
+const NUM_KINDS = { num: 1, score: 1, count: 1, rating: 1 };
+// Чипы даёт только колонка, значения которой и пересчитываемы, и коротки:
+// 55 районов набором кнопок читаются, 34 варианта "чем укомплектована кухня"
+// длиной в предложение — уже нет, там нужна подстрока.
+const ENUM_MAX = 60;
+const ENUM_MAX_LEN = 30;
+const specCache = {};
+
+function numOf(cell) {
+  if (cell.n != null) return cell.n;
+  const t = cell.t;
+  if (t == null || t === "") return null;
+  const n = Number(String(t).replace(/[\s ]/g, "").replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+// Вид фильтра выводится из данных, а не задаётся в реестре: колонка с
+// коротким набором значений (pets, тип жилья, район) получает чипы, дата —
+// два календаря, число — «от/до», всё остальное — поиск подстроки.
+function filterSpec(col) {
+  if (specCache[col.key]) return specCache[col.key];
+  let spec;
+  if (NUM_KINDS[col.kind]) {
+    spec = { kind: "range" };
+  } else if (col.kind === "date" || col.key === "first_seen_at") {
+    spec = { kind: "date" };
+  } else if (col.kind === "id") {
+    spec = { kind: "text" };
+  } else {
+    const values = new Set();
+    let hasEmpty = false;
+    let enumerable = true;
+    for (const row of DATA) {
+      const t = cellOf(row, col.key).t;
+      if (t == null || t === "") { hasEmpty = true; continue; }
+      const s = String(t);
+      if (s.length > ENUM_MAX_LEN) { enumerable = false; break; }
+      values.add(s);
+      if (values.size > ENUM_MAX) { enumerable = false; break; }
+    }
+    spec = enumerable
+      ? {
+          kind: "enum",
+          values: Array.from(values).sort((a, b) => a.localeCompare(b, "ru")),
+          hasEmpty: hasEmpty,
+        }
+      : { kind: "text" };
+  }
+  specCache[col.key] = spec;
+  return spec;
+}
+
+function cellText(row, key) {
+  const cell = cellOf(row, key);
+  const dups = (cell.dups || []).map(d => d.fb_id).join(" ");
+  return (String(cell.t == null ? "" : cell.t) + " " + dups).toLowerCase();
+}
+
+function passesFilters(row) {
+  for (const key in FILTERS) {
+    const f = FILTERS[key];
+    const cell = cellOf(row, key);
+    if (f.kind === "range") {
+      const n = numOf(cell);
+      if (n === null) return false;
+      if (f.min !== null && n < f.min) return false;
+      if (f.max !== null && n > f.max) return false;
+    } else if (f.kind === "date") {
+      const t = cell.t ? String(cell.t) : "";
+      if (!t) return false;
+      if (f.min && t < f.min) return false;
+      if (f.max && t > f.max) return false;
+    } else if (f.kind === "enum") {
+      if (!f.values.has(cell.t == null ? "" : String(cell.t))) return false;
+    } else if (f.kind === "text") {
+      if (cellText(row, key).indexOf(f.q) === -1) return false;
+    }
+  }
+  return true;
+}
+
+function dropIfEmpty(key) {
+  const f = FILTERS[key];
+  if (!f) return;
+  const empty = f.kind === "enum"
+    ? f.values.size === 0
+    : (f.kind === "text" ? !f.q : (f.min == null || f.min === "") && (f.max == null || f.max === ""));
+  if (empty) delete FILTERS[key];
+}
+
+// Панель показывает фильтры видимых колонок плюс те, что уже выставлены на
+// скрытых: иначе спрятанный фильтр молча резал бы таблицу.
+function filterColumns() {
+  return COLUMNS.filter(c => showExtra || !c.hidden || FILTERS[c.key]);
+}
+
+function renderFilters() {
+  const grid = document.getElementById("flt-grid");
+  grid.innerHTML = filterColumns().map(col => {
+    const spec = filterSpec(col);
+    const f = FILTERS[col.key];
+    let body;
+    if (spec.kind === "range" || spec.kind === "date") {
+      const type = spec.kind === "date" ? "date" : "number";
+      const mn = f && f.min != null ? f.min : "";
+      const mx = f && f.max != null ? f.max : "";
+      body = '<span class="range">'
+        + '<input type="' + type + '" data-key="' + esc(col.key) + '" data-bound="min"'
+        + ' placeholder="от" value="' + esc(mn) + '">'
+        + '<input type="' + type + '" data-key="' + esc(col.key) + '" data-bound="max"'
+        + ' placeholder="до" value="' + esc(mx) + '">'
+        + '</span>';
+    } else if (spec.kind === "enum") {
+      const opts = spec.values.map(v => ({ v: v, label: v }));
+      if (spec.hasEmpty) opts.push({ v: "", label: "—" });
+      body = '<span class="chips">' + opts.map(o =>
+        '<button class="chip' + (f && f.values.has(o.v) ? " on" : "") + '"'
+        + ' data-key="' + esc(col.key) + '" data-value="' + esc(o.v) + '">'
+        + esc(o.label) + '</button>'
+      ).join("") + '</span>';
+    } else {
+      body = '<input type="search" data-key="' + esc(col.key) + '" data-bound="q"'
+        + ' placeholder="подстрока…" value="' + esc(f ? f.raw : "") + '">';
+    }
+    return '<span class="flt' + (f ? " set" : "") + '" data-col="' + esc(col.key) + '">'
+      + '<span class="name">' + esc(col.label) + '</span>' + body + '</span>';
+  }).join("");
 }
 
 function renderHead() {
@@ -1605,16 +1783,31 @@ function renderHead() {
     + esc(SRC_LABELS[b.src] || b.src) + '</th>'
   ).join("");
 
-  document.getElementById("head").innerHTML = cols.map(c =>
-    '<th class="lbl src-' + c.src + (c.edge ? ' edge' : '') + '" data-key="' + esc(c.key) + '">'
-    + esc(c.label) + '</th>'
-  ).join("");
+  document.getElementById("head").innerHTML = cols.map(c => {
+    const i = sorts.findIndex(s => s.key === c.key);
+    // Номер рядом со стрелкой появляется только когда ключей больше одного —
+    // тогда он и означает приоритет.
+    const mark = i === -1 ? "" : '<span class="so">' + (sorts[i].dir > 0 ? "▲" : "▼")
+      + (sorts.length > 1 ? (i + 1) : "") + '</span>';
+    return '<th class="lbl src-' + c.src + (c.edge ? ' edge' : '')
+      + (i === -1 ? '' : ' sorted') + '" data-key="' + esc(c.key) + '"'
+      + ' title="клик — сортировать, Shift+клик — добавить ключ">'
+      + esc(c.label) + mark + '</th>';
+  }).join("");
 
   document.querySelectorAll("#head th").forEach(th => {
-    th.addEventListener("click", () => {
+    th.addEventListener("click", ev => {
       const key = th.dataset.key;
-      sortDir = key === sortKey ? -sortDir : 1;
-      sortKey = key;
+      const i = sorts.findIndex(s => s.key === key);
+      if (ev.shiftKey) {
+        // Shift проводит ключ по кругу: вверх → вниз → выбыл из сортировки.
+        if (i === -1) sorts.push({ key: key, dir: 1 });
+        else if (sorts[i].dir === 1) sorts[i].dir = -1;
+        else sorts.splice(i, 1);
+        if (!sorts.length) sorts = [{ key: key, dir: 1 }];
+      } else {
+        sorts = [{ key: key, dir: i === 0 ? -sorts[0].dir : 1 }];
+      }
       render();
     });
   });
@@ -1622,18 +1815,10 @@ function renderHead() {
 
 function render() {
   const q = document.getElementById("q").value.trim().toLowerCase();
-  let rows = DATA.filter(r => inTab(r, tab) && (!q || haystack(r).indexOf(q) !== -1));
+  let rows = DATA.filter(r =>
+    inTab(r, tab) && (!q || haystack(r).indexOf(q) !== -1) && passesFilters(r));
 
-  if (sortKey) {
-    rows = rows.slice().sort((a, b) => {
-      const x = sortValue(a, sortKey), y = sortValue(b, sortKey);
-      if (x === null && y === null) return 0;
-      if (x === null) return 1;
-      if (y === null) return -1;
-      if (typeof x === "number" && typeof y === "number") return (x - y) * sortDir;
-      return String(x).localeCompare(String(y), "ru") * sortDir;
-    });
-  }
+  if (sorts.length) rows = rows.slice().sort(compareRows);
 
   renderHead();
   document.getElementById("body").innerHTML = rows.map(rowHTML).join("");
@@ -1650,6 +1835,14 @@ function render() {
   const more = document.getElementById("more");
   more.textContent = (showExtra ? "▲ Скрыть доп. поля" : "▼ Ещё " + extra + " полей");
   more.classList.toggle("on", showExtra);
+
+  const set = Object.keys(FILTERS).length;
+  const flt = document.getElementById("flt");
+  flt.textContent = set ? "Фильтры (" + set + ")" : "Фильтры";
+  flt.classList.toggle("on", set > 0);
+  const inTabCount = DATA.filter(r => inTab(r, tab)).length;
+  document.getElementById("flt-note").textContent =
+    "показано " + rows.length + " из " + inTabCount + " во вкладке";
 }
 
 document.querySelectorAll(".tab").forEach(btn => {
@@ -1669,11 +1862,69 @@ document.getElementById("body").addEventListener("click", ev => {
 
 document.getElementById("more").addEventListener("click", () => {
   showExtra = !showExtra;
+  renderFilters();
   render();
 });
 
 document.getElementById("q").addEventListener("input", render);
 
+document.getElementById("flt").addEventListener("click", () => {
+  document.getElementById("filters").classList.toggle("on");
+});
+
+// Чипы перечислений. Панель не перерисовывается целиком — иначе фокус и
+// каретка в соседнем поле ввода терялись бы на каждом нажатии.
+document.getElementById("flt-grid").addEventListener("click", ev => {
+  const chip = ev.target.closest(".chip");
+  if (!chip) return;
+  const key = chip.dataset.key, value = chip.dataset.value;
+  const f = FILTERS[key] || (FILTERS[key] = { kind: "enum", values: new Set() });
+  if (f.values.has(value)) f.values.delete(value);
+  else f.values.add(value);
+  chip.classList.toggle("on", f.values.has(value));
+  dropIfEmpty(key);
+  markSet(key);
+  render();
+});
+
+document.getElementById("flt-grid").addEventListener("input", ev => {
+  const input = ev.target.closest("input");
+  if (!input) return;
+  const key = input.dataset.key, bound = input.dataset.bound;
+  const raw = input.value.trim();
+  if (bound === "q") {
+    if (raw) FILTERS[key] = { kind: "text", q: raw.toLowerCase(), raw: raw };
+    else delete FILTERS[key];
+  } else {
+    const spec = specCache[key];
+    const kind = spec && spec.kind === "date" ? "date" : "range";
+    const f = FILTERS[key] && FILTERS[key].kind === kind
+      ? FILTERS[key]
+      : (FILTERS[key] = { kind: kind, min: null, max: null });
+    let parsed = null;
+    if (raw !== "") {
+      parsed = kind === "date" ? raw : Number(raw.replace(",", "."));
+      if (kind === "range" && !Number.isFinite(parsed)) parsed = null;
+    }
+    f[bound] = parsed;
+    dropIfEmpty(key);
+  }
+  markSet(key);
+  render();
+});
+
+function markSet(key) {
+  const block = document.querySelector('.flt[data-col="' + key + '"]');
+  if (block) block.classList.toggle("set", !!FILTERS[key]);
+}
+
+document.getElementById("flt-reset").addEventListener("click", () => {
+  Object.keys(FILTERS).forEach(k => delete FILTERS[k]);
+  renderFilters();
+  render();
+});
+
+renderFilters();
 render();
 </script>
 </body>
