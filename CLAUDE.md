@@ -137,9 +137,12 @@ not rewrite history in them, and keep the "last checked" dates honest.
 
 **Diagrams are SVGs, not fenced mermaid.** VS Code's markdown preview does not
 render mermaid without an extension, so the committed `.svg` is what the docs
-embed. Where a `.mmd` sits next to it, that is the source: edit it and run
-`scripts/render-diagrams.sh` (it borrows the Chromium Playwright already
-installed and adds nothing to the system). `pipeline-flow.svg` has no `.mmd` —
-it is hand-drawn and edited directly, because mermaid gives every line in a
-node the same weight and centres it, which is what made the old version
-unreadable. Do not "restore" it to mermaid.
+embed. Each has a source next to it, and neither is the SVG itself:
+
+- `docs/diagrams/*.mmd` → `scripts/render-diagrams.sh` (borrows the Chromium
+  Playwright already installed, adds nothing to the system);
+- `pipeline-flow.svg` → `scripts/gen-pipeline-diagram.py`, whose `STAGES`
+  table is the thing to edit. **A hand edit to that SVG is lost on the next
+  run.** It is not mermaid on purpose: mermaid centres every line of a node at
+  one weight, which is what made the earlier version an unreadable block of
+  text. Do not "restore" it to mermaid.

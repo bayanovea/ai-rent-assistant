@@ -8,8 +8,8 @@ the stages are yours, not the machine's.
 ![The whole flow, stage by stage](diagrams/pipeline-flow.svg)
 
 <sub>Diagrams live in [`diagrams/`](diagrams) as SVG. The two small ones below
-are generated from `.mmd` sources by `scripts/render-diagrams.sh`; this one is
-hand-drawn SVG and is its own source.</sub>
+come from `.mmd` sources via `scripts/render-diagrams.sh`; this one is drawn by
+`scripts/gen-pipeline-diagram.py` — edit its `STAGES` table, not the SVG.</sub>
 
 You read the table twice, and the two readings are different work. The first
 one (stage 3) is a gate: what you throw out never costs a gallery download or a

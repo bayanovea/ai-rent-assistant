@@ -16,11 +16,12 @@ and points at the rest.
 | [plans/completed/](plans/completed) | The implementation plan per iteration, with the design rationale of the day. |
 
 The diagrams are checked-in SVGs so that any markdown preview shows them
-without a mermaid extension. Most have a mermaid source next to them in
-[`diagrams/`](diagrams) — edit the `.mmd`, then run
-`scripts/render-diagrams.sh`. The pipeline diagram is hand-drawn SVG instead:
-mermaid centres every line at the same weight, which turned the stage boxes
-into unreadable blocks of text. It has no `.mmd` and is edited directly.
+without a mermaid extension. Nothing is edited in the SVG itself: the small
+ones come from a `.mmd` next to them in [`diagrams/`](diagrams) via
+`scripts/render-diagrams.sh`, and the pipeline diagram comes from the `STAGES`
+table in `scripts/gen-pipeline-diagram.py` — it is drawn by hand because
+mermaid centres every line at one weight, which turned the stage boxes into
+unreadable blocks of text.
 
 `CLAUDE.md` in the repository root is not documentation — it is the list of
 traps that a coding agent must not walk into.
