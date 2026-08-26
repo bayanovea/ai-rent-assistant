@@ -1667,3 +1667,20 @@ def test_dedupe_forgets_the_hashes_of_the_collapsed_copy(conn):
 
     assert gone not in storage.photo_hashes_by_listing(conn)
     assert collapsed[0]["canonical"] in storage.photo_hashes_by_listing(conn)
+
+
+def test_a_photo_collapsed_repost_is_remembered(conn):
+    # The point of the whole signal: the merged copy must not come back on
+    # the next sweep, and ``duplicates`` is what stops it.
+    _photographed(conn, "keeper", _AD, _shots(
+        ("m1", "d1"), ("m2", "d2"), ("m3", "d3"),
+    ))
+    _photographed(conn, "repost", _AD_B, _shots(
+        ("m1", "d1"), ("m2", "d2"), ("m9", "d9"),
+    ), price=19000)
+
+    collapsed = storage.dedupe_listings(conn)
+    gone = collapsed[0]["removed"][0]
+
+    assert gone in storage.duplicate_fb_ids(conn)
+    assert gone not in storage.known_fb_ids(conn)
