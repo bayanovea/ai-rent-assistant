@@ -71,16 +71,24 @@ to this `scrapper/` package):
 
 - `browser-profile/` — persistent Chromium profile (cookies, localStorage)
 - `rentals.db` — SQLite database (source of truth). Deduplication happens on
-  three levels: on `fb_id`, on the ad text, and on the flat itself. Agencies
-  republish the same listing to lift it up the feed, and Facebook mints a new
-  id every time; the same flat is also often handed to several agents, who
-  each write their own text. A listing whose text and price already exist is
-  recorded in `duplicates` at write time instead of getting its own row, and
-  `fb-rent dedupe` additionally merges listings that describe one flat —
-  matching on the project, price and bedroom count, and refusing to merge two
-  ads that name different floors, buildings or sizes. Whatever is merged is
+  four levels: on `fb_id`, on the ad text, on the photos, and on the flat
+  itself. Agencies republish the same listing to lift it up the feed, and
+  Facebook mints a new id every time; the same flat is also often handed to
+  several agents, who each write their own text. A listing whose text and
+  price already exist is recorded in `duplicates` at write time instead of
+  getting its own row, and `fb-rent dedupe` additionally merges listings whose
+  photos match and listings that describe one flat — the latter matching on
+  the project, price and bedroom count, and both refusing to merge two ads
+  that name different floors, buildings or sizes. Whatever is merged is
   remembered, so the next scrape skips it without opening its page. The table
   shows one line per flat, with every posting's id and link in its ID cell
+- the photo signal is the only one that needs neither matching text nor an AI
+  analysis: `scrape` hashes the first three shots of every gallery (MD5 of the
+  CDN bytes plus a perceptual dHash) into the `photo_hashes` table, and two
+  shots matching out of three merges the pair. One shared shot is usually the
+  pool or an agency logo, and a hash that turns up on more than four listings
+  is dropped from the index for the same reason. Nothing of this lands on
+  disk — see `fb-rent photo-hash` for the backfill
 - `rentals.csv` — flat export of the scraped `listings` columns only,
   regenerated on every scrape
 - `rentals.html` — the full table: AI fields, recommendation, score and
@@ -470,6 +478,26 @@ not written — unlike the text pass, which re-writes anyway. Text can be
 re-read; an analysis of photos that have since changed describes a different
 flat, and storing it would attribute someone else's observations to this
 listing.
+
+### `fb-rent photo-hash`
+
+Backfills the duplicate signal for listings scraped before the hash stage
+existed. It fetches the first three gallery shots from the same signed links
+`photos-fetch` uses, stores their MD5 and dHash in `photo_hashes`, and writes
+nothing to disk — a preview left in `photos/<fb_id>/` would convince the photo
+pass that the gallery is already downloaded.
+
+| Flag      | Default | Description                                          |
+|-----------|---------|------------------------------------------------------|
+| `--limit` | `100`   | Maximum number of listings to hash.                  |
+| `--all`   | off     | Hash the whole queue, ignoring `--limit`.            |
+| `--ids`   | —       | Hash these `fb_id`s instead of the queue.            |
+
+The queue is every listing with gallery links and no hashes, oldest first;
+`ai-status` prints its size as "Фото-хэши: N из M". A listing whose links have
+expired, or that was scraped before galleries were collected, is named in the
+output with the command that fixes it — `fb-rent scrape --ids <fb_id>`. New
+scrapes need none of this: they hash inline, `--no-photos` included.
 
 ## Troubleshooting
 

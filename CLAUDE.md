@@ -37,6 +37,13 @@ listing, so anything that rewrites the directory re-queues it. `_download_photos
 therefore leaves a non-empty directory alone; a genuine refetch means purging
 first.
 
+**The hash stage must never touch `PHOTOS_DIR`.** `fingerprint.py` downloads
+the first three shots, hashes them and drops the bytes; nothing is written.
+Save those three previews into `data/photos/<fb_id>/` and the photo pass is
+broken forever: `_download_photos` skips a non-empty directory (`cli.py:202`),
+so the real gallery never arrives, and `photos_hash` — computed from file names
+and sizes — happily marks the listing as ready with three pictures in it.
+
 ## Scrape
 
 **A re-sighting must not clobber.** `scrape` skips the detail page of a
@@ -59,6 +66,15 @@ never `idx < detail_cap`: a sorted feed puts known listings and reposts on the
 first screens, and an index-based cap spends the whole budget on cards whose
 detail page is skipped anyway. Rows are upserted inside the loop, so a run that
 dies at minute 40 keeps its work; the exports are the only stale part.
+
+**Hashes come from the CDN bytes, not from the files on disk.** The
+fingerprint stage re-downloads the three shots even in a run that is already
+downloading the gallery. Reusing `download_and_resize`'s bytes looks free and
+is not: `md5` would then depend on whether it was taken before or after the
+resize, and a shot's position on whichever URLs happened to survive. Three
+extra GETs fit inside the jitter that is already paid for, and keep the stage
+orthogonal to the photo pass — which is why it also runs under `--no-photos`
+(three shots are not a gallery) and stops only under `--dry-run`.
 
 **A card-only row still counts as known.** `known_fb_ids` (`storage.py:612`)
 returns every `fb_id` in the table, and does not care whether the row has a
