@@ -22,6 +22,7 @@ import sqlite3
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Iterable
 from typing import Any, NamedTuple
 
 from . import ai_schema, extractors, photos, rules
@@ -94,11 +95,24 @@ CREATE TABLE IF NOT EXISTS decisions (
 );
 """
 
+_PHOTO_HASHES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS photo_hashes (
+    fb_id      TEXT NOT NULL,
+    position   INTEGER NOT NULL,
+    md5        TEXT NOT NULL,
+    dhash      TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (fb_id, position)
+);
+"""
+
 _INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_last_seen ON listings(last_seen_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_price ON listings(price_thb);",
     "CREATE INDEX IF NOT EXISTS idx_content_key ON listings(content_key);",
     "CREATE INDEX IF NOT EXISTS idx_dup_canonical ON duplicates(canonical_fb_id);",
+    "CREATE INDEX IF NOT EXISTS idx_photo_md5 ON photo_hashes(md5);",
+    "CREATE INDEX IF NOT EXISTS idx_photo_dhash ON photo_hashes(dhash);",
 )
 
 
@@ -315,6 +329,7 @@ def init_db(path: Path | str) -> sqlite3.Connection:
     conn.execute(_AI_SCHEMA)
     conn.execute(_DUPLICATES_SCHEMA)
     conn.execute(_DECISIONS_SCHEMA)
+    conn.execute(_PHOTO_HASHES_SCHEMA)
     _migrate(conn)
     for stmt in _INDEXES:
         conn.execute(stmt)
@@ -715,6 +730,88 @@ def gallery_urls_of(raw_json: Any) -> list[str]:
         if isinstance(urls, list):
             return [str(url) for url in urls]
     return []
+
+
+def save_photo_hashes(
+    conn: sqlite3.Connection,
+    fb_id: str,
+    entries: Iterable[tuple[int, str, str]],
+    *,
+    now: str | None = None,
+) -> int:
+    """Store the ``(position, md5, dhash)`` triples of one listing.
+
+    The listing's previous rows are dropped first, so an empty ``entries``
+    erases what was there: a refetch that came back with nothing means the
+    gallery is gone, not that the old hashes are still true.
+    """
+    ts = now or _now_iso()
+    rows = [(fb_id, int(pos), str(md5), str(dh), ts) for pos, md5, dh in entries]
+    conn.execute("DELETE FROM photo_hashes WHERE fb_id = ?", (fb_id,))
+    if rows:
+        conn.executemany(
+            """
+            INSERT OR REPLACE INTO photo_hashes
+                (fb_id, position, md5, dhash, fetched_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+    conn.commit()
+    return len(rows)
+
+
+def delete_photo_hashes(conn: sqlite3.Connection, fb_id: str) -> None:
+    """Forget a listing's photo hashes (used when its row is collapsed away)."""
+    conn.execute("DELETE FROM photo_hashes WHERE fb_id = ?", (fb_id,))
+
+
+def photo_hashes_by_listing(
+    conn: sqlite3.Connection,
+) -> dict[str, list[dict[str, Any]]]:
+    """Return every stored hash grouped by ``fb_id``, ordered by position.
+
+    One query for the whole table: the dedupe pass needs all of it at once
+    to build its inverted index, and per-row lookups would be a join per
+    candidate pair.
+    """
+    rows = conn.execute(
+        """
+        SELECT fb_id, position, md5, dhash
+        FROM photo_hashes
+        ORDER BY fb_id, position
+        """
+    ).fetchall()
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["fb_id"]), []).append({
+            "position": row["position"],
+            "md5": row["md5"],
+            "dhash": row["dhash"],
+        })
+    return grouped
+
+
+def listings_missing_photo_hashes(
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """Return listings that have no photo hashes yet, oldest first.
+
+    Only rows carrying a ``raw_json`` are candidates — without it there are
+    no ``gallery_urls`` to fetch. Oldest first because the CDN signatures
+    expire in about a week: whatever is closest to that edge is worth doing
+    before it turns into a ``scrape --ids``.
+    """
+    rows = conn.execute(
+        """
+        SELECT l.*
+        FROM listings AS l
+        LEFT JOIN photo_hashes AS p ON p.fb_id = l.fb_id
+        WHERE p.fb_id IS NULL AND l.raw_json IS NOT NULL
+        ORDER BY l.last_seen_at ASC
+        """
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def upsert_ai_analysis(

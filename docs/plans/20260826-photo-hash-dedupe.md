@@ -201,20 +201,20 @@ PHOTO_HASH_COMMON_MAX: int = 4     # хэш чаще этого — застав
 - Modify: `src/fb_rent/storage.py`
 - Modify: `tests/test_storage.py`
 
-- [ ] добавить `_PHOTO_HASHES_SCHEMA` и оба индекса, подключить в
+- [x] добавить `_PHOTO_HASHES_SCHEMA` и оба индекса, подключить в
       `init_db` рядом с остальными схемами (миграция не нужна:
       `CREATE TABLE IF NOT EXISTS` создаёт таблицу и на старой БД)
-- [ ] реализовать `save_photo_hashes(conn, fb_id, entries, now=None)` —
+- [x] реализовать `save_photo_hashes(conn, fb_id, entries, now=None)` —
       `INSERT OR REPLACE`, пустой список стирает прежние строки
-- [ ] реализовать `photo_hashes_by_listing(conn)` → `dict[fb_id, list]`
-- [ ] реализовать `listings_missing_photo_hashes(conn)` — строки без хэшей,
+- [x] реализовать `photo_hashes_by_listing(conn)` → `dict[fb_id, list]`
+- [x] реализовать `listings_missing_photo_hashes(conn)` — строки без хэшей,
       с `raw_json`, старые первыми
-- [ ] реализовать `delete_photo_hashes(conn, fb_id)`
-- [ ] написать тесты на запись/чтение/перезапись и на то, что
+- [x] реализовать `delete_photo_hashes(conn, fb_id)`
+- [x] написать тесты на запись/чтение/перезапись и на то, что
       `init_db` над существующей БД без таблицы её создаёт
-- [ ] написать тест `listings_missing_photo_hashes`: строка с хэшами не
+- [x] написать тест `listings_missing_photo_hashes`: строка с хэшами не
       возвращается, строка без — возвращается
-- [ ] прогнать `pytest` — зелёно перед задачей 3
+- [x] прогнать `pytest` — зелёно перед задачей 3
 
 ### Task 3: Сигнал `photos` в dedupe
 

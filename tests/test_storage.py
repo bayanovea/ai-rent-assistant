@@ -1464,3 +1464,98 @@ def test_fetch_pending_photos_ignores_unanalysed_listings(conn, photos_home):
     pending, no_photos = storage.fetch_pending_photos(conn, _registry())
     assert pending == []
     assert no_photos == []
+
+
+# --- photo hashes ---------------------------------------------------------
+
+
+def test_save_and_read_photo_hashes(conn):
+    storage.upsert_listing(conn, _make_listing())
+    written = storage.save_photo_hashes(
+        conn,
+        "1234567890",
+        [(0, "md0", "dh0"), (1, "md1", "dh1")],
+    )
+    assert written == 2
+
+    grouped = storage.photo_hashes_by_listing(conn)
+    assert grouped == {
+        "1234567890": [
+            {"position": 0, "md5": "md0", "dhash": "dh0"},
+            {"position": 1, "md5": "md1", "dhash": "dh1"},
+        ]
+    }
+
+
+def test_save_photo_hashes_replaces_previous_rows(conn):
+    storage.upsert_listing(conn, _make_listing())
+    storage.save_photo_hashes(
+        conn, "1234567890", [(0, "md0", "dh0"), (1, "md1", "dh1")]
+    )
+    storage.save_photo_hashes(conn, "1234567890", [(0, "new", "newdh")])
+
+    assert storage.photo_hashes_by_listing(conn) == {
+        "1234567890": [{"position": 0, "md5": "new", "dhash": "newdh"}]
+    }
+
+
+def test_empty_entries_erase_photo_hashes(conn):
+    storage.upsert_listing(conn, _make_listing())
+    storage.save_photo_hashes(conn, "1234567890", [(0, "md0", "dh0")])
+
+    assert storage.save_photo_hashes(conn, "1234567890", []) == 0
+    assert storage.photo_hashes_by_listing(conn) == {}
+
+
+def test_delete_photo_hashes_leaves_other_listings(conn):
+    storage.upsert_listing(conn, _make_listing())
+    storage.upsert_listing(conn, _make_listing(fb_id="222"))
+    storage.save_photo_hashes(conn, "1234567890", [(0, "a", "b")])
+    storage.save_photo_hashes(conn, "222", [(0, "c", "d")])
+
+    storage.delete_photo_hashes(conn, "1234567890")
+
+    assert set(storage.photo_hashes_by_listing(conn)) == {"222"}
+
+
+def test_init_db_creates_photo_hashes_on_an_existing_db(tmp_path: Path):
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(str(path))
+    old.execute(storage._SCHEMA)
+    old.commit()
+    old.close()
+
+    conn = storage.init_db(path)
+    try:
+        storage.save_photo_hashes(conn, "1", [(0, "md", "dh")])
+        assert "1" in storage.photo_hashes_by_listing(conn)
+    finally:
+        conn.close()
+
+
+def test_listings_missing_photo_hashes_skips_hashed_rows(conn):
+    storage.upsert_listing(conn, _make_listing(fb_id="111"))
+    storage.upsert_listing(conn, _make_listing(fb_id="222"))
+    storage.save_photo_hashes(conn, "111", [(0, "md", "dh")])
+
+    missing = storage.listings_missing_photo_hashes(conn)
+
+    assert [row["fb_id"] for row in missing] == ["222"]
+
+
+def test_listings_missing_photo_hashes_needs_raw_json(conn):
+    storage.upsert_listing(conn, _make_listing(fb_id="333", raw_json=None))
+    storage.upsert_listing(conn, _make_listing(fb_id="444"))
+
+    missing = storage.listings_missing_photo_hashes(conn)
+
+    assert [row["fb_id"] for row in missing] == ["444"]
+
+
+def test_listings_missing_photo_hashes_returns_oldest_first(conn):
+    storage.upsert_listing(conn, _make_listing(fb_id="new"), now="2026-08-20T00:00:00Z")
+    storage.upsert_listing(conn, _make_listing(fb_id="old"), now="2026-08-01T00:00:00Z")
+
+    missing = storage.listings_missing_photo_hashes(conn)
+
+    assert [row["fb_id"] for row in missing] == ["old", "new"]
