@@ -216,3 +216,20 @@ hundreds of empty rows. Three regression tests in
 `tests/test_scraper_detail.py`.
 
 The band was re-run afterwards on the fixed code.
+
+#### The re-run on the fixed code, 20:53–21:52
+
+`BANDS_TO_REDO="25000:27499" bash data/sweep/topup.sh` — 262 cards, `+173`
+rows, exit 0. No crash where the same band had died an hour earlier.
+
+Two listings answered `detail unavailable, keeping list-card data`, which is
+the new timeout path doing its job: the run kept going and left two card-only
+rows behind. The drain that follows the sweep repaired **both** by `--ids`
+(`2 -> 0 missing, fetched 2, gave up on 0`) — so they were slow pages, not
+dead listings, and under the old code either one of them would have ended the
+band.
+
+Final state for the day: **2235 rows, 0 without description**, 599 duplicates.
+The text pass has 1752 pending. Scraping stops here — the seven-day window is
+as full as it is worth making it, and the bottleneck moved to how many
+listings a person can actually look at.
