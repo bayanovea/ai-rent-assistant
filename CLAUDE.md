@@ -136,7 +136,10 @@ what was measured on live data and when. Append to them after a real run, do
 not rewrite history in them, and keep the "last checked" dates honest.
 
 **Diagrams are SVGs, not fenced mermaid.** VS Code's markdown preview does not
-render mermaid without an extension, so `docs/diagrams/*.mmd` is the source and
-the committed `.svg` next to it is what the docs embed. Edit the `.mmd`, then
-run `scripts/render-diagrams.sh` — it borrows the Chromium that Playwright
-already installed and adds nothing to the system.
+render mermaid without an extension, so the committed `.svg` is what the docs
+embed. Where a `.mmd` sits next to it, that is the source: edit it and run
+`scripts/render-diagrams.sh` (it borrows the Chromium Playwright already
+installed and adds nothing to the system). `pipeline-flow.svg` has no `.mmd` —
+it is hand-drawn and edited directly, because mermaid gives every line in a
+node the same weight and centres it, which is what made the old version
+unreadable. Do not "restore" it to mermaid.

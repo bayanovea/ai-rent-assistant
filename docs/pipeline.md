@@ -7,31 +7,34 @@ the stages are yours, not the machine's.
 
 ![The whole flow, stage by stage](diagrams/pipeline-flow.svg)
 
-<sub>The diagrams on this page are SVGs; their mermaid sources are in
-[`diagrams/`](diagrams) and are regenerated with
-`scripts/render-diagrams.sh`.</sub>
+<sub>Diagrams live in [`diagrams/`](diagrams) as SVG. The two small ones below
+are generated from `.mmd` sources by `scripts/render-diagrams.sh`; this one is
+hand-drawn SVG and is its own source.</sub>
 
-The arrow back from stage 4 to stage 3 is the point of the photo pass: its
-product is not new facts but **contradictions** — a `furnished: full` that the
-pictures show as one empty bedroom, a gallery that turns out to be a 3D render.
-Those land in the table and you look again.
+You read the table twice, and the two readings are different work. The first
+one (stage 3) is a gate: what you throw out never costs a gallery download or a
+photo token. The second (stage 5) is the decision, taken with the pictures in
+front of you — the photo pass exists to make that reading better, not to
+replace it.
 
 ## Stage by stage
 
 | # | Step | Who runs it | Reads | Writes |
 |---|------|-------------|-------|--------|
-| 0 | `fb-rent login` | you, once every 1–4 weeks | — | `data/browser-profile/` |
-| 1 | `fb-rent scrape` | you / cron | Facebook | `listings`, `photo_hashes`, `photos/<fb_id>/`, CSV + HTML |
-| 1b | `fb-rent dedupe` | you | the DB | `duplicates`, purged photo dirs |
+| — | `fb-rent login` | you, once every 1–4 weeks | — | `data/browser-profile/` |
+| 1 | `fb-rent scrape`, then `fb-rent dedupe` | you / cron | Facebook | `listings`, `photo_hashes`, `duplicates`, `photos/<fb_id>/` |
 | 2 | `/analyze` skill | Claude Code (Opus) | `listings.description`, `config/requirements.md`, `config/ai_fields.json` | `ai_analysis.data_json`, auto-rejections |
 | 3 | reading the table | **you** | `data/rentals.html` | `data/decisions.json` |
-| 4a | `fb-rent photos-fetch` | you | stored gallery URLs | `photos/<fb_id>/` |
-| 4b | `/photo-analyze` skill | Claude Code (Sonnet subagents) | the photo files | `ai_analysis.photo_data_json` |
-| 5 | `fb-rent export` | anything above | the DB + `decisions.json` | `rentals.csv`, `rentals.html` |
+| 4 | `fb-rent photos-fetch`, then `/photo-analyze` | you, then Claude Code (Sonnet subagents) | stored gallery URLs, then the photo files | `photos/<fb_id>/`, `ai_analysis.photo_data_json` |
+| 5 | reading the table again | **you** | `data/rentals.html` | `data/decisions.json` |
+| — | `fb-rent export` | after anything above | the DB + `decisions.json` | `rentals.csv`, `rentals.html` |
 
 Stage 3 is not a formality. The photo queue skips everything you rejected, so
 every listing you throw out by hand before stage 4 is tokens not spent. Neither
 `/analyze` nor `ai-status` will offer to start the photo pass — you ask for it.
+
+Which stages can run alone, and which genuinely depend on each other, is the
+subject of [the dependency notes below](#what-can-run-on-its-own).
 
 ## Who decides what
 
@@ -84,3 +87,53 @@ fb-rent photos-fetch --all      # only for what survived
 The stored gallery URLs are signed and expire in about a week, which is what
 makes this order possible at all — and what bounds it. Past the expiry only the
 detail page can hand out fresh links (`fb-rent scrape --ids <fb_id>`).
+
+## What can run on its own
+
+Every stage is its own command, and most of them can be run in isolation.
+
+| Stage | Alone? | Needs | Network |
+|---|---|---|---|
+| `login` | yes | — | Facebook |
+| `scrape` | yes | a live session | Facebook |
+| `dedupe` | yes, any time | the DB | no |
+| `photo-hash` | yes | stored gallery URLs | the CDN |
+| `/analyze` | yes | rows that have text | **no** |
+| `photos-fetch` | no | the text pass has run | the CDN |
+| `/photo-analyze` | no | photos on disk | no |
+| `export` | yes, any time | the DB | no |
+
+Only three couplings are real:
+
+- **The photo pass needs the text pass.** `fetch_pending_photos` joins
+  `ai_analysis`, so a listing nobody has read yet is not a candidate — and
+  `photos-fetch` works off the same queue, which is why downloading galleries
+  before `/analyze` finds nothing to download.
+- **`photos-fetch` before `photo-batch`.** The batch is built from the files on
+  disk, not from the links.
+- **Everything before `export`.** It only reads.
+
+Note what is *not* in that list: `photo-hash` does not depend on the photo pass
+at all. It is a dedupe signal, it runs inline in every `scrape` (including
+`--no-photos`), and `fb-rent photo-hash` only exists to catch up rows scraped
+before the stage did.
+
+### What can run at the same time
+
+`/analyze` never contacts Facebook, so it can run alongside a scrape — that is
+how the night of 26 August went, 592 detail pages and the text pass at once.
+
+What cannot overlap is two `scrape` runs: there is one browser profile and the
+persistent context holds it.
+
+### Order that saves work
+
+- **`dedupe` before `photos-fetch`.** Merging deletes the photo directory of
+  the rows it absorbs, so galleries downloaded first are downloaded for
+  nothing.
+- **`/analyze` before any photo download.** `ai-apply` purges the photos of
+  what it auto-rejects. On the 26 August run that was 470 rows of 779 — two
+  thirds of the galleries would have been fetched and thrown away. This is what
+  `--no-photos` on a wide sweep is for.
+- **Do not postpone `photos-fetch` past a week.** The signed links expire;
+  after that only `scrape --ids` can produce fresh ones.

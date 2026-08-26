@@ -5,6 +5,8 @@
 # built-in markdown preview does not render mermaid without an extension. The
 # .mmd file is the source; run this after editing one.
 #
+# Diagrams without a .mmd are hand-drawn SVG and are left alone here.
+#
 # Chromium comes from the Playwright cache the scraper already installed, so
 # nothing is added to the system: npm packages go to a temp cache and are
 # thrown away with it.
