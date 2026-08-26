@@ -1,11 +1,13 @@
 # fb-rent — notes for Claude
 
-Project-specific things that are not obvious from the code. General layout,
-commands and rationale live in `README.md` and `docs/plans/`.
+Traps only. Each entry below is something the code depends on that reading the
+code does not reveal, and that a plausible-looking change would break. How the
+project works, what the commands do and why the design is what it is live in
+[`docs/`](docs/README.md) — start at [`docs/pipeline.md`](docs/pipeline.md).
 
 **Coming back to the photo pass? Read `docs/photo-analysis.md` first.** It
-carries what the code cannot: live measurements, the decisions worth not
-undoing, and the open gaps. This file has only the technical traps.
+carries the live measurements, the decisions worth not undoing, and the open
+gaps.
 
 ## Photos
 
@@ -40,9 +42,18 @@ first.
 **The hash stage must never touch `PHOTOS_DIR`.** `fingerprint.py` downloads
 the first three shots, hashes them and drops the bytes; nothing is written.
 Save those three previews into `data/photos/<fb_id>/` and the photo pass is
-broken forever: `_download_photos` skips a non-empty directory (`cli.py:202`),
+broken forever: `_download_photos` skips a directory that already has photos (`cli.py`),
 so the real gallery never arrives, and `photos_hash` — computed from file names
 and sizes — happily marks the listing as ready with three pictures in it.
+
+**Hashes come from the CDN bytes, not from the files on disk.** The fingerprint
+stage re-downloads the three shots even in a run that is already downloading
+the gallery. Reusing `download_and_resize`'s bytes looks free and is not: `md5`
+would then depend on whether it was taken before or after the resize, and on a
+shot's position among whichever URLs happened to survive. Three extra GETs fit
+inside the jitter that is already paid for, and keep the stage orthogonal to
+the photo pass — which is why it also runs under `--no-photos` (three shots are
+not a gallery) and stops only under `--dry-run`.
 
 ## Scrape
 
@@ -53,13 +64,12 @@ drops `None` values on update: writing them erased the ad text, the gallery
 URLs and the `content_key` on every run that re-saw the table — which a wide
 sweep does by definition.
 
-**A price band is a question, not a filter.** One query hands out a few
-hundred cards and then stops, so volume comes from `--bands N` — several
-narrow queries instead of one wide one. Two consequences the code encodes:
-`scrape_list(allow_empty=True)` during a sweep, because an empty band says
-nothing about the session (only *every* band empty does), and a round-robin
-over the bands rather than concatenation, because the detail budget is shared
-and band-after-band order spends all of it in the cheapest range.
+**A price band is a question, not a filter.** One query hands out a few hundred
+cards and then stops, so volume comes from `--bands N`. Two consequences the
+code encodes: `scrape_list(allow_empty=True)` during a sweep, because an empty
+band says nothing about the session (only *every* band empty does), and a
+round-robin over the bands rather than concatenation, because the detail budget
+is shared and band-after-band order spends all of it in the cheapest range.
 
 **The detail budget counts pages, not cards.** `details_fetched < detail_cap`,
 never `idx < detail_cap`: a sorted feed puts known listings and reposts on the
@@ -67,44 +77,39 @@ first screens, and an index-based cap spends the whole budget on cards whose
 detail page is skipped anyway. Rows are upserted inside the loop, so a run that
 dies at minute 40 keeps its work; the exports are the only stale part.
 
-**Hashes come from the CDN bytes, not from the files on disk.** The
-fingerprint stage re-downloads the three shots even in a run that is already
-downloading the gallery. Reusing `download_and_resize`'s bytes looks free and
-is not: `md5` would then depend on whether it was taken before or after the
-resize, and a shot's position on whichever URLs happened to survive. Three
-extra GETs fit inside the jitter that is already paid for, and keep the stage
-orthogonal to the photo pass — which is why it also runs under `--no-photos`
-(three shots are not a gallery) and stops only under `--dry-run`.
-
-**A card-only row still counts as known.** `known_fb_ids` (`storage.py:612`)
+**A card-only row still counts as known.** `known_fb_ids` (`storage.py`)
 returns every `fb_id` in the table, and does not care whether the row has a
 description. When the detail budget runs out mid-run the loop keeps writing the
 remaining cards as rows with a title and a price and nothing else — and those
-rows then make the *next* run skip their detail pages forever. `--refresh`
-is the wrong fix (it re-reads the rows that are already complete and burns the
+rows then make the *next* run skip their detail pages forever. `--refresh` is
+the wrong fix (it re-reads the rows that are already complete and burns the
 budget on them); the right one is `--ids` over
-`select fb_id from listings where description is null`. The 2026-08-25 sweep
-left 594 such rows — see `docs/scrape-log.md`.
+`select fb_id from listings where description is null`.
 
-## Районы
+**A dead page's `--ids` re-read damages the row.** Description extraction falls
+back to "longest text block" and writes the sidebar over real text, and the
+gallery it returns can belong to another listing entirely — this has happened,
+see `docs/dedupe.md`. Fix the extraction before any mass re-read.
 
-**Первый названный район выигрывает.** `area` — свободный текст, и AI часто
-называет два места сразу (`Cherngtalay, Thalang`, `Kathu, 10 мин до Patong`).
-`district_rating` берёт самое раннее совпадение по позиции в строке, а не
-лучшее и не худшее: дом стоит там, где ад его поставил, всё остальное —
-ориентиры. Взять максимум — и таунхаус в Thalang станет Bang Tao; взять
-минимум — и дом в Kathu уедет в автоотказ из-за упоминания Patong.
+## Districts
 
-**Оценка района уже включает близость к морю.** Отдельного бонуса за
-расстояние до пляжа нет и быть не должно — это осознанное решение, а не
-пропуск: море для пользователя неключевой плюс, и он вшит в сами оценки
-(Bang Tao 5, Chalong 3).
+**The first named district wins.** `area` is free text and the AI often names
+two places at once (`Cherngtalay, Thalang`, `Kathu, 10 мин до Patong`).
+`district_rating` takes the earliest match by position in the string, not the
+best and not the worst: the flat is where the ad put it, everything else is a
+landmark. Take the maximum and a Thalang townhouse becomes Bang Tao; take the
+minimum and a Kathu house is auto-rejected for mentioning Patong.
 
-**Score считается на чтении, а не берётся из колонки.** `fetch_enriched`
-перевычисляет его через `rules.score`, как и вердикт, — иначе смена весов не
-дошла бы до строк, проанализированных раньше, а перепрогонять AI ради веса
-района бессмысленно. Колонка `ai_analysis.score` пишется обоими проходами и
-остаётся только следом последнего прогона.
+**The district rating already includes proximity to the sea.** There is no
+separate bonus for beach distance and there must not be — a deliberate
+decision, not an omission: the sea is a minor plus for this user and it is
+baked into the ratings themselves (Bang Tao 5, Chalong 3).
+
+**Score is computed on read, not taken from the column.** `fetch_enriched`
+recomputes it through `rules.score`, as it does the verdict — otherwise a
+change of weights would never reach rows analysed earlier, and re-running the
+AI for the sake of a district weight is pointless. The `ai_analysis.score`
+column is written by both passes and remains only a trace of the last run.
 
 ## Subagent fan-out
 
@@ -123,3 +128,9 @@ live in separate columns on `ai_analysis` and are merged on read
 (`{**data_json, **photo_data_json}`), so neither pass can clobber the other.
 Staleness hatching in the export must be computed against the field's own
 version — using `ai_schema_version` for a photo field hatches every row.
+
+## Docs upkeep
+
+`docs/scrape-log.md` and `docs/photo-analysis.md` are journals: they record
+what was measured on live data and when. Append to them after a real run, do
+not rewrite history in them, and keep the "last checked" dates honest.

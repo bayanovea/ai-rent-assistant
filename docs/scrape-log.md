@@ -1,37 +1,38 @@
-# Журнал скрейпа
+# Scrape log
 
-Что уже собрано и откуда продолжать. Источник истины — БД; таблица ниже
-только пересказывает её человеческими словами и хранит то, чего в БД нет:
-параметры прогона и то, упёрлась ли полоса в наш кап.
+What has been collected and where to continue from. The database is the source
+of truth; this file only retells it in human words and keeps what the DB does
+not have: the flags a run used, and whether a band hit our own cap.
 
-## Снимок состояния (спросить у БД, а не верить этому файлу)
+## A snapshot (ask the DB, do not trust this file)
 
 ```sh
 sqlite3 ../data/rentals.db "
-select 'всего', count(*) from listings
-union all select 'с текстом', count(*) from listings where description is not null
-union all select 'только карточка', count(*) from listings where description is null
-union all select 'дублей', count(*) from duplicates;"
+select 'total', count(*) from listings
+union all select 'with text', count(*) from listings where description is not null
+union all select 'card only', count(*) from listings where description is null
+union all select 'duplicates', count(*) from duplicates;"
 ```
 
-Очередь докачки — те же строки без текста, списком id:
+The catch-up queue is the same text-less rows, as a list of ids:
 
 ```sh
 sqlite3 ../data/rentals.db \
   "select fb_id from listings where description is null limit 150;"
 ```
 
-## Правило захода
+## The rule of entry
 
-Парсим **последние 7 дней** (`--days 7`). На 30 дней переходим только тогда,
-когда семидневное окно перестанет приносить новое — то есть когда полосы
-начнут отдавать меньше карточек, чем стоит в `--max`, и почти всё в них
-окажется уже известным.
+We scrape the **last 7 days** (`--days 7`). We move to 30 only once the
+seven-day window stops yielding anything new — that is, when the bands start
+returning fewer cards than `--max` and nearly everything in them is already
+known.
 
-Признак «окно ещё не выбрано»: полоса вернула ровно `--max` карточек.
-Значит потолок поставил наш кап, а не Facebook, и там осталось невыбранное.
+The sign that the window is *not* exhausted: a band returned exactly `--max`
+cards. The ceiling was our cap, not Facebook's, and there is more left in
+there.
 
-## Прогоны
+## Runs
 
 ### 2026-08-25, 15:26–15:48 UTC
 
@@ -39,76 +40,77 @@ sqlite3 ../data/rentals.db \
 fb-rent scrape --bands 6 --max 150 --days 7 --detail-cap 150 --no-photos
 ```
 
-| Полоса, THB | Карточек | Упёрлась в `--max` |
+| Band, THB | Cards | Hit `--max` |
 |---|---|---|
-| 15000–17499 | 150 | да |
-| 17500–19999 | 150 | да |
-| 20000–22499 | 150 | да |
-| 22500–24999 | 70 | нет — выбрана |
-| 25000–27499 | 150 | да |
-| 27500–30000 | 150 | да |
+| 15000–17499 | 150 | yes |
+| 17500–19999 | 150 | yes |
+| 20000–22499 | 150 | yes |
+| 22500–24999 | 70 | no — exhausted |
+| 25000–27499 | 150 | yes |
+| 27500–30000 | 150 | yes |
 
-Итог прогона: `inserted: 709, updated: 57, duplicates: 54, skipped_known: 57`.
-Детальный бюджет в 150 страниц кончился примерно на седьмой минуте; темп без
-фотографий — **7.6 детальных страниц в минуту**.
+Run totals: `inserted: 709, updated: 57, duplicates: 54, skipped_known: 57`.
+The 150-page detail budget ran out around the seventh minute; the rate without
+photos was **7.6 detail pages per minute**.
 
-Состояние БД после прогона: 799 строк, из них **205 с текстом** и
-**594 только карточка** (заголовок, цена, район — и всё). 63 дубля.
+State afterwards: 799 rows, of which **205 with text** and **594 card only**
+(title, price, district and nothing else). 63 duplicates.
 
-Пять полос из шести упёрлись в кап → семидневное окно **не выбрано**,
-следующий заход снова `--days 7`, но с большим `--max`.
+Five bands of six hit the cap → the seven-day window is **not exhausted**; the
+next run is `--days 7` again, with a larger `--max`.
 
-## Что осталось сделать по этому прогону
+#### What was left to do after that run
 
-1. **Докачать 594 карточки** пачками по 150:
-   `fb-rent scrape --ids <150 id> --detail-cap 150 --no-photos`.
-   Пачек четыре, каждая ~20 минут, между ними пауза час-полтора.
-   Распределение по полосам на 25 августа: 95 / 115 / 116 / 36 / 116 / 116.
-2. **Текстовый проход** по 205 объявлениям с текстом (`/analyze`, 9 батчей).
-   К Facebook не ходит, поэтому может идти параллельно с докачкой.
-3. Галереи не качали (`--no-photos`). Ссылки в `gallery_urls` живут около
-   недели — `fb-rent photos-fetch` успеть до 1 сентября 2026, дальше только
-   через `scrape --ids`.
+1. **Catch up the 594 cards** in batches of 150:
+   `fb-rent scrape --ids <150 ids> --detail-cap 150 --no-photos`. Four batches,
+   ~20 minutes each, an hour or so between them. Distribution across the bands
+   as of 25 August: 95 / 115 / 116 / 36 / 116 / 116.
+2. **The text pass** over the 205 listings that have text (`/analyze`, 9
+   batches). It never touches Facebook, so it can run alongside the catch-up.
+3. Galleries were not downloaded (`--no-photos`). The links in `gallery_urls`
+   live about a week — `fb-rent photos-fetch` had to happen before
+   1 September 2026, after that only via `scrape --ids`.
 
-## 26 августа 2026 — ночная докачка 594 карточек
+### 2026-08-26 — the overnight catch-up of 594 cards
 
-Скрипт-водитель: `data/catchup/run.sh` (лог — `data/catchup/catchup.log`).
-Не пачками по 150, а **чанками по 20**: после каждого чанка список
-недокачанных перезапрашивается из БД, так что упавший чанк не уносит с собой
-остальные. На каждый id — счётчик попыток (`data/catchup/attempts.tsv`), после
-трёх неудач id уходит в poison-list и больше не берётся; `exit 3` (сессия FB
-протухла) останавливает прогон целиком, а не крутит бесполезные попытки.
+Driver script: `data/catchup/run.sh` (log in `data/catchup/catchup.log`). Not
+batches of 150 but **chunks of 20**: after every chunk the list of missing rows
+is re-queried from the DB, so a chunk that dies does not take the rest with it.
+Every id carries an attempt counter (`data/catchup/attempts.tsv`); after three
+failures it goes to a poison list and is not picked up again. `exit 3` (the
+Facebook session expired) stops the whole run rather than spinning through
+useless attempts.
 
-Таймауты подняты через новые переменные окружения —
+Timeouts were raised through the new environment variables —
 `FB_RENT_PAGE_LOAD_TIMEOUT_MS=90000`, `FB_RENT_CONTENT_TIMEOUT_MS=45000`
-(`scraper_detail.py`, дефолты 30 000 / 15 000 не тронуты). До этого один
-медленный `goto` выбрасывал исключение из `scrape_detail` и убивал весь
-процесс: ловился только `LoginRequiredError`.
+(`scraper_detail.py`; the 30 000 / 15 000 defaults are untouched). Before that,
+a single slow `goto` threw out of `scrape_detail` and killed the whole process:
+only `LoginRequiredError` was being caught.
 
-**Итог: 592 из 592 за 82 минуты, 0 сдавшихся, ни одной перезагрузки браузера.**
-Темп — 7.2 детальных страницы в минуту, то есть ночной прогон идёт ровно с той
-же скоростью, что дневной, и весь выигрыш даёт не скорость, а то, что его
-некому прервать. `No raw data` в `ai-status` стал 0.
+**Result: 592 of 592 in 82 minutes, 0 given up, not one browser restart.** The
+rate was 7.2 detail pages per minute — an overnight run goes at exactly the
+speed of a daytime one, and the whole gain comes from nobody being there to
+interrupt it. `No raw data` in `ai-status` dropped to 0.
 
-Текстовый проход следом: **779 проанализировано, pending 0, stale 0**;
-309 активных, 470 отклонено (215 — меньше 35 м², 191 — животные запрещены,
-25 — студия, 6 — Patong).
+The text pass followed: **779 analysed, pending 0, stale 0**; 309 active, 470
+rejected (215 under 35 m², 191 pets forbidden, 25 studios, 6 Patong).
 
-### Сайдбар вместо описания: 19 строк, re-scrape не лечит
+#### The sidebar instead of the description: 19 rows, a re-scrape does not fix it
 
-`data/catchup/rescrape_noise.sh` перечитал 22 строки, где в `description`
-лежал блок «Выбор дня». Успехом считалось **изменение** описания, а не его
-наличие, — иначе скрипт радостно засчитал бы тот же самый сайдбар.
+`data/catchup/rescrape_noise.sh` re-read the 22 rows whose `description` held
+the "Выбор дня" block. Success was defined as the description **changing**, not
+merely existing — otherwise the script would have happily counted the very same
+sidebar.
 
-Девять починились, тринадцать — нет, и вот почему: это товары из **общей
-категории** Marketplace, а не из категории недвижимости. На их детальной
-странице нет ни блока «Информация о недвижимости», ни заголовка «Описание» —
-текст объявления начинается сразу после «Подробнее». `_extract_description`
-такого якоря не знает, уходит в фолбэк «самый длинный текстовый блок» и
-приносит сайдбар. Повторный скрейп тут бессилен по построению: страница
-каждый раз одна и та же.
+Nine were fixed, thirteen were not, and here is why: those are items in the
+**general** Marketplace category, not the property one. Their detail page has
+neither an "Информация о недвижимости" block nor an "Описание" heading — the ad
+text starts right after "Подробнее". `_extract_description` does not know that
+anchor, falls back to "the longest text block" and brings back the sidebar. A
+repeated scrape is powerless here by construction: the page is the same every
+time.
 
-Само объявление при этом на странице есть и лежит в `raw_json.text_lines`,
-поэтому все 19 разобраны по `text_lines` и имеют настоящие поля и вердикты.
-Чинить стоит извлечение (добавить «Подробнее»/«See details» в набор якорей
-`description_from_text_lines`), а не данные.
+The ad itself is on the page and sits in `raw_json.text_lines`, so all 19 were
+analysed from `text_lines` and carry real fields and verdicts. What should be
+fixed is the extraction — adding "Подробнее" / "See details" to the anchor set
+in `description_from_text_lines` — not the data.

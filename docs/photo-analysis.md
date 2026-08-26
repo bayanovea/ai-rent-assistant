@@ -1,174 +1,167 @@
-# Анализ фотографий — состояние дел
+# The photo pass — how it works and what we learned
 
-Читай это первым, когда возвращаешься к теме фото. Здесь то, что нельзя
-восстановить по коду: замеры на живых данных, принятые решения с
-обоснованиями и незакрытые пробелы.
+Read this first when you come back to photos. It carries what the code cannot:
+measurements on live data, the decisions worth not undoing, and the open gaps.
 
-Где остальное:
+Where the rest is:
 
-- `CLAUDE.md` — технические ловушки (как достаётся галерея, почему
-  `context.request` работает с подписанными ссылками, чем опасна перезапись
-  каталога фото);
-- `docs/plans/completed/20260825-photo-analysis.md` — план реализации;
-- `README.md` → «Photo analysis» — как этим пользоваться;
-- `.claude/skills/photo-analyze/SKILL.md` — процедура прохода.
+- [pipeline.md](pipeline.md) — where this pass sits in the flow;
+- [cli.md](cli.md) — `photos-fetch`, `photo-batch`, `photo-apply`, `photo-hash`;
+- [dedupe.md](dedupe.md) — photo hashes as a duplicate signal;
+- `CLAUDE.md` — the technical traps (how the gallery is obtained, why
+  `context.request` works on signed URLs, what overwriting a photo directory
+  destroys);
+- `.claude/skills/photo-analyze/SKILL.md` — the procedure itself;
+- `docs/plans/completed/20260825-photo-analysis.md` — the implementation plan.
 
-Последняя проверка на живых данных: **25 августа 2026**, коммит `204f6cd`.
+Last checked against live data: **25 August 2026**, commit `204f6cd`.
 
-## Статус
+## What the pass is for
 
-Цикл работает целиком и проверен на реальных объявлениях: скачивание
-галереи → батч → веер сабагентов → запись → экспорт. 392 теста проходят.
-Повторный `photo-batch` сразу после `photo-apply` даёт пустую очередь —
-идемпотентность подтверждена на живых данных, не только в тестах.
+The text pass believes the ad. The photo pass checks it: "fully furnished" is
+in every listing, and only the picture says what that means. Its main product
+is therefore not new facts but **disagreements with the text** — a `condition`
+that was `unclear` in prose and is visibly worn in the photo, a `kitchen`
+promised as full and shown as a kitchenette, a gallery that turns out to be a
+3D render rather than the flat (`photo_quality: render`).
 
-## Порядок работы — не автоматический
+`photo_quality` is the signal the text cannot have at all: `real`, `render`,
+`floorplan`, `other_unit`, `unclear`. Under `render` the subagent fills nothing
+else — a render shows the developer's intent, not the flat.
 
-**Проход запускается только по явной просьбе пользователя, после того как
-он сам просмотрел таблицу и отклонил лишнее.** Это не предпочтение в
-интерфейсе, а то, на чём держится экономика: очередь фото уважает
-`decisions.json`, и каждый ручной реджект до прохода — сэкономленные
-токены.
+The reader is a **Sonnet subagent, one per listing**: the images never enter the
+orchestrator's context, and about 12 subagents run at once, so 50 listings
+finish in minutes. Sonnet is enough because the questions are concrete and
+visual ("is there a sofa", "is this a render") rather than judgement calls —
+the judgement stays in `rules.py`.
 
-Вердикт пользователя перебивает `rules.py` в обе стороны, как в
-`fetch_enriched`: отклонённое руками не попадает в батч даже когда правила
-объявление пропускают, оставленное руками попадает даже когда правила его
-роняют.
+## The status
 
-Ни `/analyze`, ни `ai-status` фото-проход не предлагают. Агенту не следует
-запускать его самому «раз очередь непуста».
+The loop works end to end and has been verified on real listings: gallery
+download → batch → subagent fan-out → write → export. Running `photo-batch`
+straight after `photo-apply` yields an empty queue — idempotency confirmed on
+live data, not only in tests.
+
+## The order of work is not automatic
+
+**The pass runs only when you ask for it, after you have looked through the
+table and rejected what is obviously wrong.** This is not an interface
+preference; it is what the economics rest on. The photo queue respects
+`decisions.json`, so every manual rejection made before the pass is tokens not
+spent.
+
+Your verdict outranks `rules.py` in both directions, exactly as in
+`fetch_enriched`: what you rejected never reaches the batch even when the rules
+would keep it, and what you kept does reach it even when the rules would drop
+it.
+
+Neither `/analyze` nor `ai-status` offers the photo pass. An agent should not
+start one on its own just because the queue is not empty.
 
 ```sh
-fb-rent scrape                  # галерея скачивается здесь, целиком
-fb-rent ai-status               # блок «Фото»: сколько проанализировано / в очереди / без фото
-   ... /analyze, затем пользователь смотрит таблицу и режет лишнее
+fb-rent scrape                  # the gallery is downloaded here, whole
+fb-rent ai-status               # the "Фото" block: analysed / pending / no photos
+   # /analyze, then you read the table and cut what is wrong
+fb-rent photos-fetch            # galleries for the survivors
 fb-rent photo-batch --limit 25  # -> ../data/ai/photo-batch-<ts>.json
-   ... /photo-analyze: веер сабагентов, результат в photo-result-<ts>.json
-fb-rent photo-apply <result>    # слияние полей, пересчёт decide и score
+   # /photo-analyze: subagent fan-out, result in photo-result-<ts>.json
+fb-rent photo-apply <result>    # merge fields, recompute decide and score
 fb-rent export
 ```
 
-## Измерено на живых данных
+## Measured on live data
 
-Не оценки, а замеры прогона 25 августа на 5 объявлениях:
+Not estimates — measurements from the 25 August run over 5 listings:
 
-| Что | Замер |
+| What | Measurement |
 |---|---|
-| Скрейп с галереей | **9.4 с** на объявление (джиттер 3–7 с + страница + картинки) |
-| Размер снимка | FB отдаёт **960 px** по длинной стороне, ~90 KB после ресайза |
-| Токенов на снимок | **~920** (потолок 1024 px не достигается, ресайз только уменьшает) |
-| Сабагент на объявление | **~31k токенов**, из них картинки только ~4.6k |
-| Пять сабагентов параллельно | **62 с** общего времени |
-| Найдено расхождений | 16 на 4 объявлениях |
+| Scrape with gallery | **9.4 s** per listing (3–7 s jitter + page + pictures) |
+| Shot size | Facebook serves **960 px** on the long edge, ~90 KB after resize |
+| Tokens per shot | **~920** (the 1024 px cap is never reached; resize only shrinks) |
+| Subagent per listing | **~31k tokens**, of which images are only ~4.6k |
+| Five subagents in parallel | **62 s** wall clock |
+| Discrepancies found | 16 across 4 listings |
 
-Главный вывод из замеров: **три четверти расхода — не картинки, а
-системный промпт `general-purpose`**, который платится заново на каждом
-сабагенте. Если расход когда-нибудь станет проблемой, чинить надо это, а не
-разрешение и не количество снимков.
+The main conclusion from those numbers: **three quarters of the cost is not the
+pictures but the `general-purpose` system prompt**, paid again for every
+subagent. If the cost ever becomes a problem, that is what to fix — not the
+resolution and not the number of shots.
 
-Что фото дали на этих пяти: `condition` заполнился у всех четырёх, где текст
-молчал; `furnished: full` из текста оказался `partial` (одна спальня пустая);
-`kitchen: full` дважды оказался `unclear` — кухню просто не сняли. Два
-объявления получили `photo_quality: other_unit`: вместо квартиры рекламный
-коллаж проекта The Origin Phuket-Patong.
+What the photos gave on those five: `condition` was filled for all four
+listings where the text was silent; a `furnished: full` from the text turned
+out to be `partial` (one bedroom empty); `kitchen: full` twice turned out to be
+`unclear` — the kitchen simply had not been photographed. Two listings got
+`photo_quality: other_unit`: instead of the flat, a marketing collage of The
+Origin Phuket-Patong.
 
-## Решения, которые не надо отменять
+## Decisions not to undo
 
-**Вся галерея, без выборки.** `PHOTO_MAX_COUNT = None`. Скачивание стоит
-мегабайты, пропущенная комната — нет, а платить за картинки приходится
-только по отобранным вручную объявлениям. Целое число в константе включает
-прежнюю выборку (обложка плюс равномерный шаг), если понадобится
-нормирование.
+**The whole gallery, no sampling.** `PHOTO_MAX_COUNT = None`. Downloading costs
+megabytes, a missed room does not, and the pictures are only paid for on
+hand-picked listings anyway. Setting the constant to an integer brings back the
+old sampling (cover plus an even spread) if rationing is ever needed.
 
-**Один сабагент на объявление, не пачка.** Дороже по накладным расходам, но
-исключает путаницу между объектами — сабагент физически не может приписать
-кадр одной квартиры другой. При небольшом отобранном наборе экономия от
-укрупнения не стоит этого риска.
+**One subagent per listing, not a batch of listings.** More overhead, but it
+rules out cross-listing confusion — a subagent physically cannot attribute one
+flat's frame to another. On a small hand-picked set, the saving from batching
+is not worth that risk.
 
-**`photo_quality: real` стоит ноль, а не бонус.** У большинства строк
-фото-прохода ещё не было. Бонус за подлинность опустил бы их в рейтинге ниже
-проанализированных без всякой причины, относящейся к самой квартире.
-Штрафуется только дефект: `render` и `other_unit` −8, `floorplan` −6.
+**`photo_quality: real` is worth zero, not a bonus.** Most rows have had no
+photo pass yet. A bonus for authenticity would rank them below the analysed
+ones for a reason that has nothing to do with the flat. Only the defect is
+penalised: `render` and `other_unit` −8, `floorplan` −6.
 
-**`photo-apply` обязан переписывать `score`.** `decide` пересчитывается при
-каждом чтении (`storage.py`, `fetch_enriched`), а `score` — только при
-apply. Асимметрия существующая, не привнесённая фото-проходом, но забыть про
-неё значит оставить фотопризнаки вне сортировки.
+**`photo-apply` must rewrite `score`.** `decide` is recomputed on every read
+(`storage.py`, `fetch_enriched`); `score` is only recomputed on apply. The
+asymmetry predates the photo pass, but forgetting it would leave the photo
+signals out of the sorting.
 
-**Формат `ev` для фотополей — `"фото N: что видно"`.** Дословной цитаты у
-картинки нет, но проверяемость сохраняется: пользователь открывает N-й файл
-и смотрит сам. Рендеринг тултипа не менялся.
+**The `ev` format for photo fields is `"фото N: what is visible"`.** A picture
+has no verbatim quote, but verifiability survives: you open the Nth file and
+look. The tooltip rendering did not change.
 
-## Незакрытые пробелы
+## Open gaps
 
-По убыванию важности.
+In descending order of importance.
 
-**1. Нет адресного добора фотографий (`scrape --ids`).** `--refresh`
-переоткрывает только то, что вернулось из выдачи ленты. 29 объявлений из
-базы выпали за 7-дневное окно и за границу в 60 карточек — фотографий они не
-получат никогда. План исходил из того, что «`--refresh` доснимет уже
-имеющиеся»; на практике это верно лишь для свежей части базы.
+**1. No targeted photo catch-up.** `--refresh` only re-opens what came back
+from the feed. 29 rows had already fallen out of the 7-day window and past the
+60-card limit — they will never get pictures that way. The plan assumed
+"`--refresh` will fill in what we already have"; in practice that holds only
+for the fresh part of the database. `scrape --ids` is the path, with the caveat
+in [dedupe.md](dedupe.md#the-trap-a-dead-pages-gallery-belongs-to-someone-else)
+about dead pages.
 
-**2. Накладные расходы сабагента.** ~26k из 31k на объявление — системный
-промпт `general-purpose`. Лечится либо своим типом сабагента с минимальным
-промптом, либо укрупнением (5 объявлений на одного): расход упал бы примерно
-втрое. Против укрупнения — риск путаницы между объектами, см. выше.
+**2. Subagent overhead.** ~26k of the 31k per listing is the `general-purpose`
+system prompt. Curable either with a dedicated subagent type carrying a minimal
+prompt, or by batching (5 listings per agent), which would cut the cost roughly
+threefold. Against batching: the cross-listing confusion risk above.
 
-**3. Счётчик `Stale` в `ai-status` врёт.** `storage.py`, `fetch_pending`
-сравнивает с `registry.schema_version` целиком, не глядя на `source` поля.
-Добавили фото-поле — «устарели» все текстовые строки, и команда советует
-бэкфилл, который делать незачем. Лишней работы не происходит
-(`analysis_version` проставлен явно, строки уходят в `stale`, а не в
-`pending`), врёт только число.
+**3. The `Stale` counter in `ai-status` lies.** `storage.py`, `fetch_pending`
+compares against the whole `registry.schema_version` without looking at a
+field's `source`. Add a photo field and every text row becomes "stale", and the
+command advises a backfill that need not happen. No extra work actually occurs
+(`analysis_version` is set explicitly, so the rows go to `stale`, not
+`pending`) — only the number is wrong.
 
-**4. У 50 каталогов лежит по 6 снимков.** Они скачаны при старом лимите, а
-`_download_photos` пропускает непустые каталоги. Полную галерею по
-конкретному объявлению можно получить так — но только пока оно держится в
-ленте:
+**4. Fifty directories hold six shots each.** They were downloaded under the
+old limit, and `_download_photos` skips non-empty directories. The full gallery
+for a given listing can be had like this — but only while it is still in the
+feed:
 
 ```sh
 rm -rf ../data/photos/<fb_id>
 fb-rent scrape --refresh
 ```
 
-## Фото как признак дубликата — реализовано
+## On plan limits
 
-Началось с побочной находки: у двух объявлений с разными `fb_id` наборы
-фотографий совпали побайтово (все четыре MD5). Это одна квартира,
-разошедшаяся по тексту или цене настолько, что текстовый `content_key` её не
-поймал. Хеш снимка оказался более сильным сигналом дублирования, чем текст, —
-и он не требует ни совпадения текста, ни готового AI-анализа, то есть режет
-строки **до** прохода по описаниям.
+Anthropic does not publish Max capacity in tokens: the limit is stated relative
+to Pro ("5x or 20x per 5-hour window") and depends on the model and the effort
+level. There is nothing to match a token count against directly.
 
-Сделано по плану `docs/plans/completed/20260826-photo-hash-dedupe.md`:
-
-- `fingerprint.py` считает по два хэша с первых трёх снимков галереи — MD5
-  исходных байтов с CDN (буквальный репост) и перцептивный dHash (перезалив
-  через чужой телефон или ресайз). Байты не сохраняются: превью в
-  `data/photos/<fb_id>/` навсегда убедило бы фото-проход, что галерея скачана;
-- `scrape` хэширует каждое новое объявление сразу после детальной страницы,
-  в том числе под `--no-photos`; старые строки добираются командой
-  `fb-rent photo-hash`, очередь видна в `ai-status`;
-- `dedupe` склеивает пару, у которой совпали два снимка из трёх (сигнал
-  `photos`, работает и при `--exact-only`). Хэш, встретившийся более чем у
-  `PHOTO_HASH_COMMON_MAX` объявлений, — это бассейн, вид комплекса или логотип
-  агентства, и он выкидывается из индекса. Вето `_contradicts` по этажу,
-  корпусу и площади остаётся сильнее совпавших фото.
-
-Пороги (`PHOTO_FINGERPRINT_COUNT`, `PHOTO_MATCH_MIN`, `PHOTO_HASH_COMMON_MAX`
-в `config.py`) выставлены из общих соображений и ждут проверки на живой БД:
-прогнать `photo-hash --all`, посмотреть глазами первые группы с причиной
-`photos`. Отрицательный результат — фото-сигнал не находит ничего сверх
-текстового — тоже стоит записать сюда.
-
-## Про лимиты тарифа
-
-Anthropic не публикует ёмкость Max в токенах: лимит задан относительно Pro
-(«5x или 20x за 5-часовое окно») и зависит от модели и уровня effort.
-Сматчить расход в токенах напрямую не с чем.
-
-Мерить надо эмпирически: посмотреть `/usage`, прогнать один батч на пяти
-объявлениях, посмотреть снова. Дельта × N и есть цена прогона в процентах
-лимита. По прикидке вечерний прогон обоих проходов на 50 объявлениях — около
-2M токенов, что для Max 20x малая доля окна, а для Max 5x заметная часть
-одного окна.
+Measure it empirically: look at `/usage`, run one batch of five listings, look
+again. The delta × N is the price of a run as a share of the window. As a rough
+estimate an evening run of both passes over 50 listings is about 2M tokens —
+a small share of the window for Max 20x, a noticeable part of one window for
+Max 5x.
