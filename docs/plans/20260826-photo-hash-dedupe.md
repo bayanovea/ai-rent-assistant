@@ -247,18 +247,18 @@ PHOTO_HASH_COMMON_MAX: int = 4     # хэш чаще этого — застав
 - Modify: `src/fb_rent/cli.py`
 - Modify: `tests/test_cli.py`
 
-- [ ] добавить `_fetch_photo_hashes(context, detail)` рядом с
+- [x] добавить `_fetch_photo_hashes(context, detail)` рядом с
       `_download_photos` — тонкая обёртка над `fingerprint.fetch_fingerprints`
       с `gallery_urls` из `detail["raw_json"]`
-- [ ] вызвать её сразу после успешного `scrape_detail`, **до** ветки
+- [x] вызвать её сразу после успешного `scrape_detail`, **до** ветки
       `--no-photos` (три снимка — не галерея), пропуская `--dry-run`
-- [ ] писать хэши через `save_photo_hashes` после успешного
+- [x] писать хэши через `save_photo_hashes` после успешного
       `upsert_listing`, кроме результата `duplicate`
-- [ ] добавить в итоговую строку прогона счётчик `photo hashes: N`
-- [ ] написать тест: прогон с `--no-photos` всё равно пишет хэши
-- [ ] написать тест: `--dry-run` не ходит за снимками и не пишет в БД
-- [ ] написать тест: объявление без `gallery_urls` проходит без ошибки
-- [ ] прогнать `pytest` — зелёно перед задачей 5
+- [x] добавить в итоговую строку прогона счётчик `photo hashes: N`
+- [x] написать тест: прогон с `--no-photos` всё равно пишет хэши
+- [x] написать тест: `--dry-run` не ходит за снимками и не пишет в БД
+- [x] написать тест: объявление без `gallery_urls` проходит без ошибки
+- [x] прогнать `pytest` — зелёно перед задачей 5
 
 ### Task 5: Команда `fb-rent photo-hash` (бэкфилл)
 

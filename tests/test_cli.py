@@ -337,6 +337,67 @@ def test_scrape_without_gallery_urls_creates_no_directories(home, monkeypatch):
     assert not (home / "photos").exists()
 
 
+def _stored_hashes() -> list[tuple]:
+    conn = storage.init_db(config.DB_PATH)
+    try:
+        return [
+            tuple(row)
+            for row in conn.execute(
+                "SELECT fb_id, position, md5, dhash FROM photo_hashes ORDER BY position"
+            )
+        ]
+    finally:
+        conn.close()
+
+
+def test_scrape_hashes_photos_even_with_no_photos(home, monkeypatch):
+    _stub_scrape(
+        monkeypatch,
+        [f"https://scontent.xx.fbcdn.net/v/t39.30808-6/{n}.jpg" for n in range(1, 5)],
+    )
+
+    result = _run("scrape", "--max", "1", "--no-photos")
+
+    assert result.exit_code == 0, result.output
+    assert not (home / "photos").exists()
+    rows = _stored_hashes()
+    # The first three shots only, and none of them written to disk.
+    assert [(fb_id, pos) for fb_id, pos, _md5, _dh in rows] == [
+        ("900", 1),
+        ("900", 2),
+        ("900", 3),
+    ]
+    assert "photo hashes: 1" in result.output
+
+
+def test_scrape_dry_run_neither_fetches_nor_writes_hashes(home, monkeypatch):
+    _stub_scrape(
+        monkeypatch, ["https://scontent.xx.fbcdn.net/v/t39.30808-6/1.jpg"]
+    )
+    calls: list = []
+    monkeypatch.setattr(
+        cli.fingerprint,
+        "fetch_fingerprints",
+        lambda ctx, urls, limit=None: calls.append(urls) or [],
+    )
+
+    result = _run("scrape", "--max", "1", "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert calls == []
+    assert _stored_hashes() == []
+
+
+def test_scrape_without_gallery_urls_stores_no_hashes(home, monkeypatch):
+    _stub_scrape(monkeypatch, [])
+
+    result = _run("scrape", "--max", "1", "--no-photos")
+
+    assert result.exit_code == 0, result.output
+    assert _stored_hashes() == []
+    assert "photo hashes: 0" in result.output
+
+
 # --- scrape: detail budget and partial writes ---------------------------
 
 

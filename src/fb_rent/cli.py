@@ -35,7 +35,7 @@ from typing import Any
 
 import click
 
-from . import ai_batch, ai_schema, config, decisions, photo_batch, photos
+from . import ai_batch, ai_schema, config, decisions, fingerprint, photo_batch, photos
 from .browser import (
     LoginRequiredError,
     is_logged_in,
@@ -62,6 +62,7 @@ from .storage import (
     init_db,
     known_fb_ids,
     marketplace_url,
+    save_photo_hashes,
     upsert_listing,
 )
 from .url_builder import build_marketplace_url, price_bands
@@ -202,6 +203,20 @@ def _download_photos(context: Any, detail: dict[str, Any], fb_id: str) -> None:
     if photos.photos_hash(fb_id) is not None:
         return
     photos.download_and_resize(context, urls, str(fb_id))
+
+
+def _fetch_photo_hashes(context: Any, detail: dict[str, Any]) -> list[tuple[int, str, str]]:
+    """Hash the first few gallery shots of a freshly read detail page.
+
+    Three shots, not the gallery: this is the duplicate signal, and it runs
+    even when the photo pass is switched off with ``--no-photos``. Nothing
+    lands in ``data/photos/`` — a preview written there would tell the photo
+    pass forever that the gallery is already downloaded.
+    """
+    urls = gallery_urls_of(detail.get("raw_json"))
+    if not urls:
+        return []
+    return fingerprint.fetch_fingerprints(context, urls)
 
 
 @main.command("scrape")
@@ -392,6 +407,7 @@ def scrape_cmd(
             inserted = 0
             updated = 0
             duplicates = 0
+            photo_hashed = 0
             with click.progressbar(
                 length=len(cards),
                 label="Scraping listings",
@@ -415,6 +431,9 @@ def scrape_cmd(
                         continue
 
                     detail: dict[str, Any] | None = None
+                    # None means "not asked", which is not the same as "asked
+                    # and got nothing": only the second one may erase hashes.
+                    hash_entries: list[tuple[int, str, str]] | None = None
                     already_known = card["fb_id"] in seen_ids
                     if already_known:
                         skipped_known += 1
@@ -442,10 +461,12 @@ def scrape_cmd(
                                 f"  [{idx + 1}/{len(cards)}] detail unavailable, "
                                 f"keeping list-card data: {card['url']}"
                             )
-                        elif not no_photos and not dry_run:
+                        elif not dry_run:
                             # Inside the jitter we already paid for — the
                             # CDN fetches add ~1–2 s and no extra pause.
-                            _download_photos(context, detail, card["fb_id"])
+                            hash_entries = _fetch_photo_hashes(context, detail)
+                            if not no_photos:
+                                _download_photos(context, detail, card["fb_id"])
                     item = _enrich(_merge_listing(card, detail))
                     if not item.get("title"):
                         # Only reachable through --ids: the page is gone, or
@@ -471,6 +492,10 @@ def scrape_cmd(
                             duplicates += 1
                         else:
                             updated += 1
+                        if hash_entries is not None and result != "duplicate":
+                            save_photo_hashes(conn, item["fb_id"], hash_entries)
+                            if hash_entries:
+                                photo_hashed += 1
                     bar.update(1, card)
 
             if skipped_known:
@@ -506,7 +531,8 @@ def scrape_cmd(
             click.echo(
                 f"Done. inserted: {inserted}, updated: {updated}, "
                 f"duplicates: {duplicates + skipped_dupes}, "
-                f"skipped_known: {skipped_known}, csv: {csv_path}, html: {html_path}"
+                f"skipped_known: {skipped_known}, photo hashes: {photo_hashed}, "
+                f"csv: {csv_path}, html: {html_path}"
             )
         finally:
             try:
