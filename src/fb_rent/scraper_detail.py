@@ -20,6 +20,7 @@ guesses. Real-world tuning is the MANUAL step in the plan.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -34,8 +35,26 @@ if TYPE_CHECKING:
     from playwright.sync_api import BrowserContext, Page
 
 
-PAGE_LOAD_TIMEOUT_MS: int = 30_000
-CONTENT_TIMEOUT_MS: int = 15_000
+def _timeout_ms(name: str, default: int) -> int:
+    """Read a page timeout from the environment, falling back to *default*.
+
+    An unattended catch-up run walks hundreds of detail pages in a row, and a
+    single slow load raises out of :func:`scrape_detail` and kills the whole
+    process. Patience is cheap there and expensive during an interactive
+    sweep, so the ceiling is a knob rather than a new default.
+    """
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+PAGE_LOAD_TIMEOUT_MS: int = _timeout_ms("FB_RENT_PAGE_LOAD_TIMEOUT_MS", 30_000)
+CONTENT_TIMEOUT_MS: int = _timeout_ms("FB_RENT_CONTENT_TIMEOUT_MS", 15_000)
 SEE_MORE_TIMEOUT_MS: int = 2_000
 
 # Text FB shows when a listing has been removed or is not visible to the
