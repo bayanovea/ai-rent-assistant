@@ -1559,3 +1559,111 @@ def test_listings_missing_photo_hashes_returns_oldest_first(conn):
     missing = storage.listings_missing_photo_hashes(conn)
 
     assert [row["fb_id"] for row in missing] == ["old", "new"]
+
+
+def _shots(*specs: tuple[str, str]) -> list[tuple[int, str, str]]:
+    """``(md5, dhash)`` pairs numbered by their position in the gallery."""
+    return [(index, md5, dh) for index, (md5, dh) in enumerate(specs)]
+
+
+def _photographed(conn, fb_id: str, body: str, shots, price: int = 16000):
+    """A listing whose first three shots hashed to ``shots``."""
+    storage.upsert_listing(conn, _with_body(fb_id, body, price=price))
+    storage.save_photo_hashes(conn, fb_id, shots)
+
+
+def test_two_ads_sharing_two_shots_collapse(conn):
+    # Different text, different price band, no AI analysis at all — the
+    # pictures are the only thing these two have in common.
+    _photographed(conn, "agent-a", _AD, _shots(
+        ("m1", "d1"), ("m2", "d2"), ("m3", "d3"),
+    ))
+    _photographed(conn, "agent-b", _AD_B, _shots(
+        ("m1", "d1"), ("m2", "d2"), ("m9", "d9"),
+    ), price=19000)
+
+    collapsed = storage.dedupe_listings(conn, dry_run=True)
+    assert len(collapsed) == 1
+    assert collapsed[0]["reason"] == "photos"
+
+
+def test_one_shared_shot_is_not_enough(conn):
+    # A single common picture is the pool, the lobby or the agency logo.
+    _photographed(conn, "flat-a", _AD, _shots(
+        ("pool", "poold"), ("m2", "d2"), ("m3", "d3"),
+    ))
+    _photographed(conn, "flat-b", _AD_B, _shots(
+        ("pool", "poold"), ("m8", "d8"), ("m9", "d9"),
+    ), price=19000)
+
+    assert storage.dedupe_listings(conn, dry_run=True) == []
+
+
+def test_a_recompressed_repost_matches_on_dhash(conn):
+    # The pictures went through another phone: every byte differs, the
+    # perceptual hash does not.
+    _photographed(conn, "orig", _AD, _shots(
+        ("m1", "d1"), ("m2", "d2"), ("m3", "d3"),
+    ))
+    _photographed(conn, "resaved", _AD_B, _shots(
+        ("x1", "d1"), ("x2", "d2"), ("x3", "dz"),
+    ), price=19000)
+
+    collapsed = storage.dedupe_listings(conn, dry_run=True)
+    assert len(collapsed) == 1
+    assert collapsed[0]["reason"] == "photos"
+
+
+def test_a_hash_on_every_listing_glues_nothing(conn):
+    # Five ads carrying the same two pictures: that is a splash screen, not
+    # one flat listed five times.
+    shots = _shots(("splash", "splashd"), ("logo", "logod"))
+    for index in range(5):
+        _photographed(conn, f"ad-{index}", f"{_AD} offer number {index}",
+                      shots, price=16000 + index * 1000)
+
+    # ``fuzzy=False`` so nothing but the photo signal can speak here: the
+    # five bodies are variations of one text and would match on that.
+    assert storage.dedupe_listings(conn, dry_run=True, fuzzy=False) == []
+
+
+def test_matching_photos_lose_to_a_different_floor(conn):
+    # Agencies reuse one photo set across identical units in a stack; the
+    # named floor is what tells them apart.
+    _photographed(conn, "floor-2", _AD + " Building B, 2nd Floor", _shots(
+        ("m1", "d1"), ("m2", "d2"), ("m3", "d3"),
+    ))
+    _photographed(conn, "floor-1", _AD_B + " Building B, 1st Floor", _shots(
+        ("m1", "d1"), ("m2", "d2"), ("m9", "d9"),
+    ), price=19000)
+
+    assert storage.dedupe_listings(conn, dry_run=True) == []
+
+
+def test_the_photo_signal_survives_exact_only(conn):
+    # It reads no AI field, so it is not a near-duplicate rule.
+    _photographed(conn, "agent-a", _AD, _shots(
+        ("m1", "d1"), ("m2", "d2"), ("m3", "d3"),
+    ))
+    _photographed(conn, "agent-b", _AD_B, _shots(
+        ("m1", "d1"), ("m2", "d2"), ("m9", "d9"),
+    ), price=19000)
+
+    collapsed = storage.dedupe_listings(conn, dry_run=True, fuzzy=False)
+    assert len(collapsed) == 1
+    assert collapsed[0]["reason"] == "photos"
+
+
+def test_dedupe_forgets_the_hashes_of_the_collapsed_copy(conn):
+    _photographed(conn, "keeper", _AD, _shots(
+        ("m1", "d1"), ("m2", "d2"), ("m3", "d3"),
+    ))
+    _photographed(conn, "merged", _AD_B, _shots(
+        ("m1", "d1"), ("m2", "d2"), ("m9", "d9"),
+    ), price=19000)
+
+    collapsed = storage.dedupe_listings(conn)
+    gone = collapsed[0]["removed"][0]
+
+    assert gone not in storage.photo_hashes_by_listing(conn)
+    assert collapsed[0]["canonical"] in storage.photo_hashes_by_listing(conn)

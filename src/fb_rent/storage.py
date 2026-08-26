@@ -25,7 +25,7 @@ from pathlib import Path
 from collections.abc import Iterable
 from typing import Any, NamedTuple
 
-from . import ai_schema, extractors, photos, rules
+from . import ai_schema, config, extractors, photos, rules
 
 
 CSV_COLUMNS: tuple[str, ...] = (
@@ -547,6 +547,75 @@ def same_property(a: dict[str, Any], b: dict[str, Any]) -> str | None:
     return None
 
 
+class PhotoMatches(NamedTuple):
+    """Pairs that share enough photos, plus how many hashes were too common."""
+
+    pairs: list[tuple[str, str]]
+    common_hashes: int
+
+
+def _photo_matches(
+    hashes_by_id: dict[str, list[dict[str, Any]]],
+) -> PhotoMatches:
+    """Pairs of listings whose first shots are the same pictures.
+
+    Both hashes of a shot are exact keys in one inverted index: an ``md5``
+    match means the very same file was reposted, a ``dhash`` match means the
+    picture survived a resize or a recompression on the way. No Hamming
+    distance — a distance threshold needs tuning and glues together the
+    empty white interiors that all look alike.
+
+    A hash carried by more than ``PHOTO_HASH_COMMON_MAX`` listings leaves
+    the index first: that is the agency splash screen or the shared view of
+    the complex, not the flat. What remains yields the candidate pairs, so
+    nothing is compared against everything; each pair is then counted
+    greedily, one shot of B per shot of A, and passes at
+    ``PHOTO_MATCH_MIN`` matched shots.
+    """
+    index: dict[tuple[str, str], set[str]] = {}
+    for fb_id, shots in hashes_by_id.items():
+        for shot in shots:
+            for kind, value in (("m", shot["md5"]), ("d", shot["dhash"])):
+                if value:
+                    index.setdefault((kind, str(value)), set()).add(fb_id)
+
+    common = {
+        key
+        for key, owners in index.items()
+        if len(owners) > config.PHOTO_HASH_COMMON_MAX
+    }
+    candidates: set[tuple[str, str]] = set()
+    for key, owners in index.items():
+        if key in common or len(owners) < 2:
+            continue
+        ordered = sorted(owners)
+        for i, left in enumerate(ordered):
+            for right in ordered[i + 1:]:
+                candidates.add((left, right))
+
+    def keys_of(shot: dict[str, Any]) -> set[tuple[str, str]]:
+        pairs = {("m", str(shot["md5"])), ("d", str(shot["dhash"]))}
+        return {key for key in pairs if key not in common}
+
+    pairs: list[tuple[str, str]] = []
+    for left, right in sorted(candidates):
+        right_keys = [keys_of(shot) for shot in hashes_by_id[right]]
+        taken = [False] * len(right_keys)
+        matched = 0
+        for shot in hashes_by_id[left]:
+            wanted = keys_of(shot)
+            for position, other in enumerate(right_keys):
+                if taken[position] or not (wanted & other):
+                    continue
+                taken[position] = True
+                matched += 1
+                break
+        if matched >= config.PHOTO_MATCH_MIN:
+            pairs.append((left, right))
+
+    return PhotoMatches(pairs, len(common))
+
+
 def _load_for_dedupe(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Every listing with its analysis fields, oldest first."""
     rows = conn.execute(
@@ -557,6 +626,8 @@ def _load_for_dedupe(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         ORDER BY l.first_seen_at, l.fb_id
         """
     ).fetchall()
+
+    hashes = photo_hashes_by_listing(conn)
 
     loaded: list[dict[str, Any]] = []
     for row in rows:
@@ -572,6 +643,7 @@ def _load_for_dedupe(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             if isinstance(parsed, dict):
                 fields = parsed
         item["_signature"] = _listing_signature(item, fields, quality)
+        item["_photo_hashes"] = hashes.get(str(item["fb_id"]), [])
         loaded.append(item)
     return loaded
 
@@ -607,6 +679,21 @@ def _group_duplicates(
             union(by_key[key], item["fb_id"], "exact")
         else:
             by_key[key] = item["fb_id"]
+
+    signatures = {item["fb_id"]: item["_signature"] for item in items}
+    hashes_by_id = {
+        item["fb_id"]: item.get("_photo_hashes") or []
+        for item in items
+        if item.get("_photo_hashes")
+    }
+    # Not behind ``fuzzy``: the photo signal reads no AI field, so it is as
+    # hard a fact as ``content_key`` and belongs with the exact pass.
+    for left_id, right_id in _photo_matches(hashes_by_id).pairs:
+        if find(left_id) == find(right_id):
+            continue
+        if _contradicts(signatures[left_id], signatures[right_id]):
+            continue
+        union(left_id, right_id, "photos")
 
     if fuzzy:
         for index, left in enumerate(items):
@@ -678,6 +765,7 @@ def dedupe_listings(
             fb_id = item["fb_id"]
             _record_duplicate(conn, fb_id, keeper["fb_id"], key, ts, item.get("url"))
             conn.execute("DELETE FROM ai_analysis WHERE fb_id = ?", (fb_id,))
+            delete_photo_hashes(conn, fb_id)
             conn.execute("DELETE FROM listings WHERE fb_id = ?", (fb_id,))
             # The keeper's own photos stay: it is the row that survives.
             photos.purge_photos(fb_id)
