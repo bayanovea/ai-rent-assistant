@@ -61,6 +61,7 @@ from .storage import (
     gallery_urls_of,
     init_db,
     known_fb_ids,
+    listings_missing_photo_hashes,
     marketplace_url,
     save_photo_hashes,
     upsert_listing,
@@ -740,6 +741,10 @@ def ai_status_cmd() -> None:
             registry,
             photo_analysis_version=_photo_analysis_version(_raw_registry()),
         )
+        total_listings = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
+        hashed_listings = conn.execute(
+            "SELECT COUNT(DISTINCT fb_id) FROM photo_hashes"
+        ).fetchone()[0]
     finally:
         conn.close()
 
@@ -782,6 +787,9 @@ def ai_status_cmd() -> None:
         + (f" ({photo_detail})" if photo_detail else "")
     )
     click.echo(f"  No photos: {len(no_photos)}")
+    # The hash backfill has its own queue: it does not care about the photo
+    # pass at all, so it gets its own line rather than a pending_reason.
+    click.echo(f"  Фото-хэши: {hashed_listings} из {total_listings}")
     if no_photos:
         click.echo(
             "  These listings have no photos on disk — "
@@ -1030,6 +1038,130 @@ def photos_fetch_cmd(limit: int, fetch_all: bool, ids: tuple[str, ...]) -> None:
             playwright.stop()
 
     click.echo(f"Fetched galleries for {fetched} listing(s).")
+    if no_urls:
+        click.echo(
+            f"No stored gallery links for {len(no_urls)} listing(s) — their "
+            "detail page was read before photos were collected. Re-read it: "
+            f"fb-rent scrape --ids {' --ids '.join(no_urls[:5])}"
+            + (" ..." if len(no_urls) > 5 else "")
+        )
+    if failed:
+        click.echo(
+            f"Every link expired for {len(failed)} listing(s) — re-read the "
+            f"page: fb-rent scrape --ids {' --ids '.join(failed[:5])}"
+            + (" ..." if len(failed) > 5 else "")
+        )
+
+
+@main.command("photo-hash")
+@click.option(
+    "--limit",
+    default=100,
+    show_default=True,
+    help="Maximum number of listings to hash.",
+)
+@click.option(
+    "--all",
+    "hash_all",
+    is_flag=True,
+    default=False,
+    help="Hash every listing in the queue, ignoring --limit.",
+)
+@click.option(
+    "--ids",
+    "ids",
+    multiple=True,
+    help="Hash these fb_ids instead of the queue (repeatable).",
+)
+def photo_hash_cmd(limit: int, hash_all: bool, ids: tuple[str, ...]) -> None:
+    """Backfill the photo hashes of listings scraped before the hash stage.
+
+    Only the first few shots are fetched, and nothing lands on disk: these
+    hashes are the duplicate signal, not the photo pass. The stored gallery
+    links are signed and expire in about a week, so a row whose every link
+    is gone is past that edge and only its detail page can help
+    (`fb-rent scrape --ids <fb_id>`).
+    """
+    if limit <= 0 and not hash_all:
+        raise click.ClickException("--limit must be a positive number")
+
+    conn = _open_db()
+    try:
+        rows: list[dict[str, Any]] = []
+        if ids:
+            unknown: list[str] = []
+            for fb_id in dict.fromkeys(str(i) for i in ids):
+                row = conn.execute(
+                    "SELECT * FROM listings WHERE fb_id = ?", (fb_id,)
+                ).fetchone()
+                if row is None:
+                    unknown.append(fb_id)
+                else:
+                    rows.append(dict(row))
+            if unknown:
+                click.echo(f"Unknown listing(s): {', '.join(unknown)}")
+        else:
+            rows = listings_missing_photo_hashes(conn)
+            if not hash_all:
+                rows = rows[:limit]
+
+        targets = [
+            (str(row["fb_id"]), gallery_urls_of(row.get("raw_json"))) for row in rows
+        ]
+        if not targets:
+            click.echo("Nothing to hash.")
+            return
+
+        playwright = start_playwright()
+        context = None
+        hashed = 0
+        no_urls: list[str] = []
+        failed: list[str] = []
+        try:
+            try:
+                context = launch_persistent(playwright, headless=True)
+            except Exception as exc:  # noqa: BLE001 — surface a friendly error
+                _echo_err(f"Failed to launch browser: {exc}")
+                sys.exit(2)
+
+            # The CDN links are signed for this account: they resolve through
+            # the logged-in context's request client and nowhere else.
+            if not is_logged_in(context):
+                _echo_err("No active Facebook session. Run `fb-rent login` first.")
+                sys.exit(3)
+
+            with click.progressbar(
+                targets,
+                label="Hashing photos",
+                show_pos=True,
+                item_show_func=lambda t: t[0] if t else "",
+            ) as bar:
+                for fb_id, urls in bar:
+                    if not urls:
+                        no_urls.append(fb_id)
+                        continue
+                    entries = fingerprint.fetch_fingerprints(context, urls)
+                    if entries:
+                        save_photo_hashes(conn, fb_id, entries)
+                        hashed += 1
+                    else:
+                        failed.append(fb_id)
+                    time.sleep(
+                        random.uniform(
+                            config.PHOTO_FETCH_DELAY_MIN_SEC,
+                            config.PHOTO_FETCH_DELAY_MAX_SEC,
+                        )
+                    )
+        finally:
+            try:
+                if context is not None:
+                    context.close()
+            finally:
+                playwright.stop()
+    finally:
+        conn.close()
+
+    click.echo(f"Hashed photos for {hashed} listing(s).")
     if no_urls:
         click.echo(
             f"No stored gallery links for {len(no_urls)} listing(s) — their "

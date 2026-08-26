@@ -1008,3 +1008,69 @@ def test_photo_apply_rejects_a_malformed_file(home, tmp_path):
 
     assert result.exit_code != 0
     assert "not valid JSON" in result.output
+
+
+# --- photo-hash ----------------------------------------------------------
+
+
+def _hashed(fb_id: str, *, gallery: list[str]):
+    """A listing with stored gallery links and no photo hashes yet."""
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(
+        conn,
+        fb_id,
+        raw_json=json.dumps({"text_lines": ["Описание"], "gallery_urls": gallery}),
+    )
+    conn.close()
+
+
+def _hash_rows(fb_id: str) -> list[dict]:
+    conn = storage.init_db(config.DB_PATH)
+    rows = storage.photo_hashes_by_listing(conn).get(fb_id, [])
+    conn.close()
+    return rows
+
+
+def test_photo_hash_skips_listings_that_already_have_hashes(home, monkeypatch):
+    _hashed("1", gallery=["https://scontent.xx.fbcdn.net/v/t39.30808-6/1.jpg"])
+    _hashed("2", gallery=["https://scontent.xx.fbcdn.net/v/t39.30808-6/2.jpg"])
+    conn = storage.init_db(config.DB_PATH)
+    storage.save_photo_hashes(conn, "1", [(0, "md5", "dhash")])
+    conn.close()
+    _stub_cdn(monkeypatch)
+
+    result = _run("photo-hash")
+
+    assert result.exit_code == 0, result.output
+    assert "Hashed photos for 1 listing(s)." in result.output
+    # Untouched: the queue never handed listing 1 over.
+    assert _hash_rows("1") == [{"position": 0, "md5": "md5", "dhash": "dhash"}]
+    assert len(_hash_rows("2")) == 1
+
+
+def test_photo_hash_ids_reach_a_listing_the_queue_does_not_hold(home, monkeypatch):
+    """Already hashed, so out of the queue — but named explicitly."""
+    _hashed("1", gallery=["https://scontent.xx.fbcdn.net/v/t39.30808-6/1.jpg"])
+    conn = storage.init_db(config.DB_PATH)
+    storage.save_photo_hashes(conn, "1", [(0, "stale", "stale")])
+    conn.close()
+    _stub_cdn(monkeypatch)
+
+    result = _run("photo-hash", "--ids", "1")
+
+    assert result.exit_code == 0, result.output
+    rows = _hash_rows("1")
+    assert len(rows) == 1
+    assert rows[0]["md5"] != "stale"
+
+
+def test_photo_hash_reports_listings_without_gallery_links(home, monkeypatch):
+    _hashed("1", gallery=[])
+    _stub_cdn(monkeypatch)
+
+    result = _run("photo-hash")
+
+    assert result.exit_code == 0, result.output
+    assert "No stored gallery links for 1 listing(s)" in result.output
+    assert "fb-rent scrape --ids 1" in result.output
+    assert _hash_rows("1") == []
