@@ -173,3 +173,46 @@ Facebook's own ceiling, and the honest answer is then to split it in two.
 2. Galleries were not downloaded. The signed links live about a week, so
    `photos-fetch` for whatever survives the hand-rejection has to happen
    before ~2 September 2026.
+
+### 2026-08-26, 18:30–20:52 — the top-up of the three capped bands
+
+```sh
+MAXITEMS=400 bash data/sweep/topup.sh   # one band per query, cap doubled
+```
+
+| Band, THB | Cards (cap 400) | New rows | Known among the cards |
+|---|---|---|---|
+| 15000–17499 | 344 | +292 | 35 |
+| 25000–27499 | 268 | +162 | died mid-band, see below |
+| 27500–30000 | 288 | +230 | 13 |
+
+**2062 rows afterwards (+684), still 0 without description.**
+
+#### A band is a sample, not a set — the exhaustion signal is weak
+
+The 15000–17499 band had already given 200 cards that morning, and those rows
+were in the DB. Asked again eight hours later it returned 344 cards of which
+**only 35 were known**. Two queries against the same band, at the same
+`sortBy=creation_time_descend`, overlap by about 15 %.
+
+So `cards < --max` means *this query* ran dry, not that the band holds nothing
+more. Every coverage estimate in this file that rests on the cap-hit signal is
+weaker than it reads — the morning sweep's "~90 % of the window" was, in
+hindsight, nearer 70 %. The only honest measurement is empirical: ask the same
+band again and count what is new. As of this run the well is not dry.
+
+#### The goto timeout that killed a band
+
+`Page.goto: Timeout 90000ms exceeded` threw straight out of `scrape_detail`
+and ended the process with roughly 106 of the band's 268 cards unread. Raising
+the timeouts on 26 August had been only half the fix: the handler still caught
+`LoginRequiredError` alone.
+
+Fixed in `f94bdc8` — a timed-out `goto` now answers `None`, the same as a page
+that never rendered, so the caller keeps the list-card row and the catch-up
+driver repairs it by `--ids`. A login redirect *during* the timeout still
+raises, because an expired session must stop the run rather than quietly write
+hundreds of empty rows. Three regression tests in
+`tests/test_scraper_detail.py`.
+
+The band was re-run afterwards on the fixed code.
