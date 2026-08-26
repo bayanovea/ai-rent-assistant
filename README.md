@@ -10,15 +10,7 @@ mostly rejected.
 Everything runs locally. There is no API key and no service: the AI is Claude
 Code itself, reading files the CLI writes.
 
-```mermaid
-flowchart LR
-    fb(["Facebook<br/>Marketplace"]) --> s["fb-rent scrape<br/>+ dedupe"]
-    s --> a["/analyze<br/>Claude reads the text"]
-    a --> t["rentals.html<br/>you read the table<br/>and cut the obvious"]
-    t --> p["/photo-analyze<br/>subagents read the photos"]
-    p --> t
-    t --> out(["shortlist →<br/>write to the agent"])
-```
+![From a Facebook card to a phone call](docs/diagrams/overview.svg)
 
 Each stage exists to spare the next one work: the scrape merges reposts before
 the AI reads anything, the text pass auto-rejects on facts before you look, and

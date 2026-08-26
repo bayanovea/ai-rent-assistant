@@ -15,5 +15,10 @@ and points at the rest.
 | [scrape-log.md](scrape-log.md) | Journal: what has been collected, with which flags, and where to continue. |
 | [plans/completed/](plans/completed) | The implementation plan per iteration, with the design rationale of the day. |
 
+The diagrams are checked-in SVGs so that any markdown preview shows them
+without a mermaid extension. Their sources live next to them in
+[`diagrams/`](diagrams) as `.mmd` files — edit the source, then run
+`scripts/render-diagrams.sh` to regenerate the SVG.
+
 `CLAUDE.md` in the repository root is not documentation — it is the list of
 traps that a coding agent must not walk into.

@@ -1,0 +1,9 @@
+sequenceDiagram
+    participant CLI as fb-rent
+    participant FS as data/ai/
+    participant AI as Claude Code
+    CLI->>FS: ai-batch → batch-ts.json<br/>(requirements + registry + raw text)
+    FS->>AI: read
+    AI->>FS: result-ts.json<br/>(fields + verdict + evidence)
+    FS->>CLI: ai-apply
+    CLI->>CLI: validate vs registry → rules.py → DB

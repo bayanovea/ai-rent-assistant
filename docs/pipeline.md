@@ -5,47 +5,11 @@ worth a phone call come out. Every stage exists to throw away work the next
 stage would otherwise pay for — which is why the order matters and why two of
 the stages are yours, not the machine's.
 
-```mermaid
-flowchart TD
-    FB(["Facebook Marketplace<br/>Phuket Property Rentals"])
+![The whole flow, stage by stage](diagrams/pipeline-flow.svg)
 
-    subgraph collect["1 · Collect — Playwright, no AI"]
-        direction TB
-        scrape["fb-rent scrape<br/>feed cards → detail pages<br/>text · gallery URLs · photo hashes"]
-        dedupe["fb-rent dedupe<br/>merge reposts and re-listings"]
-        scrape --> dedupe
-    end
-
-    subgraph text["2 · Read the text — /analyze, Opus"]
-        direction TB
-        batch["ai-batch<br/>→ ai/batch-ts.json"]
-        read["Claude reads the raw text<br/>+ config/requirements.md"]
-        apply["ai-apply<br/>fields → rules.py → verdict"]
-        batch --> read --> apply
-    end
-
-    subgraph mine["3 · Your pass — the table"]
-        review["open rentals.html<br/>rate / reject / shortlist<br/>→ decisions.json"]
-    end
-
-    subgraph photo["4 · Read the photos — /photo-analyze, Sonnet fan-out"]
-        direction TB
-        fetch["photos-fetch<br/>galleries for the survivors"]
-        pbatch["photo-batch<br/>→ ai/photo-batch-ts.json"]
-        agents["one subagent per listing<br/>reads the gallery, returns JSON"]
-        papply["photo-apply<br/>photo fields → rules.py again"]
-        fetch --> pbatch --> agents --> papply
-    end
-
-    out(["shortlist → write to the agent"])
-
-    FB --> collect
-    collect --> text
-    text --> mine
-    mine -->|"what survived your rejections"| photo
-    photo -->|"disagreements with the text"| mine
-    mine --> out
-```
+<sub>The diagrams on this page are SVGs; their mermaid sources are in
+[`diagrams/`](diagrams) and are regenerated with
+`scripts/render-diagrams.sh`.</sub>
 
 The arrow back from stage 4 to stage 3 is the point of the photo pass: its
 product is not new facts but **contradictions** — a `furnished: full` that the
@@ -74,14 +38,7 @@ every listing you throw out by hand before stage 4 is tokens not spent. Neither
 Extraction is the AI's job. The *decision* is not, and the final word is not
 the AI's either.
 
-```mermaid
-flowchart LR
-    txt["text pass<br/>ai_analysis.data_json"] --> merge["merged on read<br/>text fields + photo fields"]
-    pho["photo pass<br/>ai_analysis.photo_data_json"] --> merge
-    merge --> rules["rules.py<br/>decide + score"]
-    rules --> status["status in the export"]
-    you["decisions.json<br/>your reject / unreject / shortlist / rate"] -->|"outranks the rules<br/>in both directions"| status
-```
+![Who decides what: the AI extracts, rules.py decides, you override](diagrams/decision-ownership.svg)
 
 - **The AI extracts.** Fields, each with a confidence and a quote it can be
   traced back to. It never writes `verdict`, `score` or `status`; values for
@@ -101,17 +58,7 @@ untouched.
 Both passes talk to Claude Code through files, not an API. The CLI's whole job
 is to write a batch out and read a result back.
 
-```mermaid
-sequenceDiagram
-    participant CLI as fb-rent
-    participant FS as data/ai/
-    participant AI as Claude Code
-    CLI->>FS: ai-batch → batch-ts.json<br/>(requirements + registry + raw text)
-    FS->>AI: read
-    AI->>FS: result-ts.json<br/>(fields + verdict + evidence)
-    FS->>CLI: ai-apply
-    CLI->>CLI: validate vs registry → rules.py → DB
-```
+![The batch contract between the CLI and Claude Code](diagrams/batch-contract.svg)
 
 A result file is rejected wholesale if it carries a key the registry does not
 know — new signals go into `proposed_new_fields`, and you decide whether they

@@ -1,0 +1,6 @@
+flowchart LR
+    txt["text pass<br/>ai_analysis.data_json"] --> merge["merged on read<br/>text fields + photo fields"]
+    pho["photo pass<br/>ai_analysis.photo_data_json"] --> merge
+    merge --> rules["rules.py<br/>decide + score"]
+    rules --> status["status in the export"]
+    you["decisions.json<br/>your reject / unreject / shortlist / rate"] -->|"outranks the rules<br/>in both directions"| status

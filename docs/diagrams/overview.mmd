@@ -1,0 +1,7 @@
+flowchart LR
+    fb(["Facebook<br/>Marketplace"]) --> s["fb-rent scrape<br/>+ dedupe"]
+    s --> a["/analyze<br/>Claude reads the text"]
+    a --> t["rentals.html<br/>you read the table<br/>and cut the obvious"]
+    t --> p["/photo-analyze<br/>subagents read the photos"]
+    p --> t
+    t --> out(["shortlist →<br/>write to the agent"])

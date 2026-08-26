@@ -134,3 +134,9 @@ version — using `ai_schema_version` for a photo field hatches every row.
 `docs/scrape-log.md` and `docs/photo-analysis.md` are journals: they record
 what was measured on live data and when. Append to them after a real run, do
 not rewrite history in them, and keep the "last checked" dates honest.
+
+**Diagrams are SVGs, not fenced mermaid.** VS Code's markdown preview does not
+render mermaid without an extension, so `docs/diagrams/*.mmd` is the source and
+the committed `.svg` next to it is what the docs embed. Edit the `.mmd`, then
+run `scripts/render-diagrams.sh` — it borrows the Chromium that Playwright
+already installed and adds nothing to the system.
