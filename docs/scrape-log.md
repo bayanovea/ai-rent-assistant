@@ -114,3 +114,62 @@ The ad itself is on the page and sits in `raw_json.text_lines`, so all 19 were
 analysed from `text_lines` and carry real fields and verdicts. What should be
 fixed is the extraction — adding "Подробнее" / "See details" to the anchor set
 in `description_from_text_lines` — not the data.
+
+### 2026-08-26, 15:43–18:08 — the sweep with no detail budget
+
+```sh
+BANDS=6 MAXITEMS=200 DAYS=7 bash data/sweep/run.sh
+# → fb-rent scrape --bands 6 --max 200 --days 7 --detail-cap 99999 --no-photos
+#   FB_RENT_PAGE_LOAD_TIMEOUT_MS=90000 FB_RENT_CONTENT_TIMEOUT_MS=45000
+```
+
+| Band, THB | Cards | Hit `--max` | Same band on 25 Aug (`--max 150`) |
+|---|---|---|---|
+| 15000–17499 | 200 | yes | 150 — capped |
+| 17500–19999 | 164 | no | 150 — capped |
+| 20000–22499 | 170 | no | 150 — capped |
+| 22500–24999 | 62 | no | 70 |
+| 25000–27499 | 200 | yes | 150 — capped |
+| 27500–30000 | 200 | yes | 150 — capped |
+
+996 cards collected in seven minutes, then two hours of detail pages. Run
+totals: `inserted: 875, updated: 6, duplicates: 115, skipped_known: 6, photo
+hashes: 819`. State afterwards: **1378 rows, 0 of them card-only**, 472
+duplicates. The catch-up driver was invoked and found nothing to do.
+
+**`--detail-cap` is what made the 594 pustyshki of 25 August, not Facebook.**
+The cap was 150 against a feed of 799, and the log said so plainly (`Detail
+budget spent (150 pages)`). Here it was 99999 — larger than any plausible feed
+— and every one of the 875 new listings got its detail page inside the same
+run. The rate held at 6–7 pages per minute for 145 minutes with no browser
+restart and no `LoginRequiredError`, at the same 3–7 s jitter: there is still
+no evidence of Facebook throttling detail pages.
+
+The driver (`data/sweep/run.sh`) re-queries the DB after the sweep and hands
+whatever is left without a description to `data/catchup/run.sh`. On this run
+the hand-off was a no-op, which is the point — the safety net is for a crash,
+not for a budget we set too low ourselves.
+
+#### How much of the seven-day window we now hold: ~90 %
+
+Bands 2 and 3 were capped at 150 the day before and came back with 164 and 170
+under a cap of 200 — **their true size exceeded the old cap by only 9–13 %**.
+If the three bands still capped at 200 behave the same way, they hide 60–120
+cards, putting the whole window at 1050–1120 against the 996 collected.
+
+Two limits on that number: it is a share of what Facebook is willing to show
+(a band capped at 200 may be its ceiling rather than ours — the two are
+indistinguishable from here), and it covers 15 000–30 000 THB only.
+
+Next run: the three capped bands one at a time with a larger cap, e.g.
+`--min-price 15000 --max-price 17499 --bands 1 --max 400 --days 7
+--detail-cap 99999 --no-photos`. A band that returns exactly 400 has hit
+Facebook's own ceiling, and the honest answer is then to split it in two.
+
+#### What is left after this run
+
+1. **The text pass** over 881 pending (875 new + 6 changed) — `/analyze`,
+   it never touches Facebook.
+2. Galleries were not downloaded. The signed links live about a week, so
+   `photos-fetch` for whatever survives the hand-rejection has to happen
+   before ~2 September 2026.
