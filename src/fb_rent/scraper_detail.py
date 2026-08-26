@@ -79,6 +79,18 @@ def _detect_login_redirect(page: "Page") -> bool:
     return False
 
 
+def _safe_login_redirect(page: "Page") -> bool:
+    """``_detect_login_redirect`` for a page that may not have loaded.
+
+    Called from the ``goto`` failure path, where querying the DOM can throw
+    in its own right; a broken page is simply not a login redirect.
+    """
+    try:
+        return _detect_login_redirect(page)
+    except Exception:  # noqa: BLE001 — page may be in any state
+        return False
+
+
 def _detect_unavailable(page: "Page") -> bool:
     """Return True if FB is showing a removed/unavailable listing page."""
     try:
@@ -251,7 +263,22 @@ def scrape_detail(
     """
     page = context.new_page()
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT_MS)
+        try:
+            page.goto(
+                url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT_MS
+            )
+        except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
+            # A single slow page must not end the run. Raising the timeout to
+            # 90 s was only half the fix: on 26 August a `Page.goto: Timeout
+            # 90000ms exceeded` still threw straight out of here and killed a
+            # band with 106 of its cards unread. Treated like a page that
+            # never rendered — the caller keeps the list-card row and the
+            # catch-up driver repairs it by `--ids`.
+            if _safe_login_redirect(page):
+                raise LoginRequiredError(
+                    "Facebook redirected to login. Run `fb-rent login` and retry."
+                ) from exc
+            return None
 
         if _detect_login_redirect(page):
             raise LoginRequiredError(
