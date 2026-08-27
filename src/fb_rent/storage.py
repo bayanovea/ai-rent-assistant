@@ -1354,6 +1354,14 @@ _HTML_TEMPLATE = r"""<!doctype html>
   #flt { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #33405c; white-space: nowrap; }
   #flt:hover { background: #eef2fa; }
   #flt.on { background: #33405c; border-color: #33405c; color: #fff; }
+  #dec { border: 1px solid #e0c48a; background: #fffdf5; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #7a5c14; white-space: nowrap; }
+  #dec:hover { background: #fdf6e3; }
+  #dec.on { background: #8a6d00; border-color: #8a6d00; color: #fff; }
+  #decisions { display: none; border: 1px solid #e8dcc0; border-radius: 4px; background: #fffdf5; padding: 0.6rem 0.75rem; margin-bottom: 0.6rem; }
+  #decisions.on { display: block; }
+  #dec-cmd { width: 100%; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; border: 1px solid #e0d6bd; border-radius: 3px; padding: 6px 8px; background: #fff; color: #333; resize: vertical; }
+  #dec-copy, #dec-clear { border: 1px solid #ccd; background: #fff; border-radius: 4px; padding: 2px 10px; font-size: 11px; cursor: pointer; color: #33405c; }
+  #dec-copy:hover, #dec-clear:hover { background: #eef2fa; }
   /* Панель фильтров: по одному блоку на колонку, вид блока выбирает
      filterSpec — диапазон для чисел и дат, чипы для перечислений, поле
      подстроки для всего остального. */
@@ -1417,6 +1425,9 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .c-bad  { background: #fce8e6; color: #a50e0e; }
   .c-stale { background: repeating-linear-gradient(45deg, #eef1f6, #eef1f6 4px, #dbe2ee 4px, #dbe2ee 8px); color: #55607a; }
   .c-none { color: #c2c6cf; }
+  .pend { font-weight: 600; background: #fff3d6; color: #8a6d00; }
+  .rt tbody tr.cursor td { background: #eaf1fd; }
+  .rt tbody tr.cursor td:first-child { box-shadow: inset 3px 0 0 #1a73e8, 1px 0 0 #dde; }
   tr.row-rejected td { opacity: 0.55; text-decoration: line-through; }
   tr.row-rejected td:first-child { border-left: 3px solid #d93025; opacity: 1; text-decoration: none; }
   tr.row-shortlist td:first-child { border-left: 3px solid #f9ab00; }
@@ -1426,6 +1437,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
 <body>
 <h1>fb-rent — __ROW_COUNT__ listings</h1>
 <div class="meta">Сгенерировано __GENERATED_AT__ · реестр полей v__SCHEMA_VERSION__ · сортировка — клик по заголовку, Shift+клик добавляет второй ключ · ID открывает объявление · наведите на ячейку, чтобы увидеть цитату-основание · клик по обрезанной ячейке разворачивает её целиком</div>
+<div class="meta">Решения с клавиатуры: <b>↓ ↑</b> или <b>j k</b> — по строкам, <b>1</b>–<b>5</b> — своя оценка, <b>r</b> — отклонить, <b>a</b> — вернуть в активные, <b>0</b> — снять. Накопленное лежит в браузере и переживает пересборку файла; кнопка «Решения» отдаёт готовый блок команд.</div>
 <div class="bar">
   <button class="tab" data-tab="active"></button>
   <button class="tab" data-tab="shortlist"></button>
@@ -1433,11 +1445,20 @@ _HTML_TEMPLATE = r"""<!doctype html>
   <button class="tab" data-tab="all"></button>
   <input id="q" type="search" placeholder="поиск по всем колонкам…">
   <button id="flt"></button>
+  <button id="dec"></button>
   <span class="spacer"></span>
   <button id="more"></button>
 </div>
 <div id="filters"><div class="flt-grid" id="flt-grid"></div>
   <div class="flt-tools"><button id="flt-reset">Сбросить фильтры</button><span id="flt-note"></span></div>
+</div>
+<div id="decisions">
+  <textarea id="dec-cmd" rows="6" spellcheck="false" readonly></textarea>
+  <div class="flt-tools">
+    <button id="dec-copy">Скопировать</button>
+    <button id="dec-clear">Очистить очередь</button>
+    <span id="dec-note"></span>
+  </div>
 </div>
 <div class="legend">
   <span class="item"><span class="sw src-photo"></span>колонка от фото-прохода — AI смотрел снимки, а не текст</span>
@@ -1448,6 +1469,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
   <span class="item"><span class="sw c-bad"></span>стоп-фактор (животные запрещены, вне бюджета)</span>
   <span class="item"><span class="sw c-stale"></span>поля не было на момент анализа — нужен ре-анализ</span>
   <span class="item"><span class="sw c-none"></span>AI смотрел, информации нет</span>
+  <span class="item"><span class="pend" style="padding:0 4px;border-radius:3px">4</span>решение принято, но ещё не записано</span>
   <span class="item"><span class="sw" style="border-left:3px solid #d93025"></span>row-rejected — отклонено (AI или вами)</span>
 </div>
 <div class="wrap"><table class="rt"><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
@@ -1473,6 +1495,21 @@ const CLIP_AT = 30;
 // Cells the user unfolded, as "<fb_id>|<column>". Kept outside the DOM so
 // sorting or filtering does not fold everything back up.
 const openCells = new Set();
+
+/* ---- решения прямо из таблицы -------------------------------------------
+   Записать решение — это `fb-rent rate <id> 4` в терминале, и переключение
+   туда стоит достаточно, чтобы на тысячу активных строк пришлось три десятка
+   решений. Клавиши копят решения здесь, в localStorage: он переживает
+   `export`, который переписывает этот файл после каждой стадии, — а кнопка
+   отдаёт накопленное одним блоком команд. Записывать прямо в decisions.json
+   было бы удобнее, но за это пришлось бы отдать главное свойство файла: он
+   открывается с диска, без сервера и без сети. */
+const PENDING_KEY = "fb-rent:pending";
+let PENDING = {};
+// Строка под курсором и то, что сейчас на экране: клавиши ходят по видимому
+// списку, а он зависит от вкладки, поиска и фильтров.
+let cursorId = null;
+let shownRows = [];
 
 function esc(s) {
   return String(s == null ? "" : s)
@@ -1555,9 +1592,17 @@ function tdHTML(row, col) {
     inner = empty ? '—' : esc(text);
     if (!empty && cell.n != null) style = scoreStyle(cell.n);
   } else if (col.kind === "rating") {
-    // Ваша оценка 1–5: пусто значит «ещё не смотрели».
-    inner = empty ? '—' : esc(text);
-    if (!empty && cell.n != null) style = countStyle(cell.n, 5);
+    // Ваша оценка 1–5: пусто значит «ещё не смотрели». Решение, принятое в
+    // этой сессии, но ещё не записанное, показывается здесь же — жёлтым,
+    // чтобы его нельзя было спутать с уже сохранённым.
+    const p = PENDING[row.fb_id];
+    if (p) {
+      inner = '<span class="pend">' + esc(pendingLabel(p)) + '</span>';
+      title = ' title="решение ещё не записано — нажмите «Решения» и выполните команды в терминале"';
+    } else {
+      inner = empty ? '—' : esc(text);
+      if (!empty && cell.n != null) style = countStyle(cell.n, 5);
+    }
   } else if (col.kind === "count") {
     inner = empty ? '—' : esc(text);
     if (!empty && cell.n != null) style = countStyle(cell.n, col.key === "bedrooms" ? 4 : 3);
@@ -1600,10 +1645,70 @@ function tdHTML(row, col) {
 }
 
 function rowHTML(row) {
-  const cls = row.status === "rejected"
-    ? "row-rejected"
-    : (row.status === "shortlist" ? "row-shortlist" : "");
-  return '<tr class="' + cls + '">' + visibleColumns().map(c => tdHTML(row, c)).join("") + '</tr>';
+  const cls = [];
+  if (row.status === "rejected") cls.push("row-rejected");
+  else if (row.status === "shortlist") cls.push("row-shortlist");
+  if (row.fb_id === cursorId) cls.push("cursor");
+  return '<tr class="' + cls.join(" ") + '" data-row="' + esc(row.fb_id) + '">'
+    + visibleColumns().map(c => tdHTML(row, c)).join("") + '</tr>';
+}
+
+function loadPending() {
+  try { PENDING = JSON.parse(localStorage.getItem(PENDING_KEY) || "{}"); }
+  catch (e) { PENDING = {}; }
+  // Решение, доехавшее до decisions.json, уходит из очереди само — иначе
+  // список команд рос бы вечно и каждый прогон повторял бы прошлые.
+  const byId = {};
+  DATA.forEach(r => { byId[r.fb_id] = r; });
+  Object.keys(PENDING).forEach(id => {
+    const row = byId[id];
+    if (!row || alreadyRecorded(row, PENDING[id])) delete PENDING[id];
+  });
+  savePending();
+}
+
+function alreadyRecorded(row, p) {
+  if (row.decided_by !== "user") return false;
+  if (p.kind === "rate") return cellOf(row, "rating").n === p.v;
+  return row.status === p.kind;
+}
+
+function savePending() {
+  try { localStorage.setItem(PENDING_KEY, JSON.stringify(PENDING)); }
+  catch (e) { /* приватное окно — очередь живёт до перезагрузки */ }
+}
+
+function setDecision(id, p) {
+  if (p) PENDING[id] = p; else delete PENDING[id];
+  savePending();
+  render();
+}
+
+function pendingLabel(p) {
+  if (p.kind === "rate") return String(p.v);
+  return p.kind === "rejected" ? "reject" : "active";
+}
+
+function commandText() {
+  const ids = Object.keys(PENDING);
+  if (!ids.length) {
+    return "Очередь пуста. Встаньте на строку (↓ ↑ или клик) и нажмите 1–5, r или a.";
+  }
+  return ids.map(id => {
+    const p = PENDING[id];
+    if (p.kind === "rate") return "fb-rent rate " + id + " " + p.v;
+    return (p.kind === "rejected" ? "fb-rent reject " : "fb-rent unreject ") + id;
+  }).join("\n") + "\nfb-rent export";
+}
+
+function moveCursor(step) {
+  if (!shownRows.length) return;
+  let i = shownRows.findIndex(r => r.fb_id === cursorId);
+  i = i === -1 ? (step > 0 ? 0 : shownRows.length - 1) : i + step;
+  cursorId = shownRows[Math.max(0, Math.min(shownRows.length - 1, i))].fb_id;
+  render();
+  const tr = document.querySelector("tr.cursor");
+  if (tr) tr.scrollIntoView({ block: "nearest" });
 }
 
 let tab = "active";
@@ -1812,6 +1917,8 @@ function render() {
     inTab(r, tab) && (!q || haystack(r).indexOf(q) !== -1) && passesFilters(r));
 
   if (sorts.length) rows = rows.slice().sort(compareRows);
+  shownRows = rows;
+  if (cursorId && !rows.some(r => r.fb_id === cursorId)) cursorId = null;
 
   renderHead();
   document.getElementById("body").innerHTML = rows.map(rowHTML).join("");
@@ -1836,6 +1943,15 @@ function render() {
   const inTabCount = DATA.filter(r => inTab(r, tab)).length;
   document.getElementById("flt-note").textContent =
     "показано " + rows.length + " из " + inTabCount + " во вкладке";
+
+  const queued = Object.keys(PENDING).length;
+  const dec = document.getElementById("dec");
+  dec.textContent = queued ? "Решения (" + queued + ")" : "Решения";
+  dec.classList.toggle("on", queued > 0);
+  document.getElementById("dec-cmd").value = commandText();
+  document.getElementById("dec-note").textContent = queued
+    ? "выполните в терминале — записанное уйдёт из очереди при следующем export"
+    : "";
 }
 
 document.querySelectorAll(".tab").forEach(btn => {
@@ -1849,6 +1965,12 @@ document.querySelectorAll(".tab").forEach(btn => {
 document.getElementById("body").addEventListener("click", ev => {
   // The ID cell is a link to the listing — let it navigate.
   if (ev.target.closest("a")) return;
+  const tr = ev.target.closest("tr");
+  if (tr && tr.dataset.row !== cursorId) {
+    cursorId = tr.dataset.row;
+    document.querySelectorAll("#body tr.cursor").forEach(r => r.classList.remove("cursor"));
+    tr.classList.add("cursor");
+  }
   const td = ev.target.closest("td");
   if (!td || !td.querySelector(".clip")) return;
   const id = td.dataset.cell;
@@ -1921,6 +2043,60 @@ document.getElementById("flt-reset").addEventListener("click", () => {
   render();
 });
 
+document.getElementById("dec").addEventListener("click", () => {
+  document.getElementById("decisions").classList.toggle("on");
+});
+
+document.getElementById("dec-copy").addEventListener("click", () => {
+  const box = document.getElementById("dec-cmd");
+  const note = document.getElementById("dec-note");
+  // `navigator.clipboard` не везде работает на file://, поэтому выделение
+  // текстового поля остаётся запасным путём — и заодно видимым: даже если
+  // копирование запретят, блок уже выделен и его можно взять руками.
+  box.select();
+  const done = () => { note.textContent = "скопировано"; };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(box.value).then(done, () => {
+      note.textContent = document.execCommand("copy")
+        ? "скопировано" : "выделено — скопируйте вручную";
+    });
+  } else {
+    note.textContent = document.execCommand("copy")
+      ? "скопировано" : "выделено — скопируйте вручную";
+  }
+});
+
+document.getElementById("dec-clear").addEventListener("click", () => {
+  PENDING = {};
+  savePending();
+  render();
+});
+
+/* Клавиши работают по строке под курсором. Поля ввода их не видят — иначе
+   «r» в поиске отклоняло бы объявление. */
+document.addEventListener("keydown", ev => {
+  const target = ev.target;
+  if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA"
+      || target.isContentEditable)) return;
+  if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+
+  const key = ev.key;
+  if (key === "ArrowDown" || key === "j") { ev.preventDefault(); moveCursor(1); return; }
+  if (key === "ArrowUp" || key === "k") { ev.preventDefault(); moveCursor(-1); return; }
+  if (!cursorId) return;
+
+  if (key >= "1" && key <= "5") setDecision(cursorId, { kind: "rate", v: Number(key) });
+  else if (key === "r") setDecision(cursorId, { kind: "rejected" });
+  else if (key === "a") setDecision(cursorId, { kind: "active" });
+  else if (key === "0" || key === "Backspace") setDecision(cursorId, null);
+  else return;
+
+  ev.preventDefault();
+  // Оценил — поехали дальше: без этого каждая строка стоит двух нажатий.
+  moveCursor(1);
+});
+
+loadPending();
 renderFilters();
 render();
 </script>

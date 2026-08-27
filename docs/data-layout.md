@@ -74,6 +74,23 @@ Rejected rows carry their reason; shortlisted ones get a yellow bar; a photo
 field that overrode a non-empty text value carries a badge with the old value
 in its tooltip.
 
+**Decisions are taken from the keyboard.** `↓ ↑` (or `j k`) walk the visible
+rows, `1`–`5` record your own mark, `r` rejects, `a` puts a row back into the
+active set, `0` takes the decision back; every key that records something also
+steps to the next row, so a row costs one keystroke. The mark shows up in
+`Моя оценка` in yellow — принято, но ещё не записано — and the "Решения (N)"
+button opens the queue as a ready block of `fb-rent rate` / `reject` commands
+to paste into a terminal.
+
+The queue lives in `localStorage`, not in the file, because `export` rewrites
+`rentals.html` after every stage and the decisions have to survive that. It
+cleans itself: on load, an entry whose decision the row already carries — the
+same mark, recorded by you — is dropped, so running the commands and
+re-exporting empties the queue without anyone clearing it. Writing straight
+into `decisions.json` would be less work at the desk and would cost the file
+the one property it is built around: it opens from disk, with no server and no
+network.
+
 `rentals.csv` opens in Numbers or Excel but carries the scraped columns only.
 The AI fields, verdict, score and your decisions live in the HTML.
 

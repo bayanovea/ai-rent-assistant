@@ -33,6 +33,12 @@ Stage 3 is not a formality. The photo queue skips everything you rejected, so
 every listing you throw out by hand before stage 4 is tokens not spent. Neither
 `/analyze` nor `ai-status` will offer to start the photo pass — you ask for it.
 
+It is also the stage that stalls, and the reason is arithmetic: it is the only
+one that costs a person's attention per row. So the table takes decisions from
+the keyboard — `↓ ↑` to walk, `1`–`5` to mark, `r` to reject — and hands back a
+block of `fb-rent rate` / `reject` commands to paste in one go, rather than
+asking for one command per listing. See [data-layout.md](data-layout.md#the-html-export).
+
 Which stages can run alone, and which genuinely depend on each other, is the
 subject of [the dependency notes below](#what-can-run-on-its-own).
 
