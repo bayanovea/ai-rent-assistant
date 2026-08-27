@@ -2520,3 +2520,50 @@ def test_export_html_has_no_badge_when_nothing_is_researched(conn, tmp_path: Pat
         assert key not in cell
     # Nothing else on the row picked the keys up either.
     assert '"bp":' not in json.dumps(rows, ensure_ascii=False)
+
+
+def test_dedupe_carries_earlier_reposts_over_to_the_keeper(conn):
+    """A repost of the copy being dropped moves onto the surviving row."""
+    for fb_id, seen in (("first", "2026-08-01"), ("second", "2026-08-02")):
+        listing = _with_body(fb_id, _AD)
+        listing["url"] = f"https://www.facebook.com/marketplace/item/{fb_id}/"
+        conn.execute(
+            "INSERT INTO listings (fb_id, url, title, price_thb, content_key,"
+            " raw_json, first_seen_at, last_seen_at) VALUES (?,?,?,?,?,?,?,?)",
+            (fb_id, listing["url"], "t", 16000, storage.content_key(listing),
+             json.dumps(listing["raw_json"]), seen, "2026-08-25"),
+        )
+    # "old" was already recorded as a repost of the copy dedupe will drop.
+    conn.execute(
+        "INSERT INTO duplicates (fb_id, canonical_fb_id, content_key,"
+        " noticed_at, url) VALUES (?,?,?,?,?)",
+        ("old", "second", "k", "2026-08-02", None),
+    )
+    conn.commit()
+
+    storage.dedupe_listings(conn)
+
+    grouped = storage.duplicates_by_canonical(conn)
+    assert {row["fb_id"] for row in grouped["first"]} == {"second", "old"}
+    assert "second" not in grouped
+
+
+def test_migrate_repoints_reposts_left_behind_by_an_older_dedupe(conn):
+    """A chain of dead canonicals is followed to the row that survived."""
+    listing = _with_body("keeper", _AD)
+    storage.upsert_listing(conn, listing)
+    for fb_id, canonical in (("gone", "keeper"), ("orphan", "gone")):
+        conn.execute(
+            "INSERT INTO duplicates (fb_id, canonical_fb_id, content_key,"
+            " noticed_at, url) VALUES (?,?,?,?,?)",
+            (fb_id, canonical, "k", "2026-08-02", None),
+        )
+    conn.commit()
+
+    assert storage._flatten_duplicate_chains(conn) == 1
+    conn.commit()
+
+    grouped = storage.duplicates_by_canonical(conn)
+    assert {row["fb_id"] for row in grouped["keeper"]} == {"gone", "orphan"}
+    # Idempotent: a second pass has nothing left to move.
+    assert storage._flatten_duplicate_chains(conn) == 0

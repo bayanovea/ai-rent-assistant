@@ -277,6 +277,40 @@ def duplicates_by_canonical(
     return grouped
 
 
+def _flatten_duplicate_chains(conn: sqlite3.Connection) -> int:
+    """Point reposts whose canonical is gone at the copy that survived.
+
+    A `dedupe` that merges A into B while C is already recorded as a repost
+    of A leaves C naming a row that no longer exists, and
+    :func:`duplicates_by_canonical` groups by that name — so C silently
+    drops out of the surviving listing's ID cell. The chain always ends at
+    a live row, so following it restores the link. Returns how many rows
+    moved.
+    """
+    dup = {
+        row["fb_id"]: row["canonical_fb_id"]
+        for row in conn.execute("SELECT fb_id, canonical_fb_id FROM duplicates")
+    }
+    live = {row["fb_id"] for row in conn.execute("SELECT fb_id FROM listings")}
+    moved = 0
+    for fb_id, canonical in dup.items():
+        if canonical in live:
+            continue
+        seen = {fb_id}
+        current = canonical
+        while current in dup and current not in seen:
+            seen.add(current)
+            current = dup[current]
+        if current not in live or current == canonical:
+            continue
+        conn.execute(
+            "UPDATE duplicates SET canonical_fb_id = ? WHERE fb_id = ?",
+            (current, fb_id),
+        )
+        moved += 1
+    return moved
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     """Add columns that arrived after the first databases were created.
 
@@ -330,6 +364,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 "UPDATE listings SET content_key = ? WHERE fb_id = ?",
                 (content_key(dict(row)), row["fb_id"]),
             )
+        conn.commit()
+
+    # Reposts orphaned by a `dedupe` from before it carried them over to the
+    # keeper. Cheap and idempotent: after that fix no new chain forms.
+    if _flatten_duplicate_chains(conn):
         conn.commit()
 
 
@@ -803,6 +842,14 @@ def dedupe_listings(
         for item in rest:
             fb_id = item["fb_id"]
             _record_duplicate(conn, fb_id, keeper["fb_id"], key, ts, item.get("url"))
+            # Reposts already hanging off this copy follow it to the keeper:
+            # the row they name is about to be deleted, and a repost pointing
+            # at a missing row disappears from the table's ID cell.
+            conn.execute(
+                "UPDATE duplicates SET canonical_fb_id = ? "
+                "WHERE canonical_fb_id = ? AND fb_id != ?",
+                (keeper["fb_id"], fb_id, keeper["fb_id"]),
+            )
             conn.execute("DELETE FROM ai_analysis WHERE fb_id = ?", (fb_id,))
             delete_photo_hashes(conn, fb_id)
             conn.execute("DELETE FROM listings WHERE fb_id = ?", (fb_id,))
