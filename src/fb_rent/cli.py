@@ -69,6 +69,7 @@ from .storage import (
     fetch_pending,
     fetch_pending_buildings,
     fetch_pending_photos,
+    fetch_pets_conflicts,
     gallery_urls_of,
     init_db,
     known_fb_ids,
@@ -761,6 +762,7 @@ def ai_status_cmd() -> None:
         ).fetchone()[0]
         building_store = _load_buildings()
         unresearched = len(fetch_pending_buildings(conn, building_store))
+        conflicts = fetch_pets_conflicts(conn, building_store)
     finally:
         conn.close()
 
@@ -829,6 +831,15 @@ def ai_status_cmd() -> None:
     click.echo(f"  Не исследованы: {unresearched}")
     click.echo(f"  Предложены:     {proposed}")
     click.echo(f"  Подтверждены:   {confirmed}")
+    # Not a queue: these rows are already visible in the table and rejected by
+    # nothing. The line is here so a building the research got wrong surfaces
+    # without anyone thinking to look for it.
+    if conflicts:
+        rows = sum(len(c["listings"]) for c in conflicts)
+        click.echo(
+            f"  Расхождения:    {len(conflicts)} "
+            f"(объявлений: {rows}) — `fb-rent buildings conflicts`"
+        )
 
 
 @main.command("ai-batch")
@@ -1669,6 +1680,54 @@ def buildings_list_cmd(status: str | None, policy: str | None) -> None:
             if source.get("quote"):
                 click.echo(f"      «{source['quote']}»")
     click.echo(f"{len(selected)} building(s) in {config.BUILDINGS_PATH}")
+
+
+@buildings_group.command("conflicts")
+@click.option(
+    "--min-signals",
+    type=int,
+    default=2,
+    show_default=True,
+    help="How many ads must claim 'pets allowed' before the building is listed.",
+)
+def buildings_conflicts_cmd(min_signals: int) -> None:
+    """Print buildings whose ads keep contradicting a not_allowed house rule.
+
+    These listings are not rejected — an ad saying "с животными можно" survives
+    the building's rule on purpose. What the pile means is that the research
+    may have read the wrong tower, so it is worth a look by hand before the
+    policy is trusted.
+    """
+    store = _load_buildings()
+    conn = _open_db()
+    try:
+        _sync_decisions(conn)
+        conflicts = fetch_pets_conflicts(conn, store, min_signals=min_signals)
+    finally:
+        conn.close()
+
+    if not conflicts:
+        click.echo(
+            f"Нет зданий, где {min_signals}+ объявлений спорят с правилом дома."
+        )
+        return
+
+    for conflict in conflicts:
+        click.echo(
+            f"{conflict['name']} [{conflict['key']}]: "
+            f"{conflict['policy']} / {conflict['status']}, "
+            f"{len(conflict['listings'])} объявлений обещают животных"
+        )
+        for listing in conflict["listings"]:
+            price = listing.get("price_thb")
+            price_str = f"{price} THB" if price else "цена не указана"
+            click.echo(
+                f"    - {listing['fb_id']} {price_str} "
+                f"{listing.get('title') or ''}"
+            )
+            if listing.get("url"):
+                click.echo(f"      {listing['url']}")
+    click.echo(f"{len(conflicts)} building(s) to look at by hand")
 
 
 @buildings_group.command("set")

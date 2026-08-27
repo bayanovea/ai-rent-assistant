@@ -1560,6 +1560,98 @@ def fetch_pending_buildings(
     return out
 
 
+def fetch_pets_conflicts(
+    conn: sqlite3.Connection,
+    store: dict[str, dict[str, Any]] | None = None,
+    *,
+    min_signals: int = 2,
+) -> list[dict[str, Any]]:
+    """Return the buildings whose ads keep contradicting a ``not_allowed`` rule.
+
+    One ad promising "с животными можно" in a building researched as forbidding
+    them is noise — a landlord with a permission, or a copy-paste amenity list.
+    Several of them in the same tower is a different claim: that the research
+    read the wrong house rule, or the wrong building. This function collects
+    the second case and nothing else, which is why ``min_signals`` defaults to
+    two and why the rows are for a human to read rather than for a rule.
+
+    Nothing here rejects or un-rejects anything: :func:`.rules.decide` already
+    keeps every ad that says ``pets: allowed`` whatever the building says. This
+    is the pile that keeps the disagreement visible instead of letting it sit
+    in the export one row at a time.
+
+    Only ads that name the policy's building count, and only usable ones: a
+    listing the user rejected by hand is no longer worth arguing about, and a
+    row whose ``data_quality`` is not ``good`` was read off the sidebar, so its
+    "pets allowed" is not evidence about the flat. ``proposed`` buildings are
+    kept alongside ``confirmed`` ones — a proposal rejects nothing, but a
+    contradiction is exactly what should be seen before it is confirmed.
+    """
+    if store is None:
+        store = buildings.load_buildings()
+    index = _building_index(store)
+
+    rows = conn.execute(
+        """
+        SELECT l.fb_id, l.url, l.title, l.price_thb, l.district,
+               a.data_json, a.photo_data_json, a.data_quality,
+               d.status AS user_status
+        FROM listings AS l
+        JOIN ai_analysis AS a ON a.fb_id = l.fb_id
+        LEFT JOIN decisions AS d ON d.fb_id = l.fb_id
+        ORDER BY l.last_seen_at DESC
+        """
+    ).fetchall()
+
+    found: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        listing = dict(row)
+        if listing.pop("user_status", None) == "rejected":
+            continue
+        if listing.get("data_quality") not in (None, "good"):
+            continue
+
+        fields = {
+            **fields_of(listing.pop("data_json", None)),
+            **fields_of(listing.pop("photo_data_json", None)),
+        }
+        if rules.value_of(fields, "pets") != "allowed":
+            continue
+
+        name = str(rules.value_of(fields, "project_name") or "").strip()
+        raw_key = buildings.building_key(name)
+        if not raw_key:
+            continue
+        key = index.get(raw_key, raw_key)
+        entry = store.get(key)
+        if not entry or entry.get("policy") != "not_allowed":
+            continue
+
+        conflict = found.setdefault(
+            key,
+            {
+                "key": key,
+                "name": entry.get("name") or name,
+                "policy": entry.get("policy"),
+                "status": entry.get("status"),
+                "listings": [],
+            },
+        )
+        conflict["listings"].append(
+            {
+                "fb_id": str(listing["fb_id"]),
+                "url": listing.get("url"),
+                "title": listing.get("title"),
+                "price_thb": listing.get("price_thb"),
+                "project_name": name,
+            }
+        )
+
+    out = [c for c in found.values() if len(c["listings"]) >= max(min_signals, 1)]
+    out.sort(key=lambda c: (-len(c["listings"]), c["key"]))
+    return out
+
+
 def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Return every listing joined with its AI analysis and user decision.
 
