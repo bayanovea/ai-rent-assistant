@@ -446,13 +446,29 @@ the last one so the researcher can see a contradiction coming.
 **Files:**
 - Create: `docs/pets-policy.md`
 - Modify: `docs/README.md`, `docs/pipeline.md`, `CLAUDE.md`, `README.md`
+- ➕ Modify: `docs/cli.md`, `docs/data-layout.md`, `docs/ai-enrichment.md` —
+  they claim to cover *every* command, everything in `data/` and the *five*
+  auto-rejections, so leaving them alone would have made them wrong rather
+  than merely incomplete
 
-- [ ] `docs/pets-policy.md`: how the pass works, the four policy values, why
+- [x] `docs/pets-policy.md`: how the pass works, the four policy values, why
       research proposes and the user confirms, and a journal section for live
-      runs (same convention as `docs/photo-analysis.md`)
-- [ ] link it from `docs/README.md` and mention the pass in `docs/pipeline.md`
+      runs (same convention as `docs/photo-analysis.md`). The journal's first
+      entry is the shape of the queue before any research: 299 distinct
+      buildings over 729 active listings, mean 2.4 and median 1, 188 of them
+      singletons, and `pets` `unclear` on 603 of the 726 active rows that name
+      a project
+- [x] link it from `docs/README.md` and mention the pass in `docs/pipeline.md`
       as out-of-pipeline, alongside the photo pass
-- [ ] `CLAUDE.md` traps — only what reading the code does not reveal:
+- [x] ➕ `docs/cli.md`: `buildings-batch` / `buildings-apply` with their flags,
+      the `buildings list` / `set` review pair, and the `Здания:` block in
+      `ai-status`
+- [x] ➕ `docs/data-layout.md`: `buildings.json` in the `data/` table and as the
+      second irreplaceable file, plus the `buildings` mirror among the DB tables
+- [x] ➕ `docs/ai-enrichment.md`: the auto-rejection table is now six rows, and
+      the count is fixed in `docs/pipeline.md`, `docs/README.md` and `README.md`
+      with it
+- [x] `CLAUDE.md` traps — only what reading the code does not reveal:
       - a `proposed` building is inert by design; making it live removes the only
         thing standing between a bad web search and a wiped-out building
       - the building policy deliberately carries **no score weight** in either
@@ -461,8 +477,8 @@ the last one so the researcher can see a contradiction coming.
         added by hand because a wrong merge rejects another building's listings
       - `data/buildings.json` is the source of truth and the table is a mirror,
         like `decisions.json`
-- [ ] `README.md`: the new commands in the command list
-- [ ] move this plan to `docs/plans/completed/`
+- [x] `README.md`: the new commands in the command list
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 

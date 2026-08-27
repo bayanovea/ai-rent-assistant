@@ -27,7 +27,8 @@ replace it.
 | 3 | reading the table | **you** | `data/rentals.html` | `data/decisions.json` |
 | 4 | `fb-rent photos-fetch`, then `/photo-analyze` | you, then Claude Code (Sonnet subagents) | stored gallery URLs, then the photo files | `photos/<fb_id>/`, `ai_analysis.photo_data_json` |
 | 5 | reading the table again | **you** | `data/rentals.html` | `data/decisions.json` |
-| — | `fb-rent export` | after anything above | the DB + `decisions.json` | `rentals.csv`, `rentals.html` |
+| — | `/pets-policy` skill | you ask for it, occasionally | the web, one search per building | `data/buildings.json` (proposals), then your confirmations |
+| — | `fb-rent export` | after anything above | the DB + `decisions.json` + `buildings.json` | `rentals.csv`, `rentals.html` |
 
 Stage 3 is not a formality. The photo queue skips everything you rejected, so
 every listing you throw out by hand before stage 4 is tokens not spent. Neither
@@ -42,6 +43,22 @@ asking for one command per listing. See [data-layout.md](data-layout.md#the-html
 Which stages can run alone, and which genuinely depend on each other, is the
 subject of [the dependency notes below](#what-can-run-on-its-own).
 
+### Beside the pipeline, not in it
+
+Two passes are not stages at all: they have no place in the order above and
+they run only when you ask.
+
+The **photo pass** is the expensive half of stage 4 and waits for stage 3, so
+that what you already threw out costs nothing.
+
+The **pets pass** (`/pets-policy`) is not keyed by listing at all. It looks up
+one condo's house rule about animals, once, and reuses the answer for every
+flat in that building — including the ones scraped next week. It is the only
+part of the project that reads the open web, and the only one whose findings
+cannot act until you confirm them by hand: research writes `proposed`, and a
+`proposed` building changes nothing anywhere. Details and the four policy
+values are in [pets-policy.md](pets-policy.md).
+
 ## Who decides what
 
 Extraction is the AI's job. The *decision* is not, and the final word is not
@@ -52,11 +69,14 @@ the AI's either.
 - **The AI extracts.** Fields, each with a confidence and a quote it can be
   traced back to. It never writes `verdict`, `score` or `status`; values for
   those in a result file are ignored.
-- **`rules.py` decides.** Five conditions auto-reject; the district is worth up
-  to ±9 points of the score. The same facts therefore always produce the same
-  outcome — see [ai-enrichment.md](ai-enrichment.md).
-- **You override.** `decisions.json` beats the rules in both directions and is
-  the only file here that a DB wipe would actually lose.
+- **`rules.py` decides.** Six conditions auto-reject; the district is worth up
+  to ±9 points of the score. A confirmed building policy is worth no points at
+  all, in either direction — it either rejects or says nothing. The same facts
+  therefore always produce the same outcome — see
+  [ai-enrichment.md](ai-enrichment.md).
+- **You override.** `decisions.json` beats the rules in both directions, and
+  with `buildings.json` it is what a DB wipe would actually lose. Both are
+  mirrored back into the DB on the next `export`.
 
 The two AI passes write into separate columns and are merged on read, so
 neither can clobber the other: drop the photo columns and the text analysis is
@@ -107,6 +127,7 @@ Every stage is its own command, and most of them can be run in isolation.
 | `/analyze` | yes | rows that have text | **no** |
 | `photos-fetch` | no | the text pass has run | the CDN |
 | `/photo-analyze` | no | photos on disk | no |
+| `/pets-policy` | yes | rows with a `project_name`, i.e. the text pass | the open web |
 | `export` | yes, any time | the DB | no |
 
 Only three couplings are real:

@@ -20,10 +20,12 @@ Sibling of this `scrapper/` package, i.e. `../data/`.
 | `photos/<fb_id>/` | the listing's whole gallery, `01.jpg`, `02.jpg`, … | downloaded again by `photos-fetch` while the links live |
 | `ai/` | `batch-<ts>.json` / `result-<ts>.json` and the photo pass's pair | nothing — pure transport between CLI and AI |
 | `decisions.json` | your verdicts and marks, with reasons | **irreplaceable** |
+| `buildings.json` | the pets policy per condo, researched and then confirmed by you | **irreplaceable** |
 
-`decisions.json` is the only file here you cannot rebuild. The DB can be
-re-scraped and re-analysed; what you thought about a flat cannot. It is
-mirrored into the DB on every `export`, so wiping `rentals.db` loses nothing.
+`decisions.json` and `buildings.json` are the two files here you cannot
+rebuild. The DB can be re-scraped and re-analysed; what you thought about a
+flat cannot, and neither can a web search you then vetted. Both are mirrored
+into the DB on every `export`, so wiping `rentals.db` loses nothing.
 
 Photo directories are disposable but not free: `photos_hash` is computed from
 the file names and sizes and is what re-queues a listing for the photo pass, so
@@ -164,7 +166,7 @@ every `ai-*` command and `fb-rent export`.
 
 ## The database
 
-Three tables carry the work:
+The tables that carry the work:
 
 - `listings` — one row per Facebook posting: what the card and the detail page
   said, `raw_json` with the gallery URLs and `text_lines`, and `content_key`,
@@ -179,6 +181,11 @@ Three tables carry the work:
   [dedupe.md](dedupe.md).
 - `decisions` — a mirror of `decisions.json`, refreshed on every `export`. The
   JSON file is the original; this table exists so the exporter can join.
+- `buildings` — a mirror of `buildings.json`, refreshed on every `export` and
+  every `scrape`, for the same reason. One row per condo: the pets `policy`,
+  the `status` (`proposed` changes nothing, only `confirmed` can reject), the
+  `aliases` that point other spellings at it and the `sources` behind it. See
+  [pets-policy.md](pets-policy.md).
 
 Whether a row is pending is a comparison between its stored `schema_version`
 (or `photo_schema_version`) and the registry's `analysis_version` /

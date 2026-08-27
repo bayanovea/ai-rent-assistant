@@ -55,11 +55,12 @@ never recover from this and have to be read out of `text_lines` instead.
 
 ## What `rules.py` decides
 
-Exactly five conditions auto-reject:
+Exactly six conditions auto-reject:
 
 | Condition | Note |
 |---|---|
-| pets explicitly forbidden | criterion #1; only an explicit ban counts, silence does not |
+| pets explicitly forbidden by the ad | criterion #1; only an explicit ban counts, silence does not |
+| the building's house rule forbids pets | a separate source from the ad's own field, and only once you confirmed it — see [pets-policy.md](pets-policy.md) |
 | Patong | checked before price and size — it is out whatever the flat looks like |
 | price above 35 000 THB | the hard ceiling above the 15 000–30 000 target |
 | an explicit studio | `property_type = studio` or `bedrooms = 0` |

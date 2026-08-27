@@ -83,7 +83,10 @@ The dashboard for both passes. Prints the registry version and field count,
 then the text queue — analysed, pending (with the reason: never analysed,
 description changed, registry grew), stale, and how many listings have no raw
 text at all — then the photo blocks: the photo queue, listings with no pictures
-on disk, and the photo-hash backfill queue (`Фото-хэши: N из M`).
+on disk, and the photo-hash backfill queue (`Фото-хэши: N из M`). It ends with
+the `Здания:` block — how many buildings the pets pass has never researched,
+how many are proposed and how many you confirmed. A non-empty queue there is
+not an invitation: that pass runs when you ask for it.
 
 Listings with no raw text are printed by `fb_id`; they need
 `fb-rent scrape --ids <fb_id>` before there is anything to analyse.
@@ -193,6 +196,58 @@ nothing to disk.
 
 The queue is every listing with gallery links and no hashes, oldest first. New
 scrapes need none of this: they hash inline, `--no-photos` included.
+
+## `fb-rent buildings-batch` / `fb-rent buildings-apply`
+
+The pets pass, keyed by building rather than by listing — one house rule
+answers for every flat in the tower. Full story in
+[pets-policy.md](pets-policy.md).
+
+`buildings-batch` writes `../data/ai/buildings-batch-<ts>.json`: one entry per
+distinct building over the **active** listings that name a `project_name`,
+ordered by how many listings it covers, together with the `pets` values those
+ads claimed so a contradiction is visible up front.
+
+| Flag        | Default | Description                                            |
+|-------------|---------|--------------------------------------------------------|
+| `--limit`   | `25`    | Maximum number of buildings in the batch.               |
+| `--key`     | —       | Research only these buildings (repeatable); a name or a key. |
+| `--refresh` | off     | Include buildings already in the store.                 |
+
+`buildings-apply <file>` reads the result back and stores every entry as
+**`proposed`**, which changes nothing: no listing's status moves, and the
+policy stays out of `rules.decide` until you confirm it. `--dry-run` validates
+and reports without writing.
+
+The whole file is refused before anything is written if a policy is not one of
+`not_allowed | negotiable | allowed | unknown`, if an entry has no key, or if a
+`not_allowed` arrives with no source. A ban with no verbatim quote is not a
+finding.
+
+## `fb-rent buildings`
+
+The review side of the same pass.
+
+```sh
+fb-rent buildings list --status proposed      # policy, evidence, affected rows
+fb-rent buildings list --policy not_allowed
+fb-rent buildings set the-base-central --policy not_allowed \
+    --note "УК: no pets" --alias "base central"
+fb-rent export
+```
+
+`list` prints each building with its policy, status, confidence, area,
+aliases, note, every source URL with its quote, and how many still-active
+listings it covers.
+
+`set` is your confirmation and the only thing that makes a policy act: it
+writes `status: "confirmed"`, syncs the mirror table and tells you how many
+listings a `not_allowed` will reject. KEY is the stored key, the building's
+name or any of its aliases. `--alias` is how a second spelling is pointed at an
+existing building — there is no fuzzy matching, on purpose. Aliases are only
+ever added, never dropped.
+
+`set` re-exports nothing; run `fb-rent export` to refresh the table.
 
 ## Your own decisions
 

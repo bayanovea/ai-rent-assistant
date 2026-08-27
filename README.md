@@ -52,6 +52,19 @@ Then, in a Claude Code session:
 ```
 /analyze               # ai-batch -> Claude reads the ads -> ai-apply -> export
 /photo-analyze         # only after you have reviewed the table yourself
+/pets-policy           # look up each condo's house rule about animals, on request
+```
+
+The pets pass is keyed by building, not by listing: one web search answers for
+every flat in the tower, and nothing it finds rejects anything until you
+confirm it by hand. [docs/pets-policy.md](docs/pets-policy.md) has the four
+policy values and why a proposal is inert.
+
+```sh
+fb-rent buildings-batch --limit 5     # what to research
+fb-rent buildings-apply <file>        # store the findings as proposals
+fb-rent buildings list --status proposed
+fb-rent buildings set <key> --policy not_allowed   # your confirmation
 ```
 
 Open `../data/rentals.html` in a browser: one self-contained file, no server
@@ -76,16 +89,19 @@ changing what "good" means is editing that markdown, not the code.
 
 The *decisions* are not the AI's: `rules.py` computes the verdict and the score
 from the extracted fields, so the same facts always produce the same outcome.
-Five conditions auto-reject — pets explicitly forbidden, Patong, above 35 000
-THB, an explicit studio, a stated size under 35 m². Everything else is a remark
+Six conditions auto-reject — pets explicitly forbidden by the ad, a condo whose
+house rule you confirmed forbids them, Patong, above 35 000 THB, an explicit
+studio, a stated size under 35 m². Everything else is a remark
 in the verdict, never a rejection. Your own `reject` / `shortlist` outranks all
-of it and lives in `../data/decisions.json`, the one file here that cannot be
-rebuilt.
+of it and lives in `../data/decisions.json` — which, with the confirmed pets
+policies in `../data/buildings.json`, is what cannot be rebuilt by re-running
+anything.
 
 ## Where things live
 
 Everything the machine produced goes into the sibling `data/` directory
-(`rentals.db`, `rentals.csv`, `rentals.html`, `photos/`, `decisions.json`);
+(`rentals.db`, `rentals.csv`, `rentals.html`, `photos/`, `decisions.json`,
+`buildings.json`);
 everything you edit is version-controlled in `config/`. Override the base path
 with `FB_RENT_HOME`. Details: [docs/data-layout.md](docs/data-layout.md).
 
@@ -96,6 +112,7 @@ with `FB_RENT_HOME`. Details: [docs/data-layout.md](docs/data-layout.md).
 - [scraping.md](docs/scraping.md) — price bands, the detail budget, repairs, troubleshooting
 - [ai-enrichment.md](docs/ai-enrichment.md) — the text pass and the field registry
 - [photo-analysis.md](docs/photo-analysis.md) — the photo pass, measured
+- [pets-policy.md](docs/pets-policy.md) — the pets pass: one house rule per building
 - [dedupe.md](docs/dedupe.md) — five duplicate signals
 - [data-layout.md](docs/data-layout.md) — files, config, database
 - [scrape-log.md](docs/scrape-log.md) — what has been collected so far

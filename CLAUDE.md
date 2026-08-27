@@ -169,11 +169,43 @@ change of weights would never reach rows analysed earlier, and re-running the
 AI for the sake of a district weight is pointless. The `ai_analysis.score`
 column is written by both passes and remains only a trace of the last run.
 
+## Pets policy per building
+
+**A `proposed` building is inert, and that is the whole safety property.**
+`policy_for` hands out nothing until `status == "confirmed"`, so research —
+`/pets-policy`, a web search per building — cannot move a single row. Making a
+proposal live removes the only thing standing between a bad search result and
+a whole building's listings rejected at once. The user confirms with
+`buildings set`; nothing else may write that status.
+
+**The building policy carries no score weight, in either direction.** Not an
+omission — see the tie-at-100 trap above. A confirmed `allowed` is the tempting
+one and is exactly wrong: it would lift the rows already easiest to rank, and
+rank a researched building over an identical unresearched one for a reason
+about the research rather than the flat. `not_allowed` needs no weight because
+it rejects outright. `score()` never reads the policy; keep it that way.
+
+**`building_key` is deliberately dumb and must not learn to guess.** Lowercase,
+alphanumerics, hyphen-join — it will not merge "The Base" and "Base Central",
+and it is not supposed to. A second spelling is pointed at an existing building
+by hand through `aliases`. A fuzzy match that got it wrong would silently
+reject another building's listings, and nothing would raise.
+
+**`data/buildings.json` is the source of truth; the `buildings` table is a
+mirror.** The `decisions.json` argument exactly: a scrape can be repeated and
+an AI pass re-run, a web search the user then vetted cannot. `init_db` only
+creates the table — it does not fill it — so the file is synced back in
+`export` and in `scrape` next to `_sync_decisions`. Drop that call and a wiped
+DB exports with every confirmed policy silently inactive until the next
+`buildings set`.
+
 ## Subagent fan-out
 
 The photo pass reads images in subagents, one per listing
 (`.claude/skills/photo-analyze/SKILL.md`) — images never enter the
-orchestrator's context. Launch the independent ones in a single message so they
+orchestrator's context. The pets pass does the same with one subagent per
+building (`.claude/skills/pets-policy/SKILL.md`), for the same reason: search
+results and fetched pages stay out of the orchestrator. Launch the independent ones in a single message so they
 run in parallel (~12 at a time). The subagent returns JSON only; it never sets
 `verdict`, `score` or `status` — `rules.py` computes those from the fields, and
 that boundary is the reason the same facts always produce the same outcome.
@@ -189,8 +221,8 @@ version — using `ai_schema_version` for a photo field hatches every row.
 
 ## Docs upkeep
 
-`docs/scrape-log.md` and `docs/photo-analysis.md` are journals: they record
-what was measured on live data and when. Append to them after a real run, do
+`docs/scrape-log.md`, `docs/photo-analysis.md` and `docs/pets-policy.md` are
+journals: they record what was measured on live data and when. Append to them after a real run, do
 not rewrite history in them, and keep the "last checked" dates honest.
 
 **Diagrams are SVGs, not fenced mermaid.** VS Code's markdown preview does not
