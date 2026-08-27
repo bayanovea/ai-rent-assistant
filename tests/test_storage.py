@@ -9,7 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from fb_rent import ai_schema, config, decisions, photos, rules, storage
+from fb_rent import (
+    ai_schema,
+    buildings,
+    config,
+    decisions,
+    photos,
+    rules,
+    storage,
+)
 
 
 @pytest.fixture()
@@ -1916,3 +1924,277 @@ def test_a_photo_collapsed_repost_is_remembered(conn):
 
     assert gone in storage.duplicate_fb_ids(conn)
     assert gone not in storage.known_fb_ids(conn)
+
+
+# --- buildings: the mirror, the policy map and the research queue ---------
+
+
+def _building(**overrides):
+    base = {
+        "name": "The Base Central Phuket",
+        "aliases": ["Base Central"],
+        "area": "Phuket Town",
+        "policy": "not_allowed",
+        "status": "confirmed",
+        "confidence": "high",
+        "note": "УК: no pets of any kind.",
+        "sources": [
+            {
+                "url": "https://example.com/rules",
+                "title": "House Rules",
+                "quote": "Pets are not allowed in the building.",
+            }
+        ],
+        "researched_at": "2026-08-27T10:00:00Z",
+        "researched_by": "claude-opus-5 (claude-code)",
+        "confirmed_at": "2026-08-27T10:12:00Z",
+    }
+    base.update(overrides)
+    return {buildings.building_key(base["name"]): base}
+
+
+def _in_building(conn, fb_id, project, *, pets="unclear", area="Phuket Town",
+                 district="Phuket Town", price=22000, last_seen="2026-08-25T10:00:00Z"):
+    """One analysed listing advertising a flat in ``project``."""
+    storage.upsert_listing(
+        conn,
+        _make_listing(fb_id=fb_id, price_thb=price, district=district),
+        now=last_seen,
+    )
+    storage.upsert_ai_analysis(
+        conn,
+        _make_analysis(
+            fb_id=fb_id,
+            data_json={
+                "project_name": {"v": project},
+                "area": {"v": area},
+                "pets": {"v": pets},
+            },
+        ),
+    )
+
+
+def test_init_db_creates_the_buildings_table_idempotently(tmp_path: Path):
+    db_path = tmp_path / "rentals.db"
+    storage.init_db(db_path).close()
+    conn = storage.init_db(db_path)  # second call must not raise
+    tables = {
+        r[0]
+        for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    assert "buildings" in tables
+    assert conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0] == 0
+    conn.close()
+
+
+def test_sync_buildings_inserts_the_whole_entry(conn):
+    assert storage.sync_buildings_to_db(conn, _building()) == 1
+    row = conn.execute("SELECT * FROM buildings").fetchone()
+    assert row["key"] == "the-base-central-phuket"
+    assert row["name"] == "The Base Central Phuket"
+    assert row["policy"] == "not_allowed"
+    assert row["status"] == "confirmed"
+    assert row["confidence"] == "high"
+    assert json.loads(row["aliases_json"]) == ["Base Central"]
+    assert json.loads(row["sources_json"])[0]["quote"].startswith("Pets are not")
+    assert row["confirmed_at"] == "2026-08-27T10:12:00Z"
+
+
+def test_sync_buildings_updates_a_changed_entry(conn):
+    storage.sync_buildings_to_db(conn, _building())
+    storage.sync_buildings_to_db(conn, _building(policy="negotiable", note="Спросить УК"))
+    rows = conn.execute("SELECT policy, note FROM buildings").fetchall()
+    assert len(rows) == 1
+    assert rows[0]["policy"] == "negotiable"
+    assert rows[0]["note"] == "Спросить УК"
+
+
+def test_sync_buildings_deletes_what_the_file_no_longer_has(conn):
+    storage.sync_buildings_to_db(conn, _building())
+    assert storage.sync_buildings_to_db(conn, {}) == 0
+    assert conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0] == 0
+
+
+def test_sync_buildings_reads_the_file_when_no_store_is_passed(conn, tmp_path: Path):
+    path = tmp_path / "buildings.json"
+    path.write_text(json.dumps(_building()), encoding="utf-8")
+    assert storage.sync_buildings_to_db(conn, path=path) == 1
+    assert conn.execute("SELECT key FROM buildings").fetchone()["key"] == (
+        "the-base-central-phuket"
+    )
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [{"policy": "maybe"}, {"status": "vetted"}, {"policy": None}, {"status": None}],
+)
+def test_sync_buildings_rejects_an_invalid_entry(conn, broken):
+    with pytest.raises(buildings.BuildingError):
+        storage.sync_buildings_to_db(conn, _building(**broken))
+    # Nothing half-written: the guard runs before the table is touched.
+    assert conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0] == 0
+
+
+def test_building_policies_maps_every_spelling(conn):
+    storage.sync_buildings_to_db(conn, _building())
+    policies = storage.building_policies(conn)
+    assert policies["the-base-central-phuket"] == "not_allowed"
+    assert policies[buildings.building_key("Base Central")] == "not_allowed"
+
+
+def test_building_policies_ignores_a_proposal(conn):
+    storage.sync_buildings_to_db(conn, _building(status="proposed"))
+    assert storage.building_policies(conn) == {}
+
+
+def test_building_policies_ignores_a_confirmed_unknown(conn):
+    # Research that found nothing looks exactly like an unresearched building.
+    storage.sync_buildings_to_db(conn, _building(policy="unknown"))
+    assert storage.building_policies(conn) == {}
+
+
+def test_building_policies_keeps_negotiable_and_allowed(conn):
+    storage.sync_buildings_to_db(
+        conn,
+        {
+            **_building(policy="negotiable"),
+            **_building(name="Zcape III", aliases=[], policy="allowed"),
+        },
+    )
+    assert storage.building_policies(conn) == {
+        "the-base-central-phuket": "negotiable",
+        buildings.building_key("Base Central"): "negotiable",
+        "zcape-iii": "allowed",
+    }
+
+
+def test_building_policies_on_an_empty_table(conn):
+    assert storage.building_policies(conn) == {}
+
+
+def test_pending_buildings_groups_listings_by_building(conn):
+    _in_building(conn, "a1", "The Base Central Phuket")
+    _in_building(conn, "a2", "the base central phuket")
+    _in_building(conn, "b1", "Zcape III", area="Kathu", district="Kathu")
+
+    queue = storage.fetch_pending_buildings(conn, {})
+
+    assert [(e["key"], e["listings"]) for e in queue] == [
+        ("the-base-central-phuket", 2),
+        ("zcape-iii", 1),
+    ]
+    assert queue[0]["area"] == "Phuket Town"
+    assert queue[0]["fb_ids"] == ["a1", "a2"]
+
+
+def test_pending_buildings_names_the_building_the_way_most_ads_do(conn):
+    _in_building(conn, "a1", "the base central phuket")
+    _in_building(conn, "a2", "The Base Central Phuket")
+    _in_building(conn, "a3", "The Base Central Phuket")
+
+    queue = storage.fetch_pending_buildings(conn, {})
+    assert queue[0]["name"] == "The Base Central Phuket"
+
+
+def test_pending_buildings_reports_what_the_ads_claimed_about_pets(conn):
+    # A contradiction the researcher should see coming.
+    _in_building(conn, "a1", "The Base Central Phuket", pets="allowed")
+    _in_building(conn, "a2", "The Base Central Phuket", pets="unclear")
+    _in_building(conn, "a3", "The Base Central Phuket", pets="unclear")
+
+    assert storage.fetch_pending_buildings(conn, {})[0]["pets"] == [
+        "allowed",
+        "unclear",
+    ]
+
+
+def test_pending_buildings_samples_at_most_five_ids(conn):
+    for index in range(7):
+        _in_building(conn, f"a{index}", "The Base Central Phuket")
+    entry = storage.fetch_pending_buildings(conn, {})[0]
+    assert entry["listings"] == 7
+    assert len(entry["fb_ids"]) == storage.QUEUE_SAMPLE_IDS
+
+
+def test_pending_buildings_counts_only_listings_still_worth_keeping(conn):
+    _in_building(conn, "keep", "The Base Central Phuket")
+    # Auto-rejected by the ad's own words.
+    _in_building(conn, "ai-out", "The Base Central Phuket", pets="not_allowed")
+    # Rejected by hand.
+    _in_building(conn, "user-out", "The Base Central Phuket")
+    decisions.sync_to_db(
+        conn, {"user-out": {"status": "rejected", "reason": "Не тот дом"}}
+    )
+
+    queue = storage.fetch_pending_buildings(conn, {})
+    assert [(e["key"], e["listings"]) for e in queue] == [
+        ("the-base-central-phuket", 1)
+    ]
+    assert queue[0]["fb_ids"] == ["keep"]
+
+
+def test_pending_buildings_keeps_a_hand_kept_listing_the_rules_reject(conn):
+    _in_building(conn, "kept", "The Base Central Phuket", pets="not_allowed")
+    decisions.sync_to_db(conn, {"kept": {"status": "shortlist"}})
+
+    assert storage.fetch_pending_buildings(conn, {})[0]["listings"] == 1
+
+
+def test_pending_buildings_skips_a_listing_naming_no_building(conn):
+    _in_building(conn, "a1", "")
+    _in_building(conn, "a2", "   ")
+    _in_building(conn, "a3", "—")
+    assert storage.fetch_pending_buildings(conn, {}) == []
+
+
+def test_pending_buildings_skips_an_unanalysed_listing(conn):
+    storage.upsert_listing(conn, _make_listing(fb_id="raw"))
+    assert storage.fetch_pending_buildings(conn, {}) == []
+
+
+def test_pending_buildings_skips_what_is_already_researched(conn):
+    _in_building(conn, "a1", "The Base Central Phuket")
+    _in_building(conn, "b1", "Zcape III")
+
+    queue = storage.fetch_pending_buildings(conn, _building())
+    assert [e["key"] for e in queue] == ["zcape-iii"]
+
+
+def test_pending_buildings_refresh_returns_the_researched_ones(conn):
+    _in_building(conn, "a1", "The Base Central Phuket")
+    queue = storage.fetch_pending_buildings(conn, _building(), refresh=True)
+    assert [e["key"] for e in queue] == ["the-base-central-phuket"]
+
+
+def test_pending_buildings_collapses_an_alias_spelling(conn):
+    # Two spellings the key alone would never merge; the alias does.
+    _in_building(conn, "a1", "The Base Central Phuket")
+    _in_building(conn, "a2", "Base Central")
+
+    queue = storage.fetch_pending_buildings(conn, _building(), refresh=True)
+    assert [(e["key"], e["listings"]) for e in queue] == [
+        ("the-base-central-phuket", 2)
+    ]
+
+
+def test_pending_buildings_does_not_fuzzy_match_an_unknown_spelling(conn):
+    _in_building(conn, "a1", "The Base Downtown Phuket")
+    queue = storage.fetch_pending_buildings(conn, _building())
+    assert [e["key"] for e in queue] == ["the-base-downtown-phuket"]
+
+
+def test_pending_buildings_falls_back_to_the_listing_district(conn):
+    _in_building(conn, "a1", "Zcape III", area="", district="Kathu")
+    assert storage.fetch_pending_buildings(conn, {})[0]["area"] == "Kathu"
+
+
+def test_pending_buildings_loads_the_store_itself(conn, monkeypatch, tmp_path: Path):
+    path = tmp_path / "buildings.json"
+    path.write_text(json.dumps(_building()), encoding="utf-8")
+    monkeypatch.setattr(config, "BUILDINGS_PATH", path)
+    _in_building(conn, "a1", "The Base Central Phuket")
+    _in_building(conn, "b1", "Zcape III")
+
+    assert [e["key"] for e in storage.fetch_pending_buildings(conn)] == ["zcape-iii"]

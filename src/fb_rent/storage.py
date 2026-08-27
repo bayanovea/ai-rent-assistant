@@ -10,6 +10,9 @@ same ``fb_id`` and carrying the ``source_hash`` that says whether the
 analysis still matches the text it was made from; ``decisions`` mirrors
 ``data/decisions.json`` so a user verdict can be JOINed in — the file stays
 the source of truth, because only user decisions are irreplaceable.
+``buildings`` is the same arrangement for ``data/buildings.json``: a condo's
+pets rule is researched once per building and vetted by hand, so the file
+leads and the table only exists to be JOINed.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ from pathlib import Path
 from collections.abc import Iterable
 from typing import Any, NamedTuple
 
-from . import ai_schema, config, extractors, photos, rules
+from . import ai_schema, buildings, config, extractors, photos, rules
 
 
 CSV_COLUMNS: tuple[str, ...] = (
@@ -92,6 +95,22 @@ CREATE TABLE IF NOT EXISTS decisions (
     reason     TEXT,
     rating     REAL,
     decided_at TEXT NOT NULL
+);
+"""
+
+_BUILDINGS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS buildings (
+    key           TEXT PRIMARY KEY,
+    name          TEXT,
+    area          TEXT,
+    policy        TEXT,
+    status        TEXT,
+    confidence    TEXT,
+    note          TEXT,
+    aliases_json  TEXT,
+    sources_json  TEXT,
+    researched_at TEXT,
+    confirmed_at  TEXT
 );
 """
 
@@ -330,6 +349,7 @@ def init_db(path: Path | str) -> sqlite3.Connection:
     conn.execute(_DUPLICATES_SCHEMA)
     conn.execute(_DECISIONS_SCHEMA)
     conn.execute(_PHOTO_HASHES_SCHEMA)
+    conn.execute(_BUILDINGS_SCHEMA)
     _migrate(conn)
     for stmt in _INDEXES:
         conn.execute(stmt)
@@ -1233,6 +1253,255 @@ def fetch_pending_photos(
         pending.append(listing)
 
     return PendingPhotos(pending=pending, no_photos=no_photos)
+
+
+_BUILDING_COLUMNS: tuple[str, ...] = (
+    "key",
+    "name",
+    "area",
+    "policy",
+    "status",
+    "confidence",
+    "note",
+    "aliases_json",
+    "sources_json",
+    "researched_at",
+    "confirmed_at",
+)
+
+# How many listings a queue row names outright. The count is what matters when
+# choosing what to research; the ids are only there to spot-check a building.
+QUEUE_SAMPLE_IDS = 5
+
+
+def _json_list(raw: Any) -> list[Any]:
+    """Decode a JSON list column, forgiving a hand-edited mess."""
+    if isinstance(raw, list):
+        return raw
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return value if isinstance(value, list) else []
+
+
+def _building_index(store: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """Map every known spelling of a building to its canonical key.
+
+    Both the key itself and each alias, normalised the same way, so a listing
+    naming the condo the way one agent spells it lands on the entry another
+    agent's spelling created. Nothing fuzzy happens here: an alias is a
+    hand-made statement that two names are one building.
+    """
+    index: dict[str, str] = {}
+    for key, entry in store.items():
+        if not isinstance(entry, dict):
+            continue
+        index.setdefault(str(key), str(key))
+        for alias in entry.get("aliases") or []:
+            alias_key = buildings.building_key(alias)
+            if alias_key:
+                index.setdefault(alias_key, str(key))
+    return index
+
+
+def sync_buildings_to_db(
+    conn: sqlite3.Connection,
+    store: dict[str, dict[str, Any]] | None = None,
+    *,
+    path: Path | str | None = None,
+) -> int:
+    """Mirror ``data/buildings.json`` into the ``buildings`` table.
+
+    The file wins, exactly as it does for decisions: entries it no longer
+    contains are deleted, so removing a building by hand propagates. Pass
+    ``store`` to sync an already-loaded map, otherwise it is read from
+    ``path`` (or ``config.BUILDINGS_PATH``). Returns the number of rows
+    written.
+    """
+    if store is None:
+        store = buildings.load_buildings(path)
+
+    rows = []
+    for key, entry in store.items():
+        policy = entry.get("policy")
+        status = entry.get("status")
+        if policy not in buildings.POLICIES:
+            raise buildings.BuildingError(
+                f"building {key}: unknown pets policy {policy!r}"
+            )
+        if status not in buildings.STATUSES:
+            raise buildings.BuildingError(
+                f"building {key}: unknown status {status!r}"
+            )
+        rows.append(
+            (
+                str(key),
+                entry.get("name") or str(key),
+                entry.get("area"),
+                policy,
+                status,
+                entry.get("confidence"),
+                entry.get("note"),
+                json.dumps(entry.get("aliases") or [], ensure_ascii=False),
+                json.dumps(entry.get("sources") or [], ensure_ascii=False),
+                entry.get("researched_at"),
+                entry.get("confirmed_at"),
+            )
+        )
+
+    conn.execute("DELETE FROM buildings")
+    conn.executemany(
+        f"INSERT INTO buildings ({', '.join(_BUILDING_COLUMNS)}) "
+        f"VALUES ({', '.join('?' * len(_BUILDING_COLUMNS))})",
+        rows,
+    )
+    conn.commit()
+    return len(rows)
+
+
+def building_policies(conn: sqlite3.Connection) -> dict[str, str]:
+    """Return ``{spelling: policy}`` for every policy allowed to act.
+
+    Only ``confirmed`` entries, and only a policy that says something: a
+    ``proposed`` building is inert by design and a confirmed ``unknown`` is
+    research that found nothing. Both are absent from the map, which is the
+    same absence an unresearched building has — the caller cannot tell the
+    three apart and no rule needs to. Mirrors :func:`.buildings.policy_for`,
+    over the table instead of the file.
+
+    Aliases get their own entry pointing at the same policy, so a lookup by
+    :func:`.buildings.building_key` of whatever the ad wrote hits.
+    """
+    rows = conn.execute(
+        "SELECT key, policy, aliases_json FROM buildings WHERE status = 'confirmed'"
+    ).fetchall()
+
+    out: dict[str, str] = {}
+    for row in rows:
+        policy = row["policy"]
+        if policy not in buildings.POLICIES or policy == "unknown":
+            continue
+        out[str(row["key"])] = str(policy)
+        for alias in _json_list(row["aliases_json"]):
+            alias_key = buildings.building_key(alias)
+            if alias_key:
+                out.setdefault(alias_key, str(policy))
+    return out
+
+
+def fetch_pending_buildings(
+    conn: sqlite3.Connection,
+    store: dict[str, dict[str, Any]] | None = None,
+    *,
+    refresh: bool = False,
+) -> list[dict[str, Any]]:
+    """Return the research queue: one row per building still to be looked up.
+
+    A building qualifies through its listings, and only listings still worth
+    keeping count. Who did the rejecting decides, the way it does in
+    :func:`fetch_pending_photos`: a user verdict wins outright, and only where
+    the user has said nothing does :func:`.rules.decide` get a vote. A condo
+    whose every ad is already out is not worth a web search.
+
+    Listings with an empty ``project_name`` cannot be researched — there is
+    nothing to search for — and are dropped. Buildings already in ``store``
+    are skipped unless ``refresh``, which is what keeps a second run cheap;
+    an ad spelling a stored building differently is recognised through its
+    aliases and collapses into that building's row rather than opening a new
+    one.
+
+    Each row carries ``key``, the display ``name`` (the spelling most of its
+    ads use), ``area``, the listing count, up to :data:`QUEUE_SAMPLE_IDS`
+    sample ``fb_ids`` and the distinct ``pets`` values those ads claimed —
+    the last one so a contradiction between the ad and the house rule can be
+    seen coming. Ordered by listing count descending: the building covering
+    five listings is the one worth researching first.
+    """
+    if store is None:
+        store = buildings.load_buildings()
+    index = _building_index(store)
+
+    rows = conn.execute(
+        """
+        SELECT l.*, a.data_json, a.photo_data_json, a.data_quality,
+               d.status AS user_status
+        FROM listings AS l
+        JOIN ai_analysis AS a ON a.fb_id = l.fb_id
+        LEFT JOIN decisions AS d ON d.fb_id = l.fb_id
+        ORDER BY l.last_seen_at DESC
+        """
+    ).fetchall()
+
+    queue: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        listing = dict(row)
+        fields = {
+            **fields_of(listing.pop("data_json", None)),
+            **fields_of(listing.pop("photo_data_json", None)),
+        }
+        user_status = listing.pop("user_status", None)
+        if user_status:
+            if user_status == "rejected":
+                continue
+        else:
+            status, _reason = rules.decide(
+                fields,
+                listing.get("price_thb"),
+                listing.get("data_quality"),
+                listing.get("district"),
+            )
+            if status == "rejected":
+                continue
+
+        name = str(rules.value_of(fields, "project_name") or "").strip()
+        raw_key = buildings.building_key(name)
+        if not raw_key:
+            continue
+        key = index.get(raw_key, raw_key)
+        if key in store and not refresh:
+            continue
+
+        entry = queue.setdefault(
+            key,
+            {
+                "key": key,
+                "name": name,
+                "area": None,
+                "listings": 0,
+                "fb_ids": [],
+                "pets": [],
+                "_names": {},
+                "_areas": {},
+            },
+        )
+        entry["listings"] += 1
+        entry["_names"][name] = entry["_names"].get(name, 0) + 1
+        area = str(rules.value_of(fields, "area") or "").strip() or (
+            str(listing.get("district") or "").strip()
+        )
+        if area:
+            entry["_areas"][area] = entry["_areas"].get(area, 0) + 1
+        if len(entry["fb_ids"]) < QUEUE_SAMPLE_IDS:
+            entry["fb_ids"].append(str(listing["fb_id"]))
+        pets = str(rules.value_of(fields, "pets") or "").strip()
+        if pets and pets not in entry["pets"]:
+            entry["pets"].append(pets)
+
+    out: list[dict[str, Any]] = []
+    for entry in queue.values():
+        # Ties keep the spelling of the most recently seen ad: rows arrive
+        # newest first and `max` is stable on the first maximum it meets.
+        entry["name"] = max(entry.pop("_names").items(), key=lambda kv: kv[1])[0]
+        areas = entry.pop("_areas")
+        entry["area"] = max(areas.items(), key=lambda kv: kv[1])[0] if areas else None
+        entry["pets"] = sorted(entry["pets"])
+        out.append(entry)
+
+    out.sort(key=lambda e: (-e["listings"], e["key"]))
+    return out
 
 
 def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:

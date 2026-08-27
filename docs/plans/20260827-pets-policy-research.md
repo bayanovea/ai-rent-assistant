@@ -265,17 +265,20 @@ the last one so the researcher can see a contradiction coming.
 - Modify: `src/fb_rent/storage.py`
 - Modify: `tests/test_storage.py`
 
-- [ ] add the `buildings` table to `_SCHEMA` (`CREATE TABLE IF NOT EXISTS`)
-- [ ] `sync_buildings_to_db(conn, store)` mirroring `decisions.sync_to_db`
-- [ ] `building_policies(conn)` → `{key: policy}` for confirmed entries only,
+- [x] add the `buildings` table to `_SCHEMA` (`CREATE TABLE IF NOT EXISTS`) —
+      as its own `_BUILDINGS_SCHEMA` constant executed by `init_db`, the way
+      every other table in the module is declared (`conn.execute` takes one
+      statement, so `_SCHEMA` could not have held it)
+- [x] `sync_buildings_to_db(conn, store)` mirroring `decisions.sync_to_db`
+- [x] `building_policies(conn)` → `{key: policy}` for confirmed entries only,
       alias keys included so a lookup by any spelling hits
-- [ ] `fetch_pending_buildings(conn, store, refresh=False)` → the queue rows
+- [x] `fetch_pending_buildings(conn, store, refresh=False)` → the queue rows
       described in Technical Details, ordered by listing count descending
-- [ ] write tests for the mirror (insert, update, entry removed from the file)
-- [ ] write tests for the queue: only active listings count, empty
+- [x] write tests for the mirror (insert, update, entry removed from the file)
+- [x] write tests for the queue: only active listings count, empty
       `project_name` excluded, already-researched keys skipped, `refresh=True`
       returns them, alias spellings collapse into one row
-- [ ] run tests — must pass before task 3
+- [x] run tests — must pass before task 3
 
 ### Task 3: The rejection rule
 
