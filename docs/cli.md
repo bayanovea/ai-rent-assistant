@@ -224,6 +224,9 @@ The whole file is refused before anything is written if a policy is not one of
 `not_allowed` arrives with no source. A ban with no verbatim quote is not a
 finding.
 
+A ban that lets the juristic office grant exceptions counts as `not_allowed`,
+not `negotiable` — see [pets-policy.md](pets-policy.md).
+
 ## `fb-rent buildings`
 
 The review side of the same pass.
@@ -233,6 +236,7 @@ fb-rent buildings list --status proposed      # policy, evidence, affected rows
 fb-rent buildings list --policy not_allowed
 fb-rent buildings set the-base-central --policy not_allowed \
     --note "УК: no pets" --alias "base central"
+fb-rent buildings conflicts                   # ads that argue with the rule
 fb-rent export
 ```
 
@@ -248,6 +252,15 @@ existing building — there is no fuzzy matching, on purpose. Aliases are only
 ever added, never dropped.
 
 `set` re-exports nothing; run `fb-rent export` to refresh the table.
+
+`conflicts` prints the buildings researched as `not_allowed` whose ads keep
+saying the opposite — two or more of them claiming `pets: allowed`
+(`--min-signals` moves the bar). Those listings are **not** rejected: an
+outright yes in the ad survives the building's rule, because it is the more
+specific claim about that flat. A pile of them in one tower is the signal that
+the research read the wrong building, and this is where it surfaces —
+`ai-status` shows the count on its «Расхождения» line. Nothing here changes a
+status; it is a queue for your eyes.
 
 ## Your own decisions
 

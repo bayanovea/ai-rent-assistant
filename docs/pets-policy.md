@@ -41,8 +41,8 @@ a building that forbids dogs is a fact worth seeing.
 
 | Policy | What it means | What it does |
 |--------|---------------|--------------|
-| `not_allowed` | a verbatim quote says animals are forbidden | rejects every listing in the building, reason «Кондо запрещает животных» |
-| `negotiable` | a size or breed limit, or anyone deciding case by case | **nothing** — the listing stays, the badge says to ask |
+| `not_allowed` | a verbatim quote says animals are forbidden | rejects the building's listings, reason «Кондо запрещает животных» — except the ads that say `pets: allowed` outright |
+| `negotiable` | animals do live there, and the limit is about which one | **nothing** — the listing stays, the badge says to ask |
 | `allowed` | animals are permitted | nothing |
 | `unknown` | research found no source | nothing |
 
@@ -50,10 +50,36 @@ a building that forbids dogs is a fact worth seeing.
 the AI fills in: the case the user explicitly wants kept has nowhere to live
 there. It never rejects, in any combination.
 
-A size-or-breed rule is `negotiable`, not `not_allowed`. So is any hint that
-the management or the owner decides case by case. Silence is `unknown`, and a
-source about a different building in the same chain — "The Base Downtown" for
-"The Base Central" — is not evidence at all.
+**A ban with an escape hatch is still a ban.** "No pets unless specifically
+permitted by the juristic office" — the phrasing the agency feeds carry for
+most Phuket condos — reads as `not_allowed`, not `negotiable`: walking into the
+juristic office for one rented flat is not a path this user will take, so for
+them the answer is no. `negotiable` is for the building where animals are
+already kept and only the size, the breed or the deposit is in question.
+
+Research is meant to be **decisive**: one source that plainly states the ban is
+enough for `not_allowed`, with no second confirmation. The verbatim quote is
+still required — decisiveness is about how the finding is read, not about doing
+without evidence. Silence is `unknown`, and a source about a different building
+in the same chain — "The Base Downtown" for "The Base Central" — is not
+evidence at all.
+
+## The ad that says yes anyway
+
+A `not_allowed` building does not reject the listing whose own `pets` field is
+`allowed`. The rule is about the tower; "с животными можно" is about this flat,
+and it is usually a landlord who already holds the permission the rule talks
+about. Rejecting those rows would throw away the only listings in a forbidding
+building worth opening. Only an outright yes counts — `unclear`, the value most
+ads carry, is not consent, or the building rule would reject nothing.
+
+Several such ads in one building are a different claim: that the research read
+the wrong tower, or the wrong chain member. `storage.fetch_pets_conflicts`
+collects those (two or more by default) and `fb-rent buildings conflicts`
+prints them with their URLs; `ai-status` carries the count on a «Расхождения»
+line. Nothing in that path changes a status — it is a queue for the user's own
+eyes, and it keeps `proposed` buildings too, since a contradiction is exactly
+what should be seen *before* a policy is confirmed.
 
 ## Research proposes, the user confirms
 

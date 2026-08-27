@@ -185,6 +185,25 @@ rank a researched building over an identical unresearched one for a reason
 about the research rather than the flat. `not_allowed` needs no weight because
 it rejects outright. `score()` never reads the policy; keep it that way.
 
+**An ad that says `pets: allowed` outright survives a `not_allowed`
+building.** The check in `rules.decide` is guarded on the ad's own field, and
+the guard looks like a bug that lets rejected rows through — it is the rule.
+The house rule is about the tower, the ad is about the flat, and it is usually
+a landlord who already has the permission the rule talks about; dropping the
+guard rejects the only listings in a forbidding building worth opening. Only an
+outright `allowed` counts: widen it to `unclear` — the value most ads carry —
+and the building policy stops rejecting anything at all.
+
+**A ban the juristic office can lift is `not_allowed`, not `negotiable`.**
+Almost every Phuket condo carries the same agency-feed sentence («no pets
+unless specifically permitted by the juristic office»), and reading it as
+"negotiable" is both literally right and useless: the user will not go to the
+management for one rented flat. `negotiable` is for the building where animals
+already live and only the size, the breed or the deposit is in question. The
+wording lives in `buildings_batch.RESEARCH_PROMPT` **and** in
+`.claude/skills/pets-policy` — change one without the other and the next batch
+argues with its own skill.
+
 **`building_key` is deliberately dumb and must not learn to guess.** Lowercase,
 alphanumerics, hyphen-join — it will not merge "The Base" and "Base Central",
 and it is not supposed to. A second spelling is pointed at an existing building
