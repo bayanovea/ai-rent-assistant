@@ -323,21 +323,21 @@ the last one so the researcher can see a contradiction coming.
 - Create: `src/fb_rent/buildings_batch.py`
 - Create: `tests/test_buildings_batch.py`
 
-- [ ] `build_buildings_batch(conn, store, limit=None, keys=None, refresh=False)`
+- [x] `build_buildings_batch(conn, store, limit=None, keys=None, refresh=False)`
       → the batch dict (queue rows + a `research_prompt` naming the four
       policy values and the source-evidence requirement)
-- [ ] `write_buildings_batch(batch, out_dir=None)` → `buildings-batch-<ts>.json`,
+- [x] `write_buildings_batch(batch, out_dir=None)` → `buildings-batch-<ts>.json`,
       reusing `ai_batch.timestamped_path`
-- [ ] `validate_buildings_results(results)` — unknown policy value, missing key,
+- [x] `validate_buildings_results(results)` — unknown policy value, missing key,
       and a `not_allowed` carrying no source each raise `BatchError` before
       anything is written
-- [ ] `apply_buildings_results(conn, store, result, dry_run=False)` → writes
+- [x] `apply_buildings_results(conn, store, result, dry_run=False)` → writes
       entries as `status: "proposed"` and returns a report (applied, skipped,
       warnings, per-building affected-listing counts)
-- [ ] write tests for batch assembly (limit, `keys` narrowing, empty queue)
-- [ ] write tests for each validation failure and for a clean apply
-- [ ] write tests: apply never changes any listing's status (proposals are inert)
-- [ ] run tests — must pass before task 6
+- [x] write tests for batch assembly (limit, `keys` narrowing, empty queue)
+- [x] write tests for each validation failure and for a clean apply
+- [x] write tests: apply never changes any listing's status (proposals are inert)
+- [x] run tests — must pass before task 6
 
 ### Task 6: CLI commands
 
