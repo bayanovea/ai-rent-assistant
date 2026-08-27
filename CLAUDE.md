@@ -105,6 +105,30 @@ back to "longest text block" and writes the sidebar over real text, and the
 gallery it returns can belong to another listing entirely — this has happened,
 see `docs/dedupe.md`. Fix the extraction before any mass re-read.
 
+## The table
+
+**A tie at the top is how `rules.score` fails.** Nothing in the code says so,
+because each weight looks harmless on its own: the failure is the sum. Points
+for a merely non-empty field (`internet`, `pool_gym`, `extra_rooms`), a flat
+bonus for the first bedroom, a bonus for a price inside the budget — none of
+those separate one survivor from another, and together they once pinned 352 of
+1123 active rows at exactly 100, where the default sort could no longer order
+the first screen. Before adding a positive weight, re-measure the spread on the
+live DB (`fetch_enriched` → count the rows at 100); the ceiling is the budget.
+
+**`data_quality` is a badge, `unclear` is a dash, `Причина` is tab-bound.**
+All three look like missing columns and all three are deliberate: `good` on
+99% of rows, "the ad did not say" on the majority of five enum columns, and
+empty on every row of the Active tab. Restoring any of them as a plain column
+puts a full column's width behind information that is already on screen — see
+`docs/data-layout.md`.
+
+**The pending-decision queue is cleared by `export`, not by a button.** The
+page drops a queued decision when the row already carries it (same mark,
+`decided_by == "user"`), which is why running the commands and re-exporting is
+the whole loop. A "clear after copy" would throw away decisions whose commands
+were copied but never run.
+
 ## Districts
 
 **The first named district wins.** `area` is free text and the AI often names
