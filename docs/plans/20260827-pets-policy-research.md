@@ -367,17 +367,17 @@ the last one so the researcher can see a contradiction coming.
 - Modify: `src/fb_rent/storage.py` (`export_html`)
 - Modify: `tests/test_storage.py`
 
-- [ ] render the policy as a **badge on the existing "Проект/посёлок" cell**, not
+- [x] render the policy as a **badge on the existing "Проект/посёлок" cell**, not
       as a new column — `docs/data-layout.md` and the `data_quality` precedent
-- [ ] badge colours: `not_allowed` bad, `negotiable` warn, `allowed` good,
+- [x] badge colours: `not_allowed` bad, `negotiable` warn, `allowed` good,
       `proposed` rendered distinctly from `confirmed` so an unvetted proposal
       never looks like a decision
-- [ ] title/tooltip carries the source quotes and URLs, so a rejection can be
+- [x] title/tooltip carries the source quotes and URLs, so a rejection can be
       checked from the table
-- [ ] write tests asserting the badge appears for a confirmed building and that
+- [x] write tests asserting the badge appears for a confirmed building and that
       a `proposed` one renders in its own class
-- [ ] write tests asserting no badge and unchanged markup when the store is empty
-- [ ] run tests — must pass before task 8
+- [x] write tests asserting no badge and unchanged markup when the store is empty
+- [x] run tests — must pass before task 8
 
 ### Task 8: The skill
 

@@ -1768,6 +1768,16 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .badge { font-size: 9px; color: #8a7fa8; border: 1px solid #d8cfe8; border-radius: 3px; padding: 0 3px; margin-left: 4px; vertical-align: 1px; }
   .badge.fb { color: #4a7099; border-color: #cbd9e8; }
   .badge.was { color: #1f6f68; border-color: #bfdcd6; cursor: help; }
+  /* Правило кондо о животных — бейдж на «Проект/посёлок», не колонка. */
+  .bpol { font-size: 9px; border: 1px solid #d8cfe8; border-radius: 3px; padding: 0 3px; margin-left: 4px; vertical-align: 1px; cursor: help; white-space: nowrap; }
+  .bpol.c-good { border-color: #b7dfc2; }
+  .bpol.c-warn { border-color: #f0dca6; }
+  .bpol.c-bad { border-color: #f2c6c2; }
+  .bpol.c-none { border-color: #dfe2e8; }
+  /* Исследование только предложило правило — вы его ещё не подтвердили, и оно
+     ничего не отклоняет. Пунктир и курсив, чтобы предложение нельзя было
+     прочитать как решение. */
+  .bpol.b-proposed { background: none; color: #6b7a99; border-style: dashed; font-style: italic; }
   .c-good { background: #e6f4ea; color: #137333; }
   .c-warn { background: #fef7e0; color: #8a6d00; }
   .c-bad  { background: #fce8e6; color: #a50e0e; }
@@ -1815,6 +1825,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
   <span class="item"><span class="sw src-photo"></span>колонка от фото-прохода — AI смотрел снимки, а не текст</span>
   <span class="item"><span class="dq">sidebar_noise</span>анализ читал не тот текст — строку надо перечитать</span>
   <span class="item"><span class="badge was">≠ текст</span>фото не согласилось с текстом — в подсказке прежнее значение</span>
+  <span class="item"><span class="bpol c-bad b-confirmed">нельзя</span>правило кондо о животных, подтверждённое вами — оно и отклоняет объявление</span>
+  <span class="item"><span class="bpol c-warn b-proposed">по договорённости</span>исследование предложило правило, вы его ещё не подтвердили — ни на что не влияет</span>
   <span class="item"><span class="sw c-good"></span>подходит (pets allowed, цена в бюджете)</span>
   <span class="item"><span class="sw c-warn"></span>под вопросом (unclear, 30–35k ฿)</span>
   <span class="item"><span class="sw c-bad"></span>стоп-фактор (животные запрещены, вне бюджета)</span>
@@ -1990,6 +2002,14 @@ function tdHTML(row, col) {
   // overruled reading one hover away instead of dropping it silently.
   if (!empty && cell.was) {
     inner += '<span class="badge was" title="' + esc(cell.was) + '">\u2260 текст</span>';
+  }
+
+  // Правило кондо о животных: не колонка, а бейдж на названии проекта — оно
+  // известно только для исследованных зданий. В подсказке — цитаты и ссылки,
+  // чтобы отказ «Кондо запрещает животных» можно было проверить, а не верить.
+  if (cell.bp) {
+    inner += '<span class="bpol ' + esc(cell.bc) + ' b-' + esc(cell.bs)
+      + '" title="' + esc(cell.bev) + '">' + esc(cell.bt) + '</span>';
   }
 
   const cellId = row.fb_id + "|" + col.key;
@@ -2760,6 +2780,66 @@ def _area_rating_cell(item: dict[str, Any]) -> dict[str, Any]:
     ), "n": float(rating)}
 
 
+# The building's pets rule rides on the «Проект/посёлок» cell as a badge, for
+# the same reason `data_quality` rides on the ID: a column of its own would
+# spend a full width on a word that is blank for every unresearched building.
+_BUILDING_POLICY_LABELS: dict[str, str] = {
+    "not_allowed": "нельзя",
+    "negotiable": "по договорённости",
+    "allowed": "можно",
+    "unknown": "не найдено",
+}
+
+_BUILDING_POLICY_CLASSES: dict[str, str] = {
+    "not_allowed": rules.CLASS_BAD,
+    "negotiable": rules.CLASS_WARN,
+    "allowed": rules.CLASS_GOOD,
+    "unknown": rules.CLASS_NONE,
+}
+
+_BUILDING_STATUS_LABELS: dict[str, str] = {
+    "confirmed": "подтверждено",
+    "proposed": "предложение, не подтверждено",
+}
+
+
+def _building_badge(item: dict[str, Any]) -> dict[str, Any] | None:
+    """The building's pets rule as a badge, or ``None`` for an unknown building.
+
+    The tooltip carries the verbatim quotes and their URLs, so a rejection
+    reading «Кондо запрещает животных» can be checked from the table instead of
+    trusted. A ``proposed`` entry gets its own status word here and its own
+    class on the page: research alone rejects nothing, and an unvetted proposal
+    must not read like a decision.
+    """
+    policy = item.get("building_policy")
+    if not policy:
+        return None
+    status = str(item.get("building_status") or "proposed")
+    name = str(item.get("building_name") or "").strip()
+    head = f"животные: {_BUILDING_POLICY_LABELS.get(policy, policy)}"
+    lines = [
+        f"{name} — {head}" if name else head,
+        _BUILDING_STATUS_LABELS.get(status, status),
+    ]
+    for source in item.get("building_sources") or []:
+        if not isinstance(source, dict):
+            continue
+        quote = str(source.get("quote") or "").strip()
+        title = str(source.get("title") or "").strip()
+        url = str(source.get("url") or "").strip()
+        parts = [p for p in (title, f"«{quote}»" if quote else "", url) if p]
+        if parts:
+            lines.append(" — ".join(parts))
+    return {
+        "bp": policy,
+        "bs": status,
+        "bc": _BUILDING_POLICY_CLASSES.get(policy, ""),
+        "bt": _BUILDING_POLICY_LABELS.get(policy, policy),
+        "bev": "\n".join(lines),
+    }
+
+
 def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, Any]:
     """Turn one :func:`fetch_enriched` item into a row for the HTML payload.
 
@@ -2769,7 +2849,9 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
     Price and district exist twice in the pipeline (parsed off the card, then
     read out of the ad text); each is merged into one cell that prefers the
     AI's reading and records in ``src`` which one is on screen. A cell the
-    photo pass overrode carries ``was`` — what the text had claimed.
+    photo pass overrode carries ``was`` — what the text had claimed. The
+    researched pets rule of the building rides on the ``project_name`` cell as
+    ``bp`` / ``bs`` / ``bc`` / ``bt`` / ``bev`` — see :func:`_building_badge`.
     """
     analyzed = bool(item.get("analyzed"))
     fields = item.get("fields") or {}
@@ -2885,6 +2967,10 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
             # the cell shows what the camera saw, the badge what was written.
             cell["was"] = "текст: " + (_display(photo_overrides[key]) or "—")
         cells[key] = cell
+
+    badge = _building_badge(item)
+    if badge and "project_name" in cells:
+        cells["project_name"].update(badge)
 
     return {
         "fb_id": item.get("fb_id"),

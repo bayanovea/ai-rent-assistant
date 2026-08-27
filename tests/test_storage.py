@@ -2326,3 +2326,90 @@ def test_enriched_survives_a_database_without_the_buildings_table(conn):
     item = _enriched_by_id(conn)["a1"]
     assert item["status"] == "active"
     assert item["building_policy"] is None
+
+
+# --- buildings in the table: the badge on «Проект/посёлок» ------------------
+
+
+def _export_rows(conn, tmp_path: Path):
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out)
+    text = out.read_text(encoding="utf-8")
+    return {r["fb_id"]: r for r in _inline_payload(text, "DATA")}, text
+
+
+def test_export_html_badges_a_confirmed_building_on_the_project_cell(
+    conn, tmp_path: Path
+):
+    _in_building(conn, "a1", "The Base Central Phuket")
+    storage.sync_buildings_to_db(conn, _building())
+
+    rows, text = _export_rows(conn, tmp_path)
+    cell = rows["a1"]["cells"]["project_name"]
+    assert cell["t"] == "The Base Central Phuket"
+    assert (cell["bp"], cell["bs"], cell["bt"]) == ("not_allowed", "confirmed", "нельзя")
+    assert cell["bc"] == rules.CLASS_BAD
+    # The rejection can be checked from the table: quote and URL are both there.
+    assert "Pets are not allowed in the building." in cell["bev"]
+    assert "https://example.com/rules" in cell["bev"]
+    assert "подтверждено" in cell["bev"]
+    # It stays a badge, not a column of its own.
+    columns = _inline_payload(text, "COLUMNS")
+    assert not [c for c in columns if c["key"].startswith("building")]
+    # And the class the page hangs the colour on is styled.
+    assert ".bpol.c-bad" in text
+
+
+@pytest.mark.parametrize(
+    "policy,cls,label",
+    [
+        ("not_allowed", rules.CLASS_BAD, "нельзя"),
+        ("negotiable", rules.CLASS_WARN, "по договорённости"),
+        ("allowed", rules.CLASS_GOOD, "можно"),
+        ("unknown", rules.CLASS_NONE, "не найдено"),
+    ],
+)
+def test_export_html_colours_the_badge_by_policy(
+    conn, tmp_path: Path, policy, cls, label
+):
+    _in_building(conn, "a1", "The Base Central Phuket")
+    storage.sync_buildings_to_db(conn, _building(policy=policy))
+
+    cell = _export_rows(conn, tmp_path)[0]["a1"]["cells"]["project_name"]
+    assert (cell["bp"], cell["bc"], cell["bt"]) == (policy, cls, label)
+
+
+def test_export_html_renders_a_proposal_in_its_own_class(conn, tmp_path: Path):
+    # A proposal rejects nothing, so it must not look like a decision.
+    _in_building(conn, "a1", "The Base Central Phuket")
+    storage.sync_buildings_to_db(conn, _building(status="proposed"))
+
+    rows, text = _export_rows(conn, tmp_path)
+    cell = rows["a1"]["cells"]["project_name"]
+    assert cell["bs"] == "proposed"
+    assert "предложение, не подтверждено" in cell["bev"]
+    assert rows["a1"]["status"] == "active"
+    assert ".bpol.b-proposed" in text
+
+
+def test_export_html_badges_an_alias_spelling_too(conn, tmp_path: Path):
+    _in_building(conn, "a1", "Base Central")
+    storage.sync_buildings_to_db(conn, _building())
+
+    cell = _export_rows(conn, tmp_path)[0]["a1"]["cells"]["project_name"]
+    # The cell keeps the ad's own spelling; the tooltip names the building.
+    assert cell["t"] == "Base Central"
+    assert cell["bp"] == "not_allowed"
+    assert "The Base Central Phuket" in cell["bev"]
+
+
+def test_export_html_has_no_badge_when_nothing_is_researched(conn, tmp_path: Path):
+    _in_building(conn, "a1", "The Base Central Phuket")
+
+    rows, text = _export_rows(conn, tmp_path)
+    cell = rows["a1"]["cells"]["project_name"]
+    assert cell["t"] == "The Base Central Phuket"
+    for key in ("bp", "bs", "bc", "bt", "bev"):
+        assert key not in cell
+    # Nothing else on the row picked the keys up either.
+    assert '"bp":' not in json.dumps(rows, ensure_ascii=False)
