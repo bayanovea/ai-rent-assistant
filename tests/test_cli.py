@@ -1302,6 +1302,52 @@ def test_buildings_set_confirms_and_rejects_the_listings(home):
     assert rows[0]["reason"] == "Кондо запрещает животных"
 
 
+def test_buildings_set_does_not_count_the_ads_that_survive_it(home):
+    # Two of the three ads promise animals outright and stay active, so the
+    # number the user confirms on must be one, not three.
+    _condo("1")
+    _condo("2", pets="allowed")
+    _condo("3", pets="allowed")
+    _run("buildings-apply", str(_result_file(home)))
+
+    result = _run(
+        "buildings", "set", "the-base-central-phuket", "--policy", "not_allowed"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Отклонит объявлений: 1" in result.output
+    assert "Останутся: 2" in result.output
+
+    conn = storage.init_db(config.DB_PATH)
+    try:
+        rows = {row["fb_id"]: row["status"] for row in storage.fetch_enriched(conn)}
+    finally:
+        conn.close()
+    assert rows == {"1": "rejected", "2": "active", "3": "active"}
+
+
+def test_buildings_conflicts_lists_the_ads_that_argue_with_the_rule(home):
+    _condo("1", pets="allowed")
+    _condo("2", pets="allowed")
+    _run("buildings-apply", str(_result_file(home)))
+
+    result = _run("buildings", "conflicts")
+
+    assert result.exit_code == 0, result.output
+    assert "The Base Central Phuket" in result.output
+    assert "2 объявлений обещают животных" in result.output
+
+
+def test_buildings_conflicts_is_quiet_on_a_single_ad(home):
+    _condo("1", pets="allowed")
+    _run("buildings-apply", str(_result_file(home)))
+
+    result = _run("buildings", "conflicts")
+
+    assert result.exit_code == 0, result.output
+    assert "Нет зданий" in result.output
+
+
 def test_buildings_set_finds_the_building_by_name_and_takes_aliases(home):
     _condo("1")
     _run("buildings-apply", str(_result_file(home)))

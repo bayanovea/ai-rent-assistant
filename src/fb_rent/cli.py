@@ -1779,12 +1779,26 @@ def buildings_set_cmd(
         _sync_decisions(conn)
         _sync_buildings(conn, store)
         affected = _affected_listings(conn, store).get(stored_key, 0)
+        # An ad that says "с животными можно" outright survives the rule, so
+        # counting the building's coverage as rejections would overstate what
+        # this confirmation does — and this is the number the user decides on.
+        survivors = [
+            len(c["listings"])
+            for c in fetch_pets_conflicts(conn, store, min_signals=1)
+            if c["key"] == stored_key
+        ]
     finally:
         conn.close()
 
+    kept = survivors[0] if survivors else 0
     click.echo(f"{saved['name']} [{stored_key}]: {policy} (confirmed)")
     if policy == "not_allowed":
-        click.echo(f"  Отклонит объявлений: {affected}")
+        click.echo(f"  Отклонит объявлений: {max(affected - kept, 0)}")
+        if kept:
+            click.echo(
+                f"  Останутся: {kept} — объявления обещают животных вопреки "
+                "правилу дома, `fb-rent buildings conflicts`"
+            )
     click.echo(
         f"Saved to {config.BUILDINGS_PATH}. Run `fb-rent export` to refresh "
         "the table."
