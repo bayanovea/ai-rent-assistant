@@ -177,6 +177,51 @@ building.
 
 Append after a real run. Do not rewrite what is here.
 
+### 28 August 2026 — fourth run: the feed has a sitemap
+
+Continued the tail with the search budget still at 200/200. It turned out not
+to be needed for most of it.
+
+**The evidence almost always lives at a predictable URL.** Every run so far has
+found its rule in one place — the FazWaz feed — and its mirror
+`kaibaanthai.com` serves that page to a plain `curl` with a browser
+User-Agent, publishes a sitemap, and `robots.txt` allows it. 1807 Phuket
+project URLs came out of four sitemap files in one fetch. That turns "search
+the web for this building" into "match a name against a canonical slug list",
+which needs no search tool at all.
+
+The pipeline: normalise both names (transliteration pairs — `chaofa`/`chao
+fah`, `dcondo`/`d condo`, `panason`/`phanason`, `chanakarn`/`chanakan`), score
+by token-set F1 and sequence ratio, fetch the best match, pull the FAQ sentence
+with a regex, and **verify the sentence names the building it was matched to**.
+59 pages fetched, 41 rules extracted, 18 pages that existed but said nothing
+about pets.
+
+**The phase number is the trap, and it is mechanical.** «NOON Village Tower 2»
+matched «Noon Village Tower I» at 0.90; «The Wish Paklok» matched «The Wish
+Paklok 2»; «Villa Kathu» matched «Phuket Villa Kathu 3». All three are
+different buildings. The rule that catches it: the digits and roman numerals in
+the two names must be the same set, or the match is refused. It runs before the
+fetch and needs no judgement.
+
+**Name matching decides where the answer comes from; it must not decide the
+answer.** Weak matches were not fetched at all, and a fetched page whose quote
+named a different project was recorded as `unknown` rather than guessed at. The
+store keeps the matched card's name in the note, so every one of these is
+checkable later without re-running anything.
+
+Result: 41 more buildings answered — 22 `allowed`, 19 `not_allowed` — and 12
+recorded as `unknown` because their card exists and is silent. 130 buildings
+confirmed in total: 54 `not_allowed`, 39 `allowed`, 32 `unknown`,
+5 `negotiable`. 372 rows carry «Кондо запрещает животных»; the active set is
+539 of 1401. The conflicts pile is still empty.
+
+**70 buildings remain, one listing each, and they are the genuinely hard ones**
+— names that match nothing in the feed's 1807 Phuket projects («NBC», «Baan
+Kueng Resort», «The Firsts Samkong»). For those the feed has no answer at any
+URL, so a session with search budget is the only way forward, and it may well
+come back `unknown` for most of them.
+
 ### 28 August 2026 — third run: the tail, and the search budget
 
 Ran the rest of the queue autonomously. Two things changed the shape of the
