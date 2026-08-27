@@ -56,13 +56,15 @@ Then, in a Claude Code session:
 
 Open `../data/rentals.html` in a browser: one self-contained file, no server
 and no internet needed. Sort by a header, filter across every column from the
-search box, switch sets with the Active / Shortlist / Rejected / All tabs.
+search box, switch sets with the Разобрать / Shortlist / Longlist / Rejected /
+All tabs — the first is the queue of what you have not looked at, the other
+three are what you have.
 Every AI-filled cell carries the quote it came from in its tooltip.
 
 Record what you think as you go — this is the part no machine does for you:
 
 ```sh
-fb-rent rate 1234567890 4.5              # 4.5+ shortlists, 3 and below rejects
+fb-rent rate 1234567890 4.5              # 4.5+ shortlist, 4 longlist, 3- reject
 fb-rent reject 1234567890 --reason "агент не отвечает"
 ```
 

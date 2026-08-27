@@ -125,12 +125,23 @@ raises. Adding a synonym to the stems is the fix for old rows; fixing the skill
 is the fix for new ones. Neither touches `source_hash`, so neither re-queues
 anything.
 
-**`data_quality` is a badge, `unclear` is a dash, `Причина` is tab-bound.**
-All three look like missing columns and all three are deliberate: `good` on
-99% of rows, "the ad did not say" on the majority of five enum columns, and
-empty on every row of the Active tab. Restoring any of them as a plain column
+**`data_quality` is a badge, `unclear` is a dash, `Причина` and `Кто решил`
+are tab-bound.** All of them look like missing columns and all of them are
+deliberate: `good` on 99% of rows, "the ad did not say" on the majority of
+five enum columns, and — for the last two — a column of one repeated value on
+every tab but Rejected and All. A column says where it lives with `tabs` in
+`_FIXED_COLUMNS`; dropping that key does not break anything visibly, it just
 puts a full column's width behind information that is already on screen — see
 `docs/data-layout.md`.
+
+**A rating never leaves a listing in `active`.** `status_for_rating` sends
+every mark somewhere else — 5 to the shortlist, 4 to the longlist, 3 and below
+out — because the Разобрать tab is the queue of what has not been looked at,
+and one rated row sitting in it is indistinguishable at a glance from an
+untouched one. `active` remains a valid status for exactly one writer:
+`unreject`, which puts an auto-rejected listing back into that queue. Widening
+the middle band so that some mark maps back to `active` silently breaks the
+queue — nothing raises, the tab just stops emptying.
 
 **The pending-decision queue is cleared by `export`, not by a button.** The
 page drops a queued decision when the row already carries it (same mark,

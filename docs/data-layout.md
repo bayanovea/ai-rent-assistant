@@ -35,7 +35,16 @@ merging it away in `dedupe`, purges its directory.
 
 One self-contained file: no server, no CDN, no internet. Click a header to
 sort, type in the search box to filter across every column, switch sets with
-the Active / Shortlist / Rejected / All tabs.
+the Разобрать / Shortlist / Longlist / Rejected / All tabs.
+
+**The tabs are the four states of a listing, and only the first is a queue.**
+Разобрать holds what nobody has looked at yet — 1122 rows of the 2235 today —
+and it empties as you work: every mark moves the row out of it. 4.5 and up go
+to Shortlist, 4 to Longlist (seen, middling, kept to hand), 3 and below to
+Rejected. Nothing rated stays behind, which is what makes "what is left to do"
+a tab rather than a filter you have to remember to set. `active` survives as a
+status only for `unreject`, which puts an auto-rejected listing back into that
+queue.
 
 Both sorting and filtering take more than one column at a time. Shift-clicking
 a second header appends it as a tie-breaker instead of replacing the current
@@ -53,10 +62,10 @@ can trim the table invisibly.
 **"Кандидаты"** sets four of them at once — the hard part of the letter in
 `config/requirements.md`, which nobody assembles by hand four controls at a
 time: recommendation ∈ {смотреть, спросить}, district rating ≥ 4, price
-≤ 30 000. On the current corpus that is 1123 active rows down to 311. It is a
+≤ 30 000. On the current corpus that is 1122 active rows down to 310. It is a
 preset, not a mode: the filters it sets stay visible and adjustable, and
 dropping the `спросить` chip — the rows where the ad simply never mentioned the
-dog — takes it to 202. Editing any of them turns the button off, because the
+dog — takes it to 201. Editing any of them turns the button off, because the
 set on screen is then no longer the preset. One caveat worth knowing: a from/to
 filter excludes empty cells, so rows whose district nobody named fall out of
 the set even though the rules deliberately do not penalise them.
@@ -94,17 +103,31 @@ Three things are deliberately not columns:
   the grey dash already means, and it was the most common value in five
   columns. `pets` is the exception: not knowing whether the dog is welcome is
   itself the reason to call the agent.
-- **`Причина`** on the Active and Shortlist tabs — a rejection writes it and
-  nothing else does, so there it was a column of dashes as tall as the table.
+- **`Причина`** and **`Кто решил`** outside the Rejected and All tabs — a
+  rejection writes the reason and nothing else does, and on Longlist and
+  Shortlist every row was decided by you, so both were columns of one repeated
+  value as tall as the table. A column carries `tabs` to say where it lives.
 
-Rejected rows carry their reason; shortlisted ones get a yellow bar; a photo
-field that overrode a non-empty text value carries a badge with the old value
-in its tooltip.
+Rejected rows carry their reason; shortlisted ones get a yellow bar,
+longlisted ones a blue one; a photo field that overrode a non-empty text value
+carries a badge with the old value in its tooltip.
+
+**`Кто решил` is how your own rejections stay findable.** The rules
+auto-rejected 1083 listings and you rejected 23, and on the Rejected tab they
+sat in one pile: the only thing separating them was a small `(вы)` after the
+reason, which the search box could not see (the haystack is built from cell
+text, and the suffix was added at render time) and no filter could select. It
+is a column now — `вы` as a chip, `AI` as a grey word — so one click in the
+filter panel takes 1106 rows down to your 23. That matters more than it looks:
+the auto-rejections are recomputed on every export and will shuffle the moment
+a weight changes, while your 23 are the one thing here that cannot be rebuilt.
 
 **Decisions are taken from the keyboard.** `↓ ↑` (or `j k`) walk the visible
-rows, `1`–`5` record your own mark, `r` rejects, `a` puts a row back into the
-active set, `0` takes the decision back; every key that records something also
-steps to the next row, so a row costs one keystroke. The mark shows up in
+rows, `1`–`5` record your own mark (1–3 reject, 4 longlists, 5 shortlists),
+`r` rejects, `a` puts a row back into the queue to be looked at, `0` takes the
+decision back; every key that records something also steps to the next row, so
+a row costs one keystroke. Since every mark moves the row off Разобрать, the
+tab shrinks under the cursor as you go. The mark shows up in
 `Моя оценка` in yellow — принято, но ещё не записано — and the "Решения (N)"
 button opens the queue as a ready block of `fb-rent rate` / `reject` commands
 to paste into a terminal.

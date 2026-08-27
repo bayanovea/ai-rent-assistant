@@ -211,7 +211,11 @@ fb-rent export                       # refresh the table
 back (overriding an AI rejection), `shortlist` marks it as worth contacting.
 
 `rate` is the shorthand for reviewing a whole screen of listings: 4.5 or more
-shortlists, 3 or less rejects, anything between leaves the listing active
-carrying the mark. The mark itself is the record that the listing has been
-looked at, so an unmarked row is one still waiting for you — sort on the
-**Моя оценка** column to tell the two apart.
+shortlists, 3 or less rejects, anything between goes to the **longlist** — the
+middle drawer, kept to hand. From the keyboard that reads 1–3 out, 4 to the
+longlist, 5 to the shortlist.
+
+No mark ever leaves a listing in the active set, and that is the point: the
+Разобрать tab is the queue of what has not been looked at, so a row still on
+it is a row still waiting for you. Nothing has to be sorted or filtered to
+see what is left.
