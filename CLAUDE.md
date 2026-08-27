@@ -29,10 +29,23 @@ why is not obvious.
 `img` elements from the gallery in `page.content()`; opening the lightbox is
 neither necessary nor possible (an overlay eats the pointer events on the
 cover). `extract_gallery_urls` picks them locale-independently: `img` with
-`/t39.30808-6/` in `src` and a non-empty `alt`, grouped by `alt`, largest group
-wins (gallery photos share one `alt`, "similar listings" cards each have their
-own). Do not filter on `aria-label` numbering (locale-dependent) or on
-`cstp=mx` (drags in the 565×565 recommendation cards).
+`/t39.30808-6/` in `src` and a non-empty `alt`, **not inside an
+`a[href*="/marketplace/item/"]`**, grouped by `alt`, largest group wins
+(gallery photos share one `alt`, "similar listings" cards each have their own).
+Do not filter on `aria-label` numbering (locale-dependent) or on `cstp=mx`
+(drags in the 565×565 recommendation cards).
+
+**The link test is what makes an absent gallery an empty list.** Some pages
+render no gallery at all — waiting and scrolling do not bring it back — and on
+those the largest `alt` group is a group of *suggestions*. Grouping ranks
+groups against each other and cannot tell that none of them is this listing's,
+so it hands back somebody else's flat with a straight face; it happened to six
+rows on 28 August. A suggestion card is wrapped in a link to another ad and a
+gallery shot is in no link at all, which is the only signal that separates
+"this is not the gallery" from "this is a smaller gallery". Drop the test and
+the bad rows come back silently — and worse than silently, because the cards
+get downloaded, `photos_hash` goes non-empty and the listing counts as
+photographed forever.
 
 **`context.request.get` works on signed CDN URLs.** The persistent browser
 context shares its cookies with its request client, so no separate HTTP client

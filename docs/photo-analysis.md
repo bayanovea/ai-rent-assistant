@@ -149,6 +149,23 @@ photo pass yet. A bonus for authenticity would rank them below the analysed
 ones for a reason that has nothing to do with the flat. Only the defect is
 penalised: `render` and `other_unit` −8, `floorplan` −6.
 
+**A gallery is what is not inside a link.** Six of the ten listings in the 28
+August run came back with nothing or with two 565x565 images — on four of them
+the same file byte for byte, somebody else's flat. `extract_gallery_urls` ranked
+`alt` groups against each other, which cannot notice that none of the groups
+belongs to this listing: on a page whose gallery is simply absent, the winner is
+a group of suggestions. Measured on three live pages, every suggestion card sits
+inside an `a[href*="/marketplace/item/"]` and every one of the 17 gallery images
+sits outside any link, so the link test now runs before the grouping and an
+absent gallery yields an empty list.
+
+Waiting and scrolling were tried first and changed nothing — those pages have no
+gallery in the DOM at any point, so there is nothing to wait for. The run's bad
+directories are in `data/photos-bogus-20260828/`; they were moved rather than
+deleted because a non-empty photo directory is never refetched
+(`_download_photos`), so leaving them in place would have frozen six listings as
+"photographed" for good.
+
 **`light` and `appeal` are facts about what is visible, not taste.** The
 temptation is a "beauty 1-5" field, and it breaks the property the whole pass
 rests on: subagents produce facts, `rules.py` produces the judgement, so the
@@ -197,29 +214,7 @@ look. The tooltip rendering did not change.
 
 In descending order of importance.
 
-**1. A page with no gallery yields two "similar listings" cards, and they are
-downloaded as if they were the flat.** Six of the ten listings in the 28 August
-run came back with either nothing or exactly two 565x565 images — and on four
-different listings those two were the same file byte for byte. A second
-`scrape --ids` reproduced it exactly, so it is not a timing flake.
-
-The cause is that `extract_gallery_urls` has no floor: it groups `img` by `alt`
-and takes the largest group, so when the gallery is absent from the DOM the
-largest group is whatever recommendation cards happen to share an `alt`. Their
-`src` is the give-away — truncated at `cstp=mx1` with none of the `_nc_ohc` /
-`_nc_oc` signature a real gallery URL carries, and 565x565 rather than 960 on
-the long edge.
-
-What makes it worse than a miss: `_download_photos` writes them, `photos_hash`
-is then non-empty, and the listing counts as having photos forever. The run's
-bogus directories were moved to `data/photos-bogus-20260828/` rather than
-deleted.
-
-Two candidate fixes, neither tried: require a signed URL (`_nc_ohc` present),
-or require the group to be larger than two. The first is the more honest
-condition — it says "this is a gallery link", not "this is a big enough group".
-
-**2. No targeted photo catch-up.** `--refresh` only re-opens what came back
+**1. No targeted photo catch-up.** `--refresh` only re-opens what came back
 from the feed. 29 rows had already fallen out of the 7-day window and past the
 60-card limit — they will never get pictures that way. The plan assumed
 "`--refresh` will fill in what we already have"; in practice that holds only
@@ -227,19 +222,19 @@ for the fresh part of the database. `scrape --ids` is the path, with the caveat
 in [dedupe.md](dedupe.md#the-trap-a-dead-pages-gallery-belongs-to-someone-else)
 about dead pages.
 
-**3. Subagent overhead.** ~26k of the 31k per listing is the `general-purpose`
+**2. Subagent overhead.** ~26k of the 31k per listing is the `general-purpose`
 system prompt. Curable either with a dedicated subagent type carrying a minimal
 prompt, or by batching (5 listings per agent), which would cut the cost roughly
 threefold. Against batching: the cross-listing confusion risk above.
 
-**4. The `Stale` counter in `ai-status` lies.** `storage.py`, `fetch_pending`
+**3. The `Stale` counter in `ai-status` lies.** `storage.py`, `fetch_pending`
 compares against the whole `registry.schema_version` without looking at a
 field's `source`. Add a photo field and every text row becomes "stale", and the
 command advises a backfill that need not happen. No extra work actually occurs
 (`analysis_version` is set explicitly, so the rows go to `stale`, not
 `pending`) — only the number is wrong.
 
-**5. Fifty directories hold six shots each.** They were downloaded under the
+**4. Fifty directories hold six shots each.** They were downloaded under the
 old limit, and `_download_photos` skips non-empty directories. The full gallery
 for a given listing can be had like this — but only while it is still in the
 feed:
