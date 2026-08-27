@@ -177,6 +177,67 @@ building.
 
 Append after a real run. Do not rewrite what is here.
 
+### 28 August 2026 — third run: the tail, and the search budget
+
+Ran the rest of the queue autonomously. Two things changed the shape of the
+pass, and one stopped it.
+
+**Half the queue was the same buildings spelled differently.** 224 keys covered
+far fewer real buildings: `d-condo-reef` and `d-condo-reef-kathu` next to the
+confirmed `dcondo-reef`, `panason-green-place` next to `phanason-green-place`,
+three spellings of Phyll, `ratchapon-place` / `ratchaporn-place` /
+`ratchaporn-place-condominium`. `building_key` refuses to merge these on
+purpose, and the sanctioned fix is `--alias`, not research: five aliases onto
+already-confirmed buildings and a hand-reviewed merge map of 34 more clusters
+took the queue from 224 to 175 before a single search ran. **Check for spelling
+variants before spending a search** — a name-overlap cluster listing is a
+minute's work and the merge decision stays human.
+
+**Small buildings do not deserve a subagent each.** 186 of the 224 covered one
+listing. Grouping five buildings per subagent kept the context isolation the
+fan-out exists for while cutting the agent count from 175 to 35.
+
+**Then the session's web-search budget ran out — 200 of 200, shared across
+every subagent, not per agent.** It went in the first 12 agents (60 buildings).
+The later ones felt it: one finished by driving the project's own Playwright
+Chromium against Startpage and cost 75k tokens and 13 minutes for five
+buildings; another spent its last third guessing feed URLs by slug. Both got
+answers, neither is a way to do 134 more. The run stopped there, honestly,
+rather than filling the store with hollow `unknown`s.
+
+Of the 60 buildings researched: 22 `not_allowed`, 14 `allowed`, 4 `negotiable`,
+**20 `unknown`** — the first time the pass has produced a real `unknown` rate,
+and it is concentrated exactly where the design predicted: moo baan whose
+regulations are not published anywhere, and names too generic to identify
+(«Baan Don» is a village and a road, «Chanakan Village» is not a project).
+
+Findings worth keeping:
+
+- **The Rich, Chanakan and Chaofa Garden Home are name-collision minefields.**
+  A dozen similarly named estates per developer, numbered phases, and the
+  district in the name. Several subagents correctly refused to carry one
+  phase's rule to another and returned `unknown`.
+- **The feed contradicts itself at the unit level, and that is signal.** The
+  Green Golf Residence: the project card says no pets, individual unit ads on
+  the same site say pet-friendly. Kathu Golf: the feed bans, a dedicated site
+  for a unit in the same building sells it as «Small Pets Allowed». Both were
+  softened to `negotiable` — not because of the juristic-office clause, but
+  because an independent source contradicted the ban.
+- **OTA cards are a usable independent source.** Trip.com, Booking, Expedia and
+  Agoda carry per-building pet rules that are not the FazWaz feed. They gave
+  the only two `high` bans of the run (Diamond Resort, DLUX) and the
+  independent confirmation for Supalai Park @ Downtown and Citygate Kamala.
+  They are about short-let operators rather than the house rule, so they
+  corroborate; they do not decide alone.
+- 343 rows across the DB now carry «Кондо запрещает животных»; the active set
+  is 562 of 1401. 77 buildings confirmed: 35 `not_allowed`, 17 `allowed`,
+  5 `negotiable`, 20 `unknown`. The `conflicts` pile is still empty.
+
+**134 buildings remain, one listing each.** They need a session with search
+budget: `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` raised, or simply a fresh
+one. At the observed rate — five buildings per subagent, roughly seven searches
+per subagent — the tail is about 27 subagents and 190 searches.
+
 ### 27 August 2026 — second run, twelve buildings
 
 The next twelve off the queue, one subagent each, with the mirror warning from
