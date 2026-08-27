@@ -39,6 +39,19 @@ One self-contained file: no server, no CDN, no internet. Click a header to
 sort, type in the search box to filter across every column, switch sets with
 the Разобрать / Shortlist / Longlist / Rejected / All tabs.
 
+**The header is two rows and nothing else.** Where you are — the tabs, with
+their counts, and the build stamp in the corner — and how you narrow it down —
+search, Фильтры, Кандидаты, Решения, «Ещё N полей». Everything that explains
+rather than does sits behind two buttons on the right: «? Клавиши» (the keys
+as `kbd` chips, plus what the mouse does — sorting, Shift for a second key,
+click-to-unfold, hover for the quote) and «ⓘ Легенда», grouped into colour of
+the cell, marks on the row and badges inside cells. Hover opens either one, a
+click pins it, `?` opens the keys and `Esc` closes both. That used to be three
+paragraphs and a fourteen-item strip of running text above the table — 160px
+of the first screen spent on something read twice in the file's whole life.
+The row count is gone with them: the Разобрать tab already carries the only
+number worth a glance, and it is the one that shrinks as you work.
+
 **The tabs are the four states of a listing, and only the first is a queue.**
 Разобрать holds what nobody has looked at yet — 1122 rows of the 2235 today —
 and it empties as you work: every mark moves the row out of it. 4.5 and up go

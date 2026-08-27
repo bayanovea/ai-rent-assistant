@@ -230,7 +230,6 @@ def test_export_html_empty_db(conn, tmp_path: Path):
     storage.export_html(conn, out)
     text = out.read_text(encoding="utf-8")
     assert "<title>fb-rent listings</title>" in text
-    assert "fb-rent — 0 listings" in text
     assert "const DATA = [];" in text
     # Открывают таблицу ради лучшего, поэтому она сортируется сама.
     assert 'let sorts = [{ key: "score", dir: -1 }];' in text
@@ -245,6 +244,20 @@ def test_export_html_ships_the_filter_panel(conn, tmp_path: Path):
     assert 'id="filters"' in text
     assert 'id="flt-grid"' in text
     assert 'id="flt-reset"' in text
+
+
+def test_export_html_hides_the_help_behind_two_buttons(conn, tmp_path: Path):
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out)
+    text = out.read_text(encoding="utf-8")
+    # Хоткеи и легенда занимали три строки над таблицей и читались дважды за
+    # всю жизнь файла. Тест сторожит узлы, по которым скрипт открывает их:
+    # без data-pop кнопка перестала бы открывать что-либо молча.
+    assert 'class="help" data-pop="keys"' in text
+    assert 'class="help" data-pop="legend"' in text
+    assert "function toggleHelp(name)" in text
+    # Счётчик строк живёт на вкладках, отдельного заголовка над таблицей нет.
+    assert "<h1" not in text
 
 
 def _inline_payload(text: str, name: str):
@@ -270,7 +283,6 @@ def test_export_html_embeds_rows_sorted(conn, tmp_path: Path):
     storage.export_html(conn, out)
     text = out.read_text(encoding="utf-8")
 
-    assert "fb-rent — 3 listings" in text
     data = _inline_payload(text, "DATA")
     assert [row["fb_id"] for row in data] == ["b", "c", "a"]
 

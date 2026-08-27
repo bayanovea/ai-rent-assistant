@@ -139,6 +139,15 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _now_stamp() -> str:
+    """Момент сборки таблицы для шапки — местным временем, без секунд.
+
+    В шапке он отвечает на один вопрос: «эти строки сегодняшние?». ISO с
+    буквой Z отвечал на него медленнее, чем читается.
+    """
+    return datetime.now().astimezone().strftime("%d.%m.%Y %H:%M")
+
+
 # An ad shorter than this is not a fingerprint: "Выбор дня" or a bare price
 # line would collapse unrelated listings into one.
 _CONTENT_KEY_MIN_CHARS = 60
@@ -1821,17 +1830,24 @@ _HTML_TEMPLATE = r"""<!doctype html>
 <title>fb-rent listings</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 1rem 1.25rem; color: #222; font-size: 12px; }
-  h1 { margin: 0 0 0.2rem; font-size: 1rem; }
-  .meta { color: #666; font-size: 0.75rem; margin-bottom: 0.6rem; }
-  .bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+  /* Шапка — одна карточка из двух полос: «что смотрим» (вкладки) и «чем
+     сужаем» (поиск, фильтры, решения). Всё, что раньше стояло двумя абзацами
+     мелкого текста над таблицей, ушло под «Клавиши» и «Легенду». */
+  .top { border: 1px solid #d7deec; border-radius: 6px; background: #fbfcfe; padding: 6px 9px; margin-bottom: 0.5rem; display: flex; flex-direction: column; gap: 6px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+  .bar + .bar { border-top: 1px solid #e7ebf3; padding-top: 6px; }
   .bar .spacer { flex: 1 1 auto; }
+  .bar .sep { width: 1px; align-self: stretch; margin: 0 0.2rem; background: #dde3ee; }
+  .stamp { font-size: 10px; color: #97a0b3; white-space: nowrap; }
+  .search { position: relative; display: inline-flex; align-items: center; }
+  .search .ico { position: absolute; left: 8px; font-size: 10px; color: #a7aebd; pointer-events: none; }
   .tab { border: 1px solid #ccd; background: #fff; border-radius: 999px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #333; }
   .tab:hover { background: #f2f5fb; }
   .tab.on { background: #1a73e8; border-color: #1a73e8; color: #fff; }
   #more { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #33405c; white-space: nowrap; }
   #more:hover { background: #eef2fa; }
   #more.on { background: #33405c; border-color: #33405c; color: #fff; }
-  #q { border: 1px solid #ccd; border-radius: 4px; padding: 4px 8px; font-size: 12px; min-width: 220px; }
+  #q { border: 1px solid #ccd; border-radius: 4px; padding: 4px 8px 4px 24px; font-size: 12px; min-width: 220px; }
   #flt { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #33405c; white-space: nowrap; }
   #flt:hover { background: #eef2fa; }
   #flt.on { background: #33405c; border-color: #33405c; color: #fff; }
@@ -1865,10 +1881,39 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .flt-tools { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.6rem; font-size: 11px; color: #666; }
   #flt-reset { border: 1px solid #ccd; background: #fff; border-radius: 4px; padding: 2px 10px; font-size: 11px; cursor: pointer; color: #33405c; }
   #flt-reset:hover { background: #eef2fa; }
-  .legend { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; font-size: 11px; color: #555; margin-bottom: 0.6rem; }
-  .legend span.sw { display: inline-block; width: 14px; height: 14px; border: 1px solid #bbb; border-radius: 3px; vertical-align: -3px; margin-right: 4px; }
-  .legend .item { white-space: nowrap; }
-  .wrap { overflow: auto; max-height: 78vh; border: 1px solid #dde; border-radius: 4px; }
+  /* Легенда и хоткеи — по кнопке, а не строкой над таблицей: их читают
+     дважды за первую неделю и никогда потом, а места они занимали больше,
+     чем первый экран строк. Наведение открывает, клик прикалывает. */
+  .help { position: relative; display: inline-flex; }
+  .hint { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: help; color: #33405c; white-space: nowrap; }
+  .hint:hover, .help.open .hint { background: #eef2fa; }
+  .help.open .hint { border-color: #33405c; }
+  .pop { display: none; position: absolute; top: 100%; right: 0; padding-top: 6px; z-index: 20; }
+  .help:hover .pop, .help.open .pop { display: block; }
+  .pop-card { width: 620px; max-width: 88vw; max-height: 72vh; overflow: auto; background: #fff; border: 1px solid #d5dbe8; border-radius: 6px; box-shadow: 0 8px 24px rgba(20, 30, 60, 0.16); padding: 0.7rem 0.9rem; }
+  .pop-h { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #55607a; font-weight: 600; margin: 0.7rem 0 0.35rem; }
+  .pop-h:first-child { margin-top: 0; }
+  .pop-note { font-size: 10.5px; color: #8a92a4; line-height: 1.5; margin-top: 0.7rem; border-top: 1px solid #eef0f4; padding-top: 0.5rem; }
+  .lg { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 4px 16px; margin: 0; padding: 0; list-style: none; }
+  .lg li { display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: #6a7488; line-height: 1.5; }
+  .lg li > :first-child { flex: 0 0 auto; margin-left: 0; }
+  .lg b { font-weight: 600; color: #333; }
+  .sw { display: inline-block; width: 14px; height: 14px; border: 1px solid #bbb; border-radius: 3px; vertical-align: -3px; }
+  .sw.dash { border-color: #e6e9f0; text-align: center; line-height: 13px; }
+  .sw.bar-rej { border-left: 3px solid #d93025; }
+  .sw.bar-short { border-left: 3px solid #f9ab00; }
+  .sw.bar-long { border-left: 3px solid #4285f4; }
+  /* Клавиши — сеткой «клавиша → что делает»: колонка кнопок читается
+     взглядом, перечисление через запятую приходилось разбирать. */
+  .kk { display: grid; grid-template-columns: max-content 1fr; gap: 5px 14px; align-items: baseline; font-size: 11px; color: #6a7488; }
+  .kk .d { color: #444; }
+  .kk .keys { white-space: nowrap; text-align: right; }
+  kbd { display: inline-block; min-width: 17px; text-align: center; font-family: inherit; font-size: 10.5px; line-height: 16px; padding: 0 5px; margin-right: 2px; border: 1px solid #c8cedd; border-bottom-width: 2px; border-radius: 4px; background: #f7f8fb; color: #33405c; }
+  .kk .or { color: #a7aebd; margin: 0 3px 0 1px; }
+  kbd.mini { min-width: 0; padding: 0 4px; margin-right: 5px; vertical-align: 0; }
+  /* Шапка ушла с трёх строк на одну — таблице достаётся то, что она
+     освободила, поэтому высота считается от окна, а не 78vh на глаз. */
+  .wrap { overflow: auto; max-height: calc(100vh - 130px); border: 1px solid #dde; border-radius: 4px; }
   table.rt { border-collapse: separate; border-spacing: 0; white-space: nowrap; }
   .rt th, .rt td { border-bottom: 1px solid #eef0f4; border-right: 1px solid #f3f4f7; padding: 5px 8px; text-align: left; vertical-align: top; font-weight: normal; }
   .rt th { background: #f7f8fb; font-weight: 600; user-select: none; }
@@ -1933,21 +1978,83 @@ _HTML_TEMPLATE = r"""<!doctype html>
 </style>
 </head>
 <body>
-<h1>fb-rent — __ROW_COUNT__ listings</h1>
-<div class="meta">Сгенерировано __GENERATED_AT__ · реестр полей v__SCHEMA_VERSION__ · сортировка — клик по заголовку, Shift+клик добавляет второй ключ · ID открывает объявление · наведите на ячейку, чтобы увидеть цитату-основание · клик по обрезанной ячейке разворачивает её целиком</div>
-<div class="meta">Решения с клавиатуры: <b>↓ ↑</b> или <b>j k</b> — по строкам, <b>1</b>–<b>5</b> — своя оценка (1–3 отклоняют, 4 — в longlist, 5 — в shortlist), <b>r</b> — отклонить, <b>a</b> — вернуть в активные, <b>0</b> — снять. Накопленное лежит в браузере и переживает пересборку файла; кнопка «Решения» отдаёт готовый блок команд.</div>
-<div class="bar">
-  <button class="tab" data-tab="active"></button>
-  <button class="tab" data-tab="shortlist"></button>
-  <button class="tab" data-tab="longlist"></button>
-  <button class="tab" data-tab="rejected"></button>
-  <button class="tab" data-tab="all"></button>
-  <input id="q" type="search" placeholder="поиск по всем колонкам…">
-  <button id="flt"></button>
-  <button id="preset"></button>
-  <button id="dec"></button>
-  <span class="spacer"></span>
-  <button id="more"></button>
+<div class="top">
+  <div class="bar">
+    <button class="tab" data-tab="active"></button>
+    <button class="tab" data-tab="shortlist"></button>
+    <button class="tab" data-tab="longlist"></button>
+    <button class="tab" data-tab="rejected"></button>
+    <button class="tab" data-tab="all"></button>
+    <span class="spacer"></span>
+    <span class="stamp">обновлено __GENERATED_AT__ · реестр полей v__SCHEMA_VERSION__</span>
+  </div>
+  <div class="bar">
+    <span class="search"><span class="ico">🔍</span><input id="q" type="search" placeholder="поиск по всем колонкам…"></span>
+    <button id="flt"></button>
+    <button id="preset"></button>
+    <span class="sep"></span>
+    <button id="dec"></button>
+    <span class="spacer"></span>
+    <span class="help" data-pop="keys">
+      <button class="hint" type="button" title="Клавиши и мышь — по «?»"><kbd class="mini">?</kbd>Клавиши</button>
+      <div class="pop"><div class="pop-card">
+        <div class="pop-h">По строкам</div>
+        <div class="kk">
+          <span class="keys"><kbd>↓</kbd><kbd>↑</kbd><span class="or">или</span><kbd>j</kbd><kbd>k</kbd></span>
+          <span class="d">перейти к следующей / предыдущей строке</span>
+        </div>
+        <div class="pop-h">Решение по строке под курсором</div>
+        <div class="kk">
+          <span class="keys"><kbd>5</kbd></span><span class="d">в Shortlist</span>
+          <span class="keys"><kbd>4</kbd></span><span class="d">в Longlist — посмотрели, средний вариант</span>
+          <span class="keys"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span><span class="d">отклонить с оценкой</span>
+          <span class="keys"><kbd>r</kbd></span><span class="d">отклонить без оценки</span>
+          <span class="keys"><kbd>a</kbd></span><span class="d">вернуть в «Разобрать»</span>
+          <span class="keys"><kbd>0</kbd></span><span class="d">снять решение</span>
+        </div>
+        <div class="pop-h">Мышью</div>
+        <div class="kk">
+          <span class="keys">клик по заголовку</span><span class="d">сортировка; <kbd>Shift</kbd>+клик добавляет второй ключ</span>
+          <span class="keys">клик по ячейке</span><span class="d">развернуть обрезанный текст целиком</span>
+          <span class="keys">наведение</span><span class="d">цитата из объявления, на которой стоит значение</span>
+          <span class="keys">клик по ID</span><span class="d">открыть объявление на Facebook</span>
+        </div>
+        <div class="pop-note">Каждое решение сразу перескакивает на следующую строку, так что строка стоит одного нажатия. Накопленное лежит в браузере и переживает пересборку файла; кнопка «Решения» отдаёт готовый блок команд для терминала. Открыть эту справку — <kbd>?</kbd>, закрыть — <kbd>Esc</kbd>.</div>
+      </div></div>
+    </span>
+    <span class="help" data-pop="legend">
+      <button class="hint" type="button">ⓘ Легенда</button>
+      <div class="pop"><div class="pop-card">
+        <div class="pop-h">Цвет ячейки</div>
+        <ul class="lg">
+          <li><span class="sw c-good"></span><span><b>подходит</b> — животные разрешены, цена в бюджете</span></li>
+          <li><span class="sw c-warn"></span><span><b>под вопросом</b> — unclear, 30–35k ฿</span></li>
+          <li><span class="sw c-bad"></span><span><b>стоп-фактор</b> — животные запрещены, цена вне бюджета</span></li>
+          <li><span class="sw c-stale"></span><span>поля не было на момент анализа — нужен ре-анализ</span></li>
+          <li><span class="sw dash c-none">—</span><span>AI смотрел, в объявлении этого нет</span></li>
+          <li><span class="sw src-photo"></span><span>колонка фото-прохода — AI смотрел снимки, а не текст</span></li>
+        </ul>
+        <div class="pop-h">Строка</div>
+        <ul class="lg">
+          <li><span class="sw bar-short"></span><span>в Shortlist</span></li>
+          <li><span class="sw bar-long"></span><span>в Longlist</span></li>
+          <li><span class="sw bar-rej"></span><span>отклонено — правилами или вами; строка зачёркнута</span></li>
+          <li><span class="pend" style="padding:0 4px;border-radius:3px">4</span><span>решение принято, но ещё не записано</span></li>
+          <li><span class="who-you">вы</span><span>отказ ваш, а не правил — на вкладке Rejected это ещё и фильтр</span></li>
+        </ul>
+        <div class="pop-h">Значки в ячейках</div>
+        <ul class="lg">
+          <li><span class="dq">sidebar_noise</span><span>анализ читал не тот текст — строку надо перечитать</span></li>
+          <li><span class="dup-count">×3</span><span>одно объявление, опубликованное несколько раз</span></li>
+          <li><span class="badge fb">fb</span><span>у колонки два источника — значок говорит, чей ответ показан</span></li>
+          <li><span class="badge was">≠ текст</span><span>фото не согласилось с текстом — в подсказке прежнее значение</span></li>
+          <li><span class="bpol c-bad b-confirmed">нельзя</span><span>правило дома о животных, подтверждённое вами — оно и отклоняет объявление</span></li>
+          <li><span class="bpol c-warn b-proposed">по договорённости</span><span>правило только предложено исследованием — ни на что не влияет</span></li>
+        </ul>
+      </div></div>
+    </span>
+    <button id="more"></button>
+  </div>
 </div>
 <div id="filters"><div class="flt-grid" id="flt-grid"></div>
   <div class="flt-tools"><button id="flt-reset">Сбросить фильтры</button><span id="flt-note"></span></div>
@@ -1959,22 +2066,6 @@ _HTML_TEMPLATE = r"""<!doctype html>
     <button id="dec-clear">Очистить очередь</button>
     <span id="dec-note"></span>
   </div>
-</div>
-<div class="legend">
-  <span class="item"><span class="sw src-photo"></span>колонка от фото-прохода — AI смотрел снимки, а не текст</span>
-  <span class="item"><span class="dq">sidebar_noise</span>анализ читал не тот текст — строку надо перечитать</span>
-  <span class="item"><span class="badge was">≠ текст</span>фото не согласилось с текстом — в подсказке прежнее значение</span>
-  <span class="item"><span class="bpol c-bad b-confirmed">нельзя</span>правило кондо о животных, подтверждённое вами — оно и отклоняет объявление</span>
-  <span class="item"><span class="bpol c-warn b-proposed">по договорённости</span>исследование предложило правило, вы его ещё не подтвердили — ни на что не влияет</span>
-  <span class="item"><span class="sw c-good"></span>подходит (pets allowed, цена в бюджете)</span>
-  <span class="item"><span class="sw c-warn"></span>под вопросом (unclear, 30–35k ฿)</span>
-  <span class="item"><span class="sw c-bad"></span>стоп-фактор (животные запрещены, вне бюджета)</span>
-  <span class="item"><span class="sw c-stale"></span>поля не было на момент анализа — нужен ре-анализ</span>
-  <span class="item"><span class="sw c-none"></span>AI смотрел, информации нет</span>
-  <span class="item"><span class="pend" style="padding:0 4px;border-radius:3px">4</span>решение принято, но ещё не записано</span>
-  <span class="item"><span class="sw" style="border-left:3px solid #d93025"></span>row-rejected — отклонено (AI или вами)</span>
-  <span class="item"><span class="sw" style="border-left:3px solid #4285f4"></span>row-longlist — посмотрели, средний вариант</span>
-  <span class="item"><span class="who-you">вы</span>решение ваше, а не правил — на вкладке Rejected это ещё и фильтр</span>
 </div>
 <div class="wrap"><table class="rt"><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
 <div class="empty" id="empty" hidden>Ничего не найдено.</div>
@@ -2640,6 +2731,30 @@ document.getElementById("dec-clear").addEventListener("click", () => {
   render();
 });
 
+/* Подсказки: наведение открывает, клик прикалывает — иначе легенду нельзя
+   держать открытой, пока ищешь глазами тот самый значок в таблице. */
+function closeHelp() {
+  document.querySelectorAll(".help.open").forEach(h => h.classList.remove("open"));
+}
+
+function toggleHelp(name) {
+  const box = document.querySelector('.help[data-pop="' + name + '"]');
+  if (!box) return;
+  const was = box.classList.contains("open");
+  closeHelp();
+  if (!was) box.classList.add("open");
+}
+
+document.querySelectorAll(".help").forEach(box => {
+  box.querySelector(".hint").addEventListener("click", ev => {
+    ev.stopPropagation();
+    toggleHelp(box.dataset.pop);
+  });
+  // Клик внутри карточки — это выделение текста, а не «мимо».
+  box.querySelector(".pop").addEventListener("click", ev => ev.stopPropagation());
+});
+document.addEventListener("click", closeHelp);
+
 /* Клавиши работают по строке под курсором. Поля ввода их не видят — иначе
    «r» в поиске отклоняло бы объявление. */
 document.addEventListener("keydown", ev => {
@@ -2649,6 +2764,8 @@ document.addEventListener("keydown", ev => {
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
 
   const key = ev.key;
+  if (key === "?") { ev.preventDefault(); toggleHelp("keys"); return; }
+  if (key === "Escape") { closeHelp(); return; }
   if (key === "ArrowDown" || key === "j") { ev.preventDefault(); moveCursor(1); return; }
   if (key === "ArrowUp" || key === "k") { ev.preventDefault(); moveCursor(-1); return; }
   if (!cursorId) return;
@@ -3185,8 +3302,7 @@ def export_html(
 
     html = (
         _HTML_TEMPLATE
-        .replace("__ROW_COUNT__", str(len(data)))
-        .replace("__GENERATED_AT__", _now_iso())
+        .replace("__GENERATED_AT__", _now_stamp())
         .replace("__SCHEMA_VERSION__", str(registry.schema_version))
         .replace("__COLUMNS_JSON__", _inline_json(columns))
         .replace("__DATA_JSON__", _inline_json(data))
