@@ -16,8 +16,8 @@ storage layers into three commands:
 The ``ai-*`` commands drive the enrichment loop: ``ai-status`` reports what
 is waiting, ``ai-batch`` writes the file the AI reads, ``ai-apply`` reads
 back what it extracted, and ``ai-field`` evolves the registry. ``reject`` /
-``unreject`` / ``shortlist`` record the user's own verdicts, which live in
-``data/decisions.json`` and outrank anything the AI decided.
+``unreject`` / ``shortlist`` / ``rate`` record the user's own verdicts, which
+live in ``data/decisions.json`` and outrank anything the AI decided.
 """
 
 from __future__ import annotations
@@ -1665,8 +1665,8 @@ def rate_cmd(fb_id: str, rating: float, reason: str | None) -> None:
     """Score a listing 1-5; the mark decides its status.
 
     4.5 and up go to the shortlist, 3 and below are rejected, and what falls
-    between stays in the active set — carrying the mark, which is what says
-    the listing has already been looked at.
+    between goes to the longlist — seen, kept to hand, and off the active set,
+    which is the queue of what has not been looked at yet.
     """
     status = decisions.status_for_rating(rating)
     _record_decision(fb_id, status, reason, rating)

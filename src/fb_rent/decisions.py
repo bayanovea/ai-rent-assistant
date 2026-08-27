@@ -17,6 +17,10 @@ The file format is a flat map keyed by ``fb_id``::
 ``status`` — see :func:`status_for_rating`. It is optional: ``reject`` and
 ``shortlist`` set a status without one.
 
+The four statuses are the four drawers the table shows as tabs: ``active`` is
+what still has to be looked at, ``longlist`` the middle variants worth keeping
+to hand, ``shortlist`` the best, ``rejected`` what is out.
+
 Writes go through a temp file plus ``os.replace``, so an interrupted run
 leaves the previous decisions intact rather than a truncated file.
 """
@@ -33,14 +37,23 @@ from typing import Any
 
 from . import config
 
-# The only verdicts a user may record. `active` exists so an AI auto-reject
-# can be overridden back into the working set.
-VALID_STATUSES: frozenset[str] = frozenset({"rejected", "active", "shortlist"})
+# The only verdicts a user may record. `active` means "not sorted out yet",
+# which is also what an explicit `unreject` writes: it puts an AI auto-reject
+# back into the queue of listings still to be looked at. The other three all
+# say the listing has been seen — `longlist` is the middle drawer, kept to
+# hand, `shortlist` the best of them.
+VALID_STATUSES: frozenset[str] = frozenset(
+    {"rejected", "active", "longlist", "shortlist"}
+)
 
 # The user's own 1-5 mark, and the two thresholds that turn it into a status.
 # Deliberately blunt: a listing worth 4.5 goes straight to the shortlist, one
-# worth 3 or less is out, and what falls between stays on the main sheet —
-# with a mark on it, which is what says "looked at, no need to come back".
+# worth 3 or less is out, and what falls between lands on the longlist.
+#
+# No mark ever leaves a row in `active`. The active tab is the queue of what
+# has not been looked at, so a rated row sitting there would be indis-
+# tinguishable from an untouched one at a glance — which is exactly the
+# distinction the four statuses exist to draw.
 RATING_MIN = 1.0
 RATING_MAX = 5.0
 RATING_SHORTLIST_MIN = 4.5
@@ -53,7 +66,7 @@ def status_for_rating(rating: float) -> str:
         return "shortlist"
     if rating <= RATING_REJECT_MAX:
         return "rejected"
-    return "active"
+    return "longlist"
 
 
 def _now_iso() -> str:

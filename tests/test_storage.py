@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from fb_rent import ai_schema, config, photos, rules, storage
+from fb_rent import ai_schema, config, decisions, photos, rules, storage
 
 
 @pytest.fixture()
@@ -595,6 +595,66 @@ def test_export_html_marks_user_rejection_as_user(conn, tmp_path: Path):
     assert row["decided_by"] == "user"
     assert row["cells"]["reason"]["t"] == "Слишком далеко от школы"
     assert "Слишком далеко от школы" in text
+    # Свой отказ надо уметь отделить от машинного: их на вкладке в полсотни
+    # раз больше. Значение короткое — панель фильтров даёт по нему чипы.
+    assert row["cells"]["decided_by"]["t"] == "вы"
+
+
+def test_the_decider_is_a_column_bound_to_the_rejected_tabs(conn, tmp_path: Path):
+    # Кто вынес вердикт, раньше было суффиксом «(вы)» в хвосте «Причины»:
+    # мимо поиска и мимо фильтров. Теперь это колонка — и она живёт только
+    # там, где среди своих отказов лежат машинные.
+    registry = ai_schema.load_registry()
+    storage.upsert_listing(conn, _make_listing(fb_id="auto"))
+    storage.upsert_ai_analysis(
+        conn,
+        _make_analysis(
+            fb_id="auto",
+            schema_version=registry.schema_version,
+            data_json={"pets": {"v": "not_allowed", "conf": "high", "ev": ""}},
+        ),
+    )
+    storage.upsert_listing(conn, _make_listing(fb_id="untouched"))
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out, registry)
+    text = out.read_text(encoding="utf-8")
+
+    rows = {r["fb_id"]: r for r in _inline_payload(text, "DATA")}
+    assert rows["auto"]["cells"]["decided_by"]["t"] == "AI"
+    # Никто не решал — пустая ячейка, а не выдуманный автор.
+    assert rows["untouched"]["cells"]["decided_by"]["t"] == ""
+
+    columns = {c["key"]: c for c in _inline_payload(text, "COLUMNS")}
+    assert columns["decided_by"]["tabs"] == ["rejected", "all"]
+    assert columns["reason"]["tabs"] == ["rejected", "all"]
+    # На Longlist и Shortlist решали только вы — там колонка не нужна.
+    assert "longlist" not in columns["decided_by"]["tabs"]
+
+
+def test_a_marked_listing_leaves_the_active_queue(conn, tmp_path: Path):
+    # Active — очередь на разбор. Оценка 4 уводит строку в longlist, и
+    # строка с оценкой в очереди уже не лежит.
+    storage.upsert_listing(conn, _make_listing(fb_id="middling"))
+    conn.execute(
+        "INSERT INTO decisions (fb_id, status, reason, rating, decided_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("middling", decisions.status_for_rating(4), None, 4.0,
+         "2026-08-25T12:00:00Z"),
+    )
+    conn.commit()
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out)
+    text = out.read_text(encoding="utf-8")
+
+    row = _inline_payload(text, "DATA")[0]
+    assert row["status"] == "longlist"
+    assert row["cells"]["rating"]["n"] == 4.0
+    # Вкладка и полоса на строке — иначе средний вариант нечем отличить
+    # от лучшего.
+    assert 'data-tab="longlist"' in text
+    assert "row-longlist" in text
 
 
 def test_export_html_stale_only_for_fields_added_after_analysis(conn, tmp_path: Path):

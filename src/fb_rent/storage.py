@@ -1418,7 +1418,10 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .clip.w-comment { max-width: 340px; color: #555; }
   .rt td.open .clip { max-width: 460px; white-space: normal; overflow: visible; text-overflow: clip; cursor: zoom-out; }
   .rt tbody td.open, .rt tbody tr:hover td.open { background: #fffdf3; }
-  .who { color: #888; font-size: 10px; }
+  /* «Кто решил» на вкладке отказов: своих 23 среди 1083 машинных надо
+     видеть, не читая, поэтому «вы» — чип, а «AI» — серый шёпот. */
+  .who-you { background: #e8f0fe; color: #1a4fa0; border-radius: 3px; padding: 0 5px; font-weight: 600; }
+  .who-ai { color: #9aa0a8; }
   .num { font-variant-numeric: tabular-nums; text-align: right; }
   .badge { font-size: 9px; color: #8a7fa8; border: 1px solid #d8cfe8; border-radius: 3px; padding: 0 3px; margin-left: 4px; vertical-align: 1px; }
   .badge.fb { color: #4a7099; border-color: #cbd9e8; }
@@ -1434,16 +1437,18 @@ _HTML_TEMPLATE = r"""<!doctype html>
   tr.row-rejected td { opacity: 0.55; text-decoration: line-through; }
   tr.row-rejected td:first-child { border-left: 3px solid #d93025; opacity: 1; text-decoration: none; }
   tr.row-shortlist td:first-child { border-left: 3px solid #f9ab00; }
+  tr.row-longlist td:first-child { border-left: 3px solid #4285f4; }
   .empty { padding: 1rem; color: #888; }
 </style>
 </head>
 <body>
 <h1>fb-rent — __ROW_COUNT__ listings</h1>
 <div class="meta">Сгенерировано __GENERATED_AT__ · реестр полей v__SCHEMA_VERSION__ · сортировка — клик по заголовку, Shift+клик добавляет второй ключ · ID открывает объявление · наведите на ячейку, чтобы увидеть цитату-основание · клик по обрезанной ячейке разворачивает её целиком</div>
-<div class="meta">Решения с клавиатуры: <b>↓ ↑</b> или <b>j k</b> — по строкам, <b>1</b>–<b>5</b> — своя оценка, <b>r</b> — отклонить, <b>a</b> — вернуть в активные, <b>0</b> — снять. Накопленное лежит в браузере и переживает пересборку файла; кнопка «Решения» отдаёт готовый блок команд.</div>
+<div class="meta">Решения с клавиатуры: <b>↓ ↑</b> или <b>j k</b> — по строкам, <b>1</b>–<b>5</b> — своя оценка (1–3 отклоняют, 4 — в longlist, 5 — в shortlist), <b>r</b> — отклонить, <b>a</b> — вернуть в активные, <b>0</b> — снять. Накопленное лежит в браузере и переживает пересборку файла; кнопка «Решения» отдаёт готовый блок команд.</div>
 <div class="bar">
   <button class="tab" data-tab="active"></button>
   <button class="tab" data-tab="shortlist"></button>
+  <button class="tab" data-tab="longlist"></button>
   <button class="tab" data-tab="rejected"></button>
   <button class="tab" data-tab="all"></button>
   <input id="q" type="search" placeholder="поиск по всем колонкам…">
@@ -1475,6 +1480,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
   <span class="item"><span class="sw c-none"></span>AI смотрел, информации нет</span>
   <span class="item"><span class="pend" style="padding:0 4px;border-radius:3px">4</span>решение принято, но ещё не записано</span>
   <span class="item"><span class="sw" style="border-left:3px solid #d93025"></span>row-rejected — отклонено (AI или вами)</span>
+  <span class="item"><span class="sw" style="border-left:3px solid #4285f4"></span>row-longlist — посмотрели, средний вариант</span>
+  <span class="item"><span class="who-you">вы</span>решение ваше, а не правил — на вкладке Rejected это ещё и фильтр</span>
 </div>
 <div class="wrap"><table class="rt"><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
 <div class="empty" id="empty" hidden>Ничего не найдено.</div>
@@ -1482,10 +1489,11 @@ _HTML_TEMPLATE = r"""<!doctype html>
 const COLUMNS = __COLUMNS_JSON__;
 const DATA = __DATA_JSON__;
 
-const TAB_LABELS = { active: "Active", shortlist: "Shortlist", rejected: "Rejected", all: "All" };
-// `Причина` is written by a rejection and by nothing else, so on the tabs that
-// hold no rejected rows it is a column of dashes as tall as the table.
-const REASON_TABS = { rejected: 1, all: 1 };
+// Active — что ещё не разобрано, остальные три — что уже посмотрели.
+const TAB_LABELS = {
+  active: "Разобрать", shortlist: "Shortlist", longlist: "Longlist",
+  rejected: "Rejected", all: "All"
+};
 const CLIPPED_KINDS = { verdict: 1, comment: 1, field: 1, text: 1, reason: 1 };
 const TYPE_ICONS = {
   house: "🏠", townhouse: "🏘️", villa: "🏡", condo: "🏢",
@@ -1521,9 +1529,16 @@ function esc(s) {
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+/* Колонка с `tabs` живёт только на перечисленных вкладках: `Причина` пишется
+   отказом и ничем больше, `Кто решил` на вкладках, где решали только вы, был
+   бы столбцом одинаковых слов. На остальных вкладках это столбец прочерков
+   высотой во всю таблицу. */
+function colInTab(col) {
+  return !col.tabs || col.tabs.indexOf(tab) !== -1;
+}
+
 function visibleColumns() {
-  return COLUMNS.filter(c =>
-    (showExtra || !c.hidden) && (c.key !== "reason" || REASON_TABS[tab]));
+  return COLUMNS.filter(c => (showExtra || !c.hidden) && colInTab(c));
 }
 
 function cellOf(row, key) {
@@ -1612,13 +1627,13 @@ function tdHTML(row, col) {
     if (!empty && cell.n != null) style = countStyle(cell.n, col.key === "bedrooms" ? 4 : 3);
   } else if (col.kind === "type") {
     inner = empty ? '—' : (TYPE_ICONS[text] || "🏚️") + " " + esc(text);
-  } else if (col.kind === "reason") {
-    if (empty) {
-      inner = '—';
-    } else {
-      const who = row.decided_by === "user" ? "вы" : (row.decided_by === "ai" ? "AI" : "");
-      inner = esc(text) + (who ? ' <span class="who">(' + esc(who) + ')</span>' : "");
-    }
+  } else if (col.kind === "who") {
+    // Кто вынес вердикт. Раньше это был суффикс «(вы)» в хвосте «Причины» —
+    // невидимый для поиска (haystack собирается из cell.t) и неотбираемый
+    // фильтром, а отделить свои отказы от машинных нужно ровно на той
+    // вкладке, где их больше тысячи.
+    inner = empty ? '—'
+      : '<span class="who-' + (text === "вы" ? "you" : "ai") + '">' + esc(text) + '</span>';
   } else {
     inner = empty ? '—' : esc(text);
   }
@@ -1652,6 +1667,7 @@ function rowHTML(row) {
   const cls = [];
   if (row.status === "rejected") cls.push("row-rejected");
   else if (row.status === "shortlist") cls.push("row-shortlist");
+  else if (row.status === "longlist") cls.push("row-longlist");
   if (row.fb_id === cursorId) cls.push("cursor");
   return '<tr class="' + cls.join(" ") + '" data-row="' + esc(row.fb_id) + '">'
     + visibleColumns().map(c => tdHTML(row, c)).join("") + '</tr>';
@@ -1885,7 +1901,7 @@ function dropIfEmpty(key) {
 function filterColumns() {
   return COLUMNS.filter(c =>
     (showExtra || !c.hidden || FILTERS[c.key])
-    && (c.key !== "reason" || REASON_TABS[tab] || FILTERS[c.key]));
+    && (colInTab(c) || FILTERS[c.key]));
 }
 
 function renderFilters() {
@@ -2186,14 +2202,25 @@ _FIXED_COLUMNS: dict[str, dict[str, Any]] = {
         "label": "Комментарий по фото", "kind": "comment", "src": "photo",
     },
     "rating": {"label": "Моя оценка", "kind": "rating", "src": "sys"},
-    "reason": {"label": "Причина", "kind": "reason", "src": "sys"},
+    # Обе колонки живут только там, где им есть что показать: `tabs` —
+    # список вкладок, на остальных колонки нет вовсе. Причину пишет отказ и
+    # ничто больше; «Кто решил» на Longlist и Shortlist был бы столбцом,
+    # где во всех строках стоит «вы».
+    "decided_by": {
+        "label": "Кто решил", "kind": "who", "src": "sys",
+        "tabs": ["rejected", "all"],
+    },
+    "reason": {
+        "label": "Причина", "kind": "reason", "src": "sys",
+        "tabs": ["rejected", "all"],
+    },
 }
 
 # The default view, in reading order. Everything countable comes first, so a
 # glance down "цена → район → тип → спальни → площадь" never steps over a
 # clipped paragraph; the text columns follow, where their length costs nothing.
-# `reason` closes the table and the page hides it on the tabs where it is
-# empty by construction.
+# `decided_by` and `reason` close the table and the page drops them on the
+# tabs where they are empty by construction.
 _VISIBLE_ORDER: tuple[str, ...] = (
     "fb_id",
     "score",
@@ -2209,6 +2236,7 @@ _VISIBLE_ORDER: tuple[str, ...] = (
     "verdict",
     "comment",
     "photo_comment",
+    "decided_by",
     "reason",
 )
 
@@ -2245,6 +2273,11 @@ def is_photo_field(field: dict[str, Any]) -> bool:
 # weighs as much on screen as a real answer. `pets` is the exception: not
 # knowing whether the dog is welcome is itself the reason to call the agent.
 _UNCLEAR_SPEAKS: frozenset[str] = frozenset({"pets"})
+
+# Who a verdict came from, as the `Кто решил` cell reads it. The column is
+# what makes "мои отказы" a filter chip: the AI auto-rejects outnumber the
+# hand-made ones 47 to 1, and nothing else on the row separates them.
+_DECIDER_LABELS: dict[str, str] = {"user": "вы", "ai": "AI"}
 
 # Values of the FB `district` field that name the island or the province
 # rather than a district — nothing to show.
@@ -2414,6 +2447,7 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
     photo_overrides = item.get("photo_overrides") or {}
 
     status = item.get("status") or "active"
+    decided_by = item.get("decided_by")
     reason = item.get("reason")
     rating = item.get("rating")
     first_seen = item.get("first_seen_at") or ""
@@ -2475,6 +2509,7 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
             "c": "",
             "n": float(rating) if isinstance(rating, (int, float)) else None,
         },
+        "decided_by": {"t": _DECIDER_LABELS.get(decided_by or "", ""), "c": ""},
         "reason": {
             "t": reason or "",
             "c": rules.CLASS_BAD if status == "rejected" and reason else "",
@@ -2513,7 +2548,7 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
         "fb_id": item.get("fb_id"),
         "url": item.get("url"),
         "status": status,
-        "decided_by": item.get("decided_by"),
+        "decided_by": decided_by,
         "analyzed": analyzed,
         "cells": cells,
     }
@@ -2567,8 +2602,9 @@ def export_html(
     Every listing is rendered with every registry field, joined with its AI
     analysis and the user's own verdict: cells are coloured by
     :func:`rules.cell_class`, rejected rows are struck through and carry the
-    reason plus who rejected them, and the Active / Shortlist / Rejected / All
-    tabs filter the set. Data is embedded inline, so the file opens straight
+    reason and the `Кто решил` column, and the Разобрать / Shortlist /
+    Longlist / Rejected / All tabs filter the set — the first holds what has
+    not been looked at, the other three what has. Data is embedded inline, so the file opens straight
     from disk with no server and no network.
     """
     out = Path(path)

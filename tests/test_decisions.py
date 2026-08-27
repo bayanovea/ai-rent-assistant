@@ -158,17 +158,27 @@ def test_default_path_used_when_none(monkeypatch, tmp_path: Path):
 def test_rating_decides_the_status():
     assert dec.status_for_rating(5) == "shortlist"
     assert dec.status_for_rating(4.5) == "shortlist"
-    assert dec.status_for_rating(4) == "active"
-    assert dec.status_for_rating(3.5) == "active"
+    assert dec.status_for_rating(4) == "longlist"
+    assert dec.status_for_rating(3.5) == "longlist"
     assert dec.status_for_rating(3) == "rejected"
     assert dec.status_for_rating(1) == "rejected"
 
 
 def test_rating_is_stored_and_read_back(path: Path):
-    dec.save_decision(path, "123", "active", "тесновато", rating=3.5)
+    dec.save_decision(path, "123", "longlist", "тесновато", rating=3.5)
     entry = dec.load_decisions(path)["123"]
     assert entry["rating"] == 3.5
-    assert entry["status"] == "active"
+    assert entry["status"] == "longlist"
+
+
+def test_a_mark_never_leaves_a_listing_in_the_active_queue():
+    """Active is the queue of what has not been looked at.
+
+    A rated row sitting there would be indistinguishable from an untouched
+    one, which is what the four statuses exist to prevent.
+    """
+    marks = [1, 2, 3, 3.5, 4, 4.5, 5]
+    assert all(dec.status_for_rating(m) != "active" for m in marks)
 
 
 def test_a_decision_without_a_rating_keeps_none(path: Path):
