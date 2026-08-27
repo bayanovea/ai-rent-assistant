@@ -140,3 +140,26 @@ Two consequences:
 - **The photo signal inherits a foreign gallery** if one made it into
   `raw_json`. There is no defence for that in dedupe and probably should not
   be: it is curable at the entrance.
+
+### The 2026-08-27 run: chains, and why one flat had two rows
+
+The user pointed at six ids that were one Pruksa Ville Kathu–Samkong
+townhouse. They were already two groups of three — the pair of survivors,
+`9000000000000010` and `9000000000000009`, differed by one line
+(«Co-agents welcome»), which is a 0.95 word overlap and a `text` match.
+Nothing was wrong with the signal: `dedupe` simply had not been run since
+those rows were analysed, and the fuzzy rules read the AI's fields.
+
+Taking them apart surfaced a real defect. `dedupe` recorded the copies it
+dropped but never moved the reposts that already hung off them: three of the
+six ids named a `canonical_fb_id` that the previous run had deleted, and
+`duplicates_by_canonical` groups by that name — so they vanished from the ID
+cell instead of joining the surviving row. 30 rows in the DB were orphaned
+that way. The merge now carries dependents over to the keeper, and
+`_flatten_duplicate_chains` walks the dead links in an old DB to the copy
+that survived; every one of the 30 resolved.
+
+**Run:** 2235 → 1401 rows over six passes to convergence, 834 merged away,
+1433 records in `duplicates`, no orphans left. The cascade is expected — each
+merge frees pairings the previous pass could not see — and it is why the loop
+runs until the signal is dry.
