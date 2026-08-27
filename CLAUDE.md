@@ -116,6 +116,15 @@ those separate one survivor from another, and together they once pinned 352 of
 the first screen. Before adding a positive weight, re-measure the spread on the
 live DB (`fetch_enriched` → count the rows at 100); the ceiling is the budget.
 
+**The verdict tag is derived, and the vocabulary lives in two places.**
+`rules.verdict_tag` matches stems against the sentence the AI wrote, and
+`.claude/skills/analyze` tells the AI which five words to start that sentence
+with. Change one without the other and the column quietly goes blank on every
+new row — blank is the deliberate outcome for an unmatched sentence, so nothing
+raises. Adding a synonym to the stems is the fix for old rows; fixing the skill
+is the fix for new ones. Neither touches `source_hash`, so neither re-queues
+anything.
+
 **`data_quality` is a badge, `unclear` is a dash, `Причина` is tab-bound.**
 All three look like missing columns and all three are deliberate: `good` on
 99% of rows, "the ad did not say" on the majority of five enum columns, and
