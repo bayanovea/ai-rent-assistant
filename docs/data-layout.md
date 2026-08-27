@@ -42,7 +42,7 @@ a second header appends it as a tie-breaker instead of replacing the current
 key — the arrows are then numbered by priority, and a third shift-click drops
 the key back out. The "Фильтры" button opens a panel with one control per
 column, and the shape of the control is inferred from the data rather than
-declared in the registry: numbers and `Первый показ` get a from/to pair,
+declared in the registry: numbers and `Опубликовано` get a from/to pair,
 a column whose values are few and short (район, pets, тип жилья) gets a row of
 chips including one for the empty cell, everything else gets a substring box.
 Filters combine with each other, with the search box and with the tab; the
@@ -50,12 +50,29 @@ button counts how many are set and the panel says how many rows survived.
 A filter set on a folded-away column keeps its control on screen, so nothing
 can trim the table invisibly.
 
-Columns are banded by where the
-value came from — parsed off the Facebook page, extracted by the text pass, or
-seen in the photos — and the rarely-scanned fields fold away behind the
-"Ещё N полей" toggle. Rejected rows carry their reason; shortlisted ones get a
-yellow bar; a photo field that overrode a non-empty text value carries a badge
-with the old value in its tooltip.
+Columns run in reading order — ID, Score, Pets, price, district, type,
+bedrooms, size, publication date, your own mark, and only then the prose. The
+layout used to be banded by where the value came from (Facebook / text pass /
+photo pass), which put three clipped paragraphs between the price and the
+bedroom count; where a single value came from is still on the cell itself, as
+the `fb` and `≠ текст` badges, and the photo columns keep a green tint. The
+rarely-scanned fields fold away behind the "Ещё N полей" toggle.
+
+Three things are deliberately not columns:
+
+- **`Качество данных`** — it read `good` on 99% of the table. The 27 rows where
+  it does not now carry a red badge on the ID (searchable like any other text),
+  which is what "this row needs `scrape --ids`" was always worth.
+- **`unclear`** — the AI looked and the ad did not say, which is exactly what
+  the grey dash already means, and it was the most common value in five
+  columns. `pets` is the exception: not knowing whether the dog is welcome is
+  itself the reason to call the agent.
+- **`Причина`** on the Active and Shortlist tabs — a rejection writes it and
+  nothing else does, so there it was a column of dashes as tall as the table.
+
+Rejected rows carry their reason; shortlisted ones get a yellow bar; a photo
+field that overrode a non-empty text value carries a badge with the old value
+in its tooltip.
 
 `rentals.csv` opens in Numbers or Excel but carries the scraped columns only.
 The AI fields, verdict, score and your decisions live in the HTML.

@@ -273,7 +273,7 @@
     },
     {
       "key": "posted_at",
-      "label": "Опубликовано",
+      "label": "Дата в тексте",
       "group": "meta",
       "type": "date",
       "added_in": 1,

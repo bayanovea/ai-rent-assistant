@@ -1380,24 +1380,16 @@ _HTML_TEMPLATE = r"""<!doctype html>
   table.rt { border-collapse: separate; border-spacing: 0; white-space: nowrap; }
   .rt th, .rt td { border-bottom: 1px solid #eef0f4; border-right: 1px solid #f3f4f7; padding: 5px 8px; text-align: left; vertical-align: top; font-weight: normal; }
   .rt th { background: #f7f8fb; font-weight: 600; user-select: none; }
-  .rt thead th.lbl { position: sticky; top: 24px; z-index: 2; cursor: pointer; box-shadow: 0 1px 0 #dde; }
-  .rt thead th.band { position: sticky; top: 0; z-index: 2; text-align: center; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 8px; color: #55607a; }
+  .rt thead th.lbl { position: sticky; top: 0; z-index: 2; cursor: pointer; box-shadow: 0 1px 0 #dde; }
   .rt thead th.lbl:hover { background: #eef1f7; }
   .rt thead th.lbl.sorted { color: #1a73e8; }
   .rt thead th .so { font-size: 9px; margin-left: 3px; color: #1a73e8; }
-  /* Where the data comes from: parsed off the FB page, extracted by the AI
-     from the text, or read off the photographs by the gallery pass. */
-  .rt .src-fb  { background: #f4f7fb; }
-  .rt .src-ai  { background: #f8f5fb; }
-  .rt .src-photo { background: #f1f8f6; }
-  .rt .src-sys { background: #f7f8fb; }
-  .rt .band.src-fb  { color: #2a5f9e; background: #e9f0f9; }
-  .rt .band.src-ai  { color: #6b3fa0; background: #f1eaf9; }
-  .rt .band.src-photo { color: #1f6f68; background: #e3f1ee; }
-  .rt .band.src-sys { color: #55607a; background: #eef0f4; }
-  .rt td.src-ai { background: #fdfcfe; }
-  .rt td.src-photo { background: #fbfefd; }
-  .rt .edge { border-left: 2px solid #c8cfe0; }
+  /* The only source worth a colour: the AI looked at photographs rather than
+     at text. FB / AI / decision were three shades of the same pale grey, and
+     the bands they drew pinned the column order to "whoever filled it" — the
+     layout cost more than the distinction was worth. Where a single value
+     came from is still on the cell itself, as the `fb` and `≠ текст` badges. */
+  .rt th.src-photo, .rt td.src-photo { background: #f3faf8; }
   .rt td:first-child, .rt th:first-child { position: sticky; left: 0; z-index: 1; background: #fff; box-shadow: 1px 0 0 #dde; }
   .rt thead th:first-child { z-index: 4; background: #eef0f4; }
   .rt tbody tr:hover td { background: #f9fbff; }
@@ -1407,6 +1399,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .id-row { display: flex; align-items: center; }
   .id-cell.dup-id { color: #6b7a99; }
   .dup-count { font-size: 9px; color: #6b3fa0; border: 1px solid #d8cfe8; border-radius: 3px; padding: 0 3px; margin-left: 4px; }
+  .dq { font-size: 9px; color: #a50e0e; background: #fce8e6; border: 1px solid #f2c6c2; border-radius: 3px; padding: 0 3px; margin-left: 4px; cursor: help; }
   /* Long values are clipped so the table stays scannable; a click unfolds
      the cell in place, a second click folds it back. */
   .clip { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; cursor: zoom-in; }
@@ -1447,9 +1440,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
   <div class="flt-tools"><button id="flt-reset">Сбросить фильтры</button><span id="flt-note"></span></div>
 </div>
 <div class="legend">
-  <span class="item"><span class="sw src-fb"></span>колонка из парсинга FB</span>
-  <span class="item"><span class="sw src-ai"></span>колонка от AI</span>
   <span class="item"><span class="sw src-photo"></span>колонка от фото-прохода — AI смотрел снимки, а не текст</span>
+  <span class="item"><span class="dq">sidebar_noise</span>анализ читал не тот текст — строку надо перечитать</span>
   <span class="item"><span class="badge was">≠ текст</span>фото не согласилось с текстом — в подсказке прежнее значение</span>
   <span class="item"><span class="sw c-good"></span>подходит (pets allowed, цена в бюджете)</span>
   <span class="item"><span class="sw c-warn"></span>под вопросом (unclear, 30–35k ฿)</span>
@@ -1458,14 +1450,16 @@ _HTML_TEMPLATE = r"""<!doctype html>
   <span class="item"><span class="sw c-none"></span>AI смотрел, информации нет</span>
   <span class="item"><span class="sw" style="border-left:3px solid #d93025"></span>row-rejected — отклонено (AI или вами)</span>
 </div>
-<div class="wrap"><table class="rt"><thead><tr id="bands"></tr><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
+<div class="wrap"><table class="rt"><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
 <div class="empty" id="empty" hidden>Ничего не найдено.</div>
 <script>
 const COLUMNS = __COLUMNS_JSON__;
 const DATA = __DATA_JSON__;
 
 const TAB_LABELS = { active: "Active", shortlist: "Shortlist", rejected: "Rejected", all: "All" };
-const SRC_LABELS = { fb: "FB — парсинг", ai: "AI — анализ", photo: "Фото — анализ", sys: "Решение" };
+// `Причина` is written by a rejection and by nothing else, so on the tabs that
+// hold no rejected rows it is a column of dashes as tall as the table.
+const REASON_TABS = { rejected: 1, all: 1 };
 const CLIPPED_KINDS = { verdict: 1, comment: 1, field: 1, text: 1, reason: 1 };
 const TYPE_ICONS = {
   house: "🏠", townhouse: "🏘️", villa: "🏡", condo: "🏢",
@@ -1487,7 +1481,8 @@ function esc(s) {
 }
 
 function visibleColumns() {
-  return COLUMNS.filter(c => showExtra || !c.hidden);
+  return COLUMNS.filter(c =>
+    (showExtra || !c.hidden) && (c.key !== "reason" || REASON_TABS[tab]));
 }
 
 function cellOf(row, key) {
@@ -1496,8 +1491,10 @@ function cellOf(row, key) {
 
 function haystack(row) {
   if (row._hay == null) {
-    const dups = (cellOf(row, "fb_id").dups || []).map(d => d.fb_id).join(" ");
-    row._hay = (COLUMNS.map(c => cellOf(row, c.key).t).join(" ") + " " + dups).toLowerCase();
+    const id = cellOf(row, "fb_id");
+    const dups = (id.dups || []).map(d => d.fb_id).join(" ");
+    row._hay = (COLUMNS.map(c => cellOf(row, c.key).t).join(" ")
+      + " " + dups + " " + (id.dq || "")).toLowerCase();
   }
   return row._hay;
 }
@@ -1528,7 +1525,6 @@ function tdHTML(row, col) {
   const text = cell.t;
   const empty = text == null || text === "";
   const classes = ["cell", "src-" + col.src];
-  if (col.edge) classes.push("edge");
   if (cell.c) classes.push(cell.c);
   if (col.kind === "num" || col.kind === "score" || col.kind === "count" || col.kind === "rating") classes.push("num");
   let title = cell.ev ? ' title="' + esc(cell.ev) + '"' : "";
@@ -1547,7 +1543,13 @@ function tdHTML(row, col) {
       const count = (i === 0 && posts.length > 1)
         ? '<span class="dup-count" title="одно объявление, опубликованное ' + posts.length + ' раза">×' + posts.length + '</span>'
         : "";
-      return '<span class="id-row">' + link + count + '</span>';
+      // `data_quality` is a badge rather than a column: it was `good` on 99%
+      // of the table, and a whole column to flag 27 rows is a bad trade.
+      const dq = (i === 0 && cell.dq)
+        ? '<span class="dq" title="качество данных: ' + esc(cell.dq)
+          + ' — анализ читал не тот текст, строку надо перечитать">' + esc(cell.dq) + '</span>'
+        : "";
+      return '<span class="id-row">' + link + count + dq + '</span>';
     }).join("") + '</span>';
   } else if (col.kind === "score") {
     inner = empty ? '—' : esc(text);
@@ -1734,7 +1736,9 @@ function dropIfEmpty(key) {
 // Панель показывает фильтры видимых колонок плюс те, что уже выставлены на
 // скрытых: иначе спрятанный фильтр молча резал бы таблицу.
 function filterColumns() {
-  return COLUMNS.filter(c => showExtra || !c.hidden || FILTERS[c.key]);
+  return COLUMNS.filter(c =>
+    (showExtra || !c.hidden || FILTERS[c.key])
+    && (c.key !== "reason" || REASON_TABS[tab] || FILTERS[c.key]));
 }
 
 function renderFilters() {
@@ -1772,24 +1776,13 @@ function renderFilters() {
 
 function renderHead() {
   const cols = visibleColumns();
-  const bands = [];
-  cols.forEach(c => {
-    const last = bands[bands.length - 1];
-    if (last && last.src === c.src) last.n += 1;
-    else bands.push({ src: c.src, n: 1 });
-  });
-  document.getElementById("bands").innerHTML = bands.map((b, i) =>
-    '<th class="band src-' + b.src + (i ? ' edge' : '') + '" colspan="' + b.n + '">'
-    + esc(SRC_LABELS[b.src] || b.src) + '</th>'
-  ).join("");
-
   document.getElementById("head").innerHTML = cols.map(c => {
     const i = sorts.findIndex(s => s.key === c.key);
     // Номер рядом со стрелкой появляется только когда ключей больше одного —
     // тогда он и означает приоритет.
     const mark = i === -1 ? "" : '<span class="so">' + (sorts[i].dir > 0 ? "▲" : "▼")
       + (sorts.length > 1 ? (i + 1) : "") + '</span>';
-    return '<th class="lbl src-' + c.src + (c.edge ? ' edge' : '')
+    return '<th class="lbl src-' + c.src
       + (i === -1 ? '' : ' sorted') + '" data-key="' + esc(c.key) + '"'
       + ' title="клик — сортировать, Shift+клик — добавить ключ">'
       + esc(c.label) + mark + '</th>';
@@ -1846,7 +1839,11 @@ function render() {
 }
 
 document.querySelectorAll(".tab").forEach(btn => {
-  btn.addEventListener("click", () => { tab = btn.dataset.tab; render(); });
+  btn.addEventListener("click", () => {
+    tab = btn.dataset.tab;
+    renderFilters();
+    render();
+  });
 });
 
 document.getElementById("body").addEventListener("click", ev => {
@@ -1932,58 +1929,65 @@ render();
 """
 
 # Columns that come from the listing row itself rather than from the AI field
-# registry. ``kind`` is what the embedded JS switches on when rendering a cell;
-# ``src`` is which half of the pipeline filled it — the page groups columns
-# into bands by it so a parsed value is never mistaken for an extracted one.
-_BASE_COLUMNS: tuple[dict[str, Any], ...] = (
-    {"key": "fb_id", "label": "ID", "kind": "id", "src": "fb"},
-    {"key": "price", "label": "Цена ฿/мес", "kind": "num", "src": "fb"},
-    {"key": "area", "label": "Район", "kind": "text", "src": "fb"},
-    {"key": "first_seen_at", "label": "Первый показ", "kind": "text", "src": "fb"},
-    {"key": "score", "label": "Score", "kind": "score", "src": "ai"},
-    {"key": "verdict", "label": "Рекомендация", "kind": "verdict", "src": "ai"},
-    {"key": "comment", "label": "Комментарий AI", "kind": "comment", "src": "ai"},
-    {"key": "data_quality", "label": "Качество данных", "kind": "text", "src": "ai"},
+# registry. ``kind`` is what the embedded JS switches on when rendering a cell.
+# ``src`` no longer draws bands across the header — it only survives so the
+# photo columns keep their green tint, which is the one source distinction
+# worth a colour: the AI looked at pictures rather than at text. The FB / AI /
+# sys tints were three shades of the same pale grey, and the bands they drew
+# pinned the column order to "whoever filled it", which is what put 600px of
+# prose between the price and the number of bedrooms.
+_FIXED_COLUMNS: dict[str, dict[str, Any]] = {
+    "fb_id": {"label": "ID", "kind": "id", "src": "fb"},
+    "price": {"label": "Цена ฿/мес", "kind": "num", "src": "fb"},
+    "area": {"label": "Район", "kind": "text", "src": "fb"},
+    # When the ad itself was posted, not when a sweep first saw it. A corpus
+    # collected over three days has three `first_seen_at` values and tells you
+    # nothing; `published_at` is filled on 98% of rows and is what says whether
+    # the flat is likely already gone.
+    "published_at": {"label": "Опубликовано", "kind": "text", "src": "fb"},
+    "first_seen_at": {"label": "Первый показ", "kind": "text", "src": "fb"},
+    "score": {"label": "Score", "kind": "score", "src": "ai"},
+    "verdict": {"label": "Рекомендация", "kind": "verdict", "src": "ai"},
+    "comment": {"label": "Комментарий AI", "kind": "comment", "src": "ai"},
+    "photo_comment": {
+        "label": "Комментарий по фото", "kind": "comment", "src": "photo",
+    },
+    "rating": {"label": "Моя оценка", "kind": "rating", "src": "sys"},
+    "reason": {"label": "Причина", "kind": "reason", "src": "sys"},
+}
+
+# The default view, in reading order. Everything countable comes first, so a
+# glance down "цена → район → тип → спальни → площадь" never steps over a
+# clipped paragraph; the text columns follow, where their length costs nothing.
+# `reason` closes the table and the page hides it on the tabs where it is
+# empty by construction.
+_VISIBLE_ORDER: tuple[str, ...] = (
+    "fb_id",
+    "score",
+    "pets",
+    "price",
+    "area",
+    "property_type",
+    "bedrooms",
+    "bathrooms",
+    "size_sqm",
+    "published_at",
+    "rating",
+    "verdict",
+    "comment",
+    "photo_comment",
+    "reason",
 )
 
-# The gallery pass gets a band of its own: every registry field it can answer
-# plus the comment it wrote. Its columns are the ones whose staleness is
-# measured against `photo_schema_version` rather than the text pass's.
-_PHOTO_COLUMNS: tuple[dict[str, Any], ...] = (
-    {"key": "photo_comment", "label": "Комментарий по фото", "kind": "comment",
-     "src": "photo"},
-)
-
-
-def is_photo_field(field: dict[str, Any]) -> bool:
-    """Whether the gallery pass is expected to fill this registry field."""
-    return ai_schema.field_source(field) in ("photo", "both")
-
-
-# The one column that is neither parsed nor extracted: why the listing is out,
-# decided by `rules` or by the user. It closes the table.
-_TAIL_COLUMNS: tuple[dict[str, Any], ...] = (
-    {"key": "rating", "label": "Моя оценка", "kind": "rating", "src": "sys"},
-    {"key": "reason", "label": "Причина", "kind": "reason", "src": "sys"},
-)
+# Fixed columns that ship folded away. `first_seen_at` is ours, not the ad's —
+# useful when a sweep is being debugged, noise the rest of the time.
+_HIDDEN_FIXED: tuple[str, ...] = ("first_seen_at",)
 
 # Registry fields the base columns already cover: `area` and the monthly price
 # are merged with their parsed counterparts into a single column each.
 _MERGED_FIELD_KEYS: frozenset[str] = frozenset({"price_month_thb", "area"})
 
-# Registry fields shown up front. Everything else in the registry is an extra,
-# folded away behind the "Ещё N полей" button.
-_PRIMARY_FIELD_KEYS: tuple[str, ...] = (
-    "pets",
-    "property_type",
-    "bedrooms",
-    "bathrooms",
-    "size_sqm",
-    "extra_rooms",
-    "pool_gym",
-)
-
-# Order of the folded-away columns: the five that most often decide a viewing
+# Order of the folded-away columns: the ones that most often decide a viewing
 # come first, the rest keep the registry's own order.
 _EXTRA_FIELD_ORDER: tuple[str, ...] = (
     "security",
@@ -1991,7 +1995,20 @@ _EXTRA_FIELD_ORDER: tuple[str, ...] = (
     "parking",
     "aircon",
     "kitchen",
+    "furnished",
+    "living_room",
 )
+
+def is_photo_field(field: dict[str, Any]) -> bool:
+    """Whether the gallery pass is expected to fill this registry field."""
+    return ai_schema.field_source(field) in ("photo", "both")
+
+
+# `unclear` means the AI read the ad and the ad did not say — which is exactly
+# what the grey dash already shows, and it fills five columns with a word that
+# weighs as much on screen as a real answer. `pets` is the exception: not
+# knowing whether the dog is welcome is itself the reason to call the agent.
+_UNCLEAR_SPEAKS: frozenset[str] = frozenset({"pets"})
 
 # Values of the FB `district` field that name the island or the province
 # rather than a district — nothing to show.
@@ -2043,21 +2060,21 @@ def _display(value: Any) -> str:
 
 def _extra_field_keys(registry: ai_schema.Registry) -> list[str]:
     """Registry keys that live behind the "Ещё N полей" toggle, in order."""
-    known = set(_PRIMARY_FIELD_KEYS) | _MERGED_FIELD_KEYS
+    known = set(_VISIBLE_ORDER) | _MERGED_FIELD_KEYS
     rest = [f["key"] for f in registry.fields if f["key"] not in known]
     priority = [k for k in _EXTRA_FIELD_ORDER if k in rest]
     return priority + [k for k in rest if k not in priority]
 
 
 def html_columns(registry: ai_schema.Registry) -> list[dict[str, Any]]:
-    """Return every export column: the fixed ones plus the registry's fields.
+    """Return every export column: the default view first, the extras after.
 
-    Registry fields follow the base columns — first the ones worth a glance in
-    the default view, then the extras, which ship with ``hidden`` set so the
-    page can fold them away. Fields the gallery pass fills (``source`` of
-    ``photo`` or ``both``) move to a band of their own at the end, followed by
-    ``photo_comment``. ``edge`` marks the column that opens a new source band,
-    which is where the page draws its divider.
+    ``_VISIBLE_ORDER`` is the whole layout — it mixes fixed columns and
+    registry fields freely, because the order that reads well and the order
+    the pipeline filled things in are not the same order. Everything the
+    registry holds that the visible list did not claim follows it with
+    ``hidden`` set, so the page can fold it away, and the fixed columns in
+    ``_HIDDEN_FIXED`` close the list.
     """
     by_key = {field["key"]: field for field in registry.fields}
 
@@ -2080,31 +2097,17 @@ def html_columns(registry: ai_schema.Registry) -> list[dict[str, Any]]:
             "hidden": hidden,
         }
 
-    def by_band(keys: list[str], *, photo: bool, hidden: bool) -> list[dict[str, Any]]:
-        return [
-            field_column(key, hidden=hidden)
-            for key in keys
-            if key in by_key and is_photo_field(by_key[key]) is photo
-        ]
+    def fixed_column(key: str, *, hidden: bool) -> dict[str, Any]:
+        return {"key": key, **_FIXED_COLUMNS[key], "hidden": hidden}
 
-    primary = [key for key in _PRIMARY_FIELD_KEYS if key in by_key]
-    extra = _extra_field_keys(registry)
-
-    columns: list[dict[str, Any]] = [dict(col) for col in _BASE_COLUMNS]
-    columns += by_band(primary, photo=False, hidden=False)
-    columns += by_band(extra, photo=False, hidden=True)
-    # The photo band closes the registry so it stays one unbroken stripe:
-    # the fields the gallery pass can answer, then its own comment.
-    columns += by_band(primary, photo=True, hidden=False)
-    columns += by_band(extra, photo=True, hidden=True)
-    columns += [dict(col) for col in _PHOTO_COLUMNS]
-    columns += [dict(col) for col in _TAIL_COLUMNS]
-
-    previous = None
-    for column in columns:
-        column.setdefault("hidden", False)
-        column["edge"] = previous is not None and column["src"] != previous
-        previous = column["src"]
+    columns: list[dict[str, Any]] = []
+    for key in _VISIBLE_ORDER:
+        if key in _FIXED_COLUMNS:
+            columns.append(fixed_column(key, hidden=False))
+        elif key in by_key:
+            columns.append(field_column(key, hidden=False))
+    columns += [field_column(key, hidden=True) for key in _extra_field_keys(registry)]
+    columns += [fixed_column(key, hidden=True) for key in _HIDDEN_FIXED]
     return columns
 
 
@@ -2152,7 +2155,17 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
     area = ai_area if not rules.is_empty(ai_area) else fb_area
 
     cells: dict[str, dict[str, Any]] = {
-        "fb_id": {"t": item.get("fb_id"), "c": "", "dups": item.get("duplicates") or []},
+        # `data_quality` used to be a column of its own and was `good` on 99%
+        # of the table — a whole column's width to flag 27 rows. It rides on
+        # the ID instead, as a badge the page also folds into the search text.
+        "fb_id": {
+            "t": item.get("fb_id"),
+            "c": "",
+            "dups": item.get("duplicates") or [],
+            "dq": (item.get("data_quality") or "")
+            if analyzed and item.get("data_quality") not in (None, "", "good")
+            else "",
+        },
         "price": {
             "t": _display(price),
             "c": rules.cell_class("price_month_thb", price, {"added_in": 1}, version),
@@ -2164,6 +2177,10 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
             "src": "ai" if not rules.is_empty(ai_area) else "fb",
         },
         "first_seen_at": {"t": str(first_seen)[:10], "c": ""},
+        "published_at": {
+            "t": str(item.get("published_at") or "")[:10],
+            "c": "" if item.get("published_at") else rules.CLASS_NONE,
+        },
         "score": {
             "t": _display(score),
             "c": "" if analyzed else rules.CLASS_NONE,
@@ -2176,12 +2193,6 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
         "comment": {
             "t": item.get("comment") or "",
             "c": "" if analyzed else rules.CLASS_NONE,
-        },
-        "data_quality": {
-            "t": item.get("data_quality") or "",
-            "c": rules.CLASS_WARN
-            if analyzed and item.get("data_quality") not in (None, "", "good")
-            else "",
         },
         "photo_comment": {
             "t": item.get("photo_comment") or "",
@@ -2205,11 +2216,12 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
         if key in _MERGED_FIELD_KEYS:
             continue
         value = rules.value_of(fields, key)
+        shown = None if value == "unclear" and key not in _UNCLEAR_SPEAKS else value
         cell: dict[str, Any] = {
-            "t": _display(value),
+            "t": _display(shown),
             "c": rules.cell_class(
                 key,
-                value,
+                shown,
                 field,
                 photo_version if is_photo_field(field) else version,
             ),

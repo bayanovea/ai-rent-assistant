@@ -571,12 +571,10 @@ def test_export_html_colours_pets_and_marks_rejected(conn, tmp_path: Path):
             assert field["label"] in labels
     assert "Причина" in labels
     assert len(labels) == (
-        len(storage._BASE_COLUMNS)
-        + len(storage._PHOTO_COLUMNS)
-        + len(storage._TAIL_COLUMNS)
-        + len(registry.fields)
-        - len(merged)
+        len(storage._FIXED_COLUMNS) + len(registry.fields) - len(merged)
     )
+    # `Качество данных` is no longer one of them: it rides on the ID cell.
+    assert "Качество данных" not in labels
 
 
 def test_export_html_marks_user_rejection_as_user(conn, tmp_path: Path):
@@ -703,7 +701,7 @@ def test_fetch_enriched_without_photos_has_no_overrides(conn):
     assert item["photo_analyzed"] is False
 
 
-def test_export_html_renders_the_photo_band(conn, tmp_path: Path):
+def test_export_html_marks_the_photo_columns(conn, tmp_path: Path):
     registry = _photo_registry()
     storage.upsert_listing(conn, _make_listing(fb_id="p1"))
     storage.upsert_ai_analysis(
@@ -720,14 +718,14 @@ def test_export_html_renders_the_photo_band(conn, tmp_path: Path):
     storage.export_html(conn, out, registry)
     text = out.read_text(encoding="utf-8")
 
-    # The band exists in the payload, is contiguous and carries its own label.
+    # The columns the gallery pass fills are tagged `photo` wherever they sit
+    # in the layout, and that tag is the one source distinction still painted.
     columns = _inline_payload(text, "COLUMNS")
-    photo = [c for c in columns if c["src"] == "photo"]
-    assert [c["key"] for c in photo] == ["furnished", "photo_quality", "photo_comment"]
-    assert photo[0]["edge"] is True
-    assert all(c["edge"] is False for c in photo[1:])
-    assert "Фото — анализ" in text
-    assert ".rt .band.src-photo" in text
+    photo = {c["key"] for c in columns if c["src"] == "photo"}
+    assert photo == {"furnished", "photo_quality", "photo_comment"}
+    assert ".rt th.src-photo, .rt td.src-photo" in text
+    # The header bands are gone; nothing spans columns any more.
+    assert "colspan" not in text
 
     row = _inline_payload(text, "DATA")[0]
     assert row["cells"]["furnished"]["t"] == "partial"
@@ -886,28 +884,85 @@ def test_export_html_price_and_area_prefer_the_ai_reading(conn, tmp_path: Path):
     assert "area" in keys and keys.count("area") == 1
 
 
+def test_unclear_reads_as_the_grey_dash_except_for_pets(conn, tmp_path: Path):
+    # "Не сказано" is what the dash already means, and the word takes as much
+    # room on screen as a real answer — on five columns where it is the most
+    # common value. Pets is the exception: not knowing is the reason to call.
+    registry = ai_schema.load_registry()
+    storage.upsert_listing(conn, _make_listing(fb_id="u1"))
+    storage.upsert_ai_analysis(
+        conn,
+        _make_analysis(
+            fb_id="u1",
+            schema_version=registry.schema_version,
+            data_json={
+                "pets": {"v": "unclear", "conf": "low", "ev": ""},
+                "parking": {"v": "unclear", "conf": "low", "ev": ""},
+                "green_area": {"v": "unclear", "conf": "low", "ev": ""},
+                "kitchen": {"v": "full", "conf": "high", "ev": "kitchen"},
+            },
+        ),
+    )
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out, registry)
+    row = _inline_payload(out.read_text(encoding="utf-8"), "DATA")[0]
+
+    assert row["cells"]["pets"]["t"] == "unclear"
+    assert row["cells"]["pets"]["c"] == rules.CLASS_WARN
+    assert row["cells"]["parking"]["t"] == ""
+    assert row["cells"]["parking"]["c"] == rules.CLASS_NONE
+    assert row["cells"]["green_area"]["t"] == ""
+    assert row["cells"]["kitchen"]["t"] == "full"
+
+
+def test_bad_data_quality_is_a_badge_on_the_id(conn, tmp_path: Path):
+    registry = ai_schema.load_registry()
+    for fb_id, quality in (("ok", "good"), ("bad", "sidebar_noise")):
+        storage.upsert_listing(conn, _make_listing(fb_id=fb_id))
+        storage.upsert_ai_analysis(
+            conn,
+            _make_analysis(
+                fb_id=fb_id,
+                schema_version=registry.schema_version,
+                data_quality=quality,
+            ),
+        )
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out, registry)
+    text = out.read_text(encoding="utf-8")
+    rows = {r["fb_id"]: r for r in _inline_payload(text, "DATA")}
+
+    assert rows["bad"]["cells"]["fb_id"]["dq"] == "sidebar_noise"
+    assert rows["ok"]["cells"]["fb_id"]["dq"] == ""
+    assert "data_quality" not in rows["ok"]["cells"]
+    # The badge is searchable even though it is not a column.
+    assert '(id.dq || "")' in text
+
+
 def test_html_columns_fold_extras_behind_the_toggle():
     registry = ai_schema.load_registry()
     columns = storage.html_columns(registry)
     hidden = [c["key"] for c in columns if c["hidden"]]
 
     # The ones that most often decide whether a viewing is worth it open the
-    # folded group — minus those the photo band took over.
-    assert hidden[:3] == ["security", "deposit", "aircon"]
-    assert {"parking", "kitchen"} <= set(hidden)
+    # folded group.
+    assert hidden[:3] == ["security", "deposit", "parking"]
+    assert {"kitchen", "furnished", "aircon"} <= set(hidden)
     for key in ("pets", "bedrooms", "property_type"):
         assert next(c for c in columns if c["key"] == key)["hidden"] is False
 
-    # Bands are contiguous, and `edge` marks where one gives way to the next.
-    sources = [c["src"] for c in columns]
-    assert sources[0] == "fb" and sources[-1] == "sys"
-    assert sources == sorted(sources, key=["fb", "ai", "photo", "sys"].index)
-    edges = [c["key"] for c in columns if c["edge"]]
-    assert edges == ["score", "pool_gym", "rating"]
-    # The photo band ends with the comment the gallery pass wrote.
-    photo = [c["key"] for c in columns if c["src"] == "photo"]
-    assert photo[-1] == "photo_comment"
-    assert "photo_quality" in photo
+    # The default view is `_VISIBLE_ORDER` verbatim — numbers first, prose
+    # after — and nothing in it is folded away.
+    shown = [c["key"] for c in columns if not c["hidden"]]
+    assert tuple(shown) == storage._VISIBLE_ORDER
+    assert shown.index("size_sqm") < shown.index("verdict")
+
+    # `first_seen_at` is ours rather than the ad's, so it ships folded; the
+    # date the ad itself carries is the one on screen.
+    assert "first_seen_at" in hidden
+    assert "published_at" in shown
 
 
 def test_verdict_and_comment_are_stored_side_by_side(conn):
