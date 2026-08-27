@@ -286,19 +286,19 @@ the last one so the researcher can see a contradiction coming.
 - Modify: `src/fb_rent/rules.py`
 - Modify: `tests/test_rules.py`
 
-- [ ] add `REASON_BUILDING_PETS = "Кондо запрещает животных"`
-- [ ] add the `building_policy` parameter to `decide()` and the check, placed
+- [x] add `REASON_BUILDING_PETS = "Кондо запрещает животных"`
+- [x] add the `building_policy` parameter to `decide()` and the check, placed
       after the ad's own `pets` check and before the district check
-- [ ] extend `decide`'s docstring: `negotiable`, `allowed` and `unknown` never
+- [x] extend `decide`'s docstring: `negotiable`, `allowed` and `unknown` never
       reject; a policy only ever arrives here already confirmed
-- [ ] leave `score()` untouched and say why in a comment (the tie-at-100 trap)
-- [ ] write tests: `not_allowed` rejects with the new reason; `negotiable`,
+- [x] leave `score()` untouched and say why in a comment (the tie-at-100 trap)
+- [x] write tests: `not_allowed` rejects with the new reason; `negotiable`,
       `allowed`, `unknown` and `None` do not
-- [ ] write tests: the ad's own `pets == "not_allowed"` still wins the reason
+- [x] write tests: the ad's own `pets == "not_allowed"` still wins the reason
       string when both apply
-- [ ] write tests: bad `data_quality` suppresses the building rejection too,
+- [x] write tests: bad `data_quality` suppresses the building rejection too,
       like every other rule
-- [ ] run tests — must pass before task 4
+- [x] run tests — must pass before task 4
 
 ### Task 4: Wire the policy into `fetch_enriched`
 

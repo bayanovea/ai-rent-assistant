@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 from fb_rent.rules import (
     CLASS_BAD,
     CLASS_GOOD,
@@ -10,6 +12,7 @@ from fb_rent.rules import (
     CLASS_STALE,
     CLASS_WARN,
     REASON_AREA,
+    REASON_BUILDING_PETS,
     REASON_PETS,
     REASON_PRICE,
     REASON_SIZE,
@@ -79,6 +82,70 @@ def test_pets_wins_over_other_reasons():
 
 def test_plain_values_are_accepted_too():
     assert decide({"pets": "not_allowed"}, 20_000) == ("rejected", REASON_PETS)
+
+
+# --- the building's own pets rule --------------------------------------
+
+
+def test_building_forbidding_pets_rejects_the_listing():
+    fields = wrap(pets="unclear", bedrooms=2)
+    status, reason = decide(fields, 20_000, building_policy="not_allowed")
+    assert (status, reason) == ("rejected", REASON_BUILDING_PETS)
+
+
+def test_negotiable_building_keeps_the_listing():
+    # The case the user explicitly wants kept: it is a question for the
+    # landlord, never a rejection.
+    fields = wrap(pets="unclear", bedrooms=2)
+    assert decide(fields, 20_000, building_policy="negotiable") == ("active", None)
+
+
+def test_allowed_and_unknown_and_unresearched_buildings_do_not_reject():
+    fields = wrap(pets="unclear", bedrooms=2)
+    for policy in ("allowed", "unknown", None, ""):
+        assert decide(fields, 20_000, building_policy=policy) == ("active", None)
+
+
+def test_the_ads_own_pets_field_wins_the_reason_when_both_apply():
+    # Two independent sources say the same thing; the ad is the more direct
+    # evidence about this flat, so it keeps its own reason string.
+    fields = wrap(pets="not_allowed", bedrooms=2)
+    status, reason = decide(fields, 20_000, building_policy="not_allowed")
+    assert (status, reason) == ("rejected", REASON_PETS)
+
+
+def test_the_building_rule_is_checked_before_the_district():
+    # Both would reject; the building rule is the earlier check, as in
+    # `decide`'s own order.
+    fields = wrap(pets="unclear", area="Patong", bedrooms=2)
+    status, reason = decide(fields, 20_000, building_policy="not_allowed")
+    assert (status, reason) == ("rejected", REASON_BUILDING_PETS)
+
+
+def test_bad_data_quality_suppresses_the_building_rejection_too():
+    # The row was read off the sidebar, so even the project name the policy
+    # was matched against is not evidence about this listing.
+    fields = wrap(pets="unclear", bedrooms=2)
+    assert decide(fields, 20_000, "sidebar_noise",
+                  building_policy="not_allowed") == ("active", None)
+    assert decide(fields, 20_000, "missing",
+                  building_policy="not_allowed") == ("active", None)
+    assert decide(fields, 20_000, "good", building_policy="not_allowed") == (
+        "rejected", REASON_BUILDING_PETS)
+
+
+def test_the_building_policy_is_positional_after_district():
+    # `fetch_enriched` passes all five positionally; keep the order stable.
+    fields = wrap(pets="unclear", bedrooms=2)
+    assert decide(fields, 20_000, "good", None, "not_allowed") == (
+        "rejected", REASON_BUILDING_PETS)
+
+
+def test_the_building_policy_never_reaches_the_score():
+    # No weight in either direction: a confirmed `allowed` would lift exactly
+    # the rows already easiest to rank and push the tie at 100 back up, so
+    # `score` does not take the policy at all.
+    assert "building_policy" not in inspect.signature(score).parameters
 
 
 # --- what must NOT be rejected -----------------------------------------

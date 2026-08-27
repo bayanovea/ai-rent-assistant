@@ -2,8 +2,9 @@
 
 Two questions live here, both answered from the AI's extracted fields:
 
-* :func:`decide` — is this listing still worth looking at? Exactly five
-  conditions auto-reject (pets forbidden, a district rated at or below
+* :func:`decide` — is this listing still worth looking at? Exactly six
+  conditions auto-reject (pets forbidden by the ad, pets forbidden by the
+  building's own confirmed rule, a district rated at or below
   `_AREA_REJECT_MAX`, far over budget, explicit studio, living area under
   `MIN_SIZE_SQM`).
   Everything else is a flag in the verdict, never a rejection: more rooms
@@ -29,6 +30,7 @@ from .config import (
 
 # Reasons attached to auto-rejections, in the order they are checked.
 REASON_PETS = "Животные запрещены"
+REASON_BUILDING_PETS = "Кондо запрещает животных"
 REASON_AREA = "Район в автоотказе"
 REASON_PRICE = "Сильно вне бюджета"
 REASON_STUDIO = "Студия"
@@ -174,6 +176,7 @@ def decide(
     price_thb: int | None = None,
     data_quality: str | None = None,
     district: str | None = None,
+    building_policy: str | None = None,
 ) -> tuple[str, str | None]:
     """Return ``("active" | "rejected", reason)`` for one listing.
 
@@ -184,6 +187,16 @@ def decide(
     internet are all flags for the verdict, not rejections. The same holds for
     a missing ``size_sqm``: silence about the area is never a rejection, and a
     district nobody named is not a rejection either.
+
+    ``building_policy`` is what the building's own house rule says about pets,
+    already resolved by :mod:`fb_rent.buildings` — the key normalisation, the
+    alias lookup and the ``confirmed`` gate all happen there, so a policy that
+    reaches this function is one the user has vetted. Only ``not_allowed``
+    rejects: ``negotiable`` is the case the user wants kept and asked about,
+    ``allowed`` and ``unknown`` say nothing to act on, and ``None`` is the
+    unresearched building. The ad's own ``pets`` field is a separate source and
+    is never overwritten by this one — a "pet friendly" ad in a building that
+    forbids dogs stays visible as the contradiction it is.
 
     ``data_quality`` other than ``good`` suppresses every rejection: the
     text the AI read was the sidebar or was missing entirely, so its
@@ -196,6 +209,11 @@ def decide(
 
     if value_of(fields, "pets") == "not_allowed":
         return "rejected", REASON_PETS
+
+    # Checked after the ad's own field so that a listing saying "no pets"
+    # outright keeps the more direct reason when both apply.
+    if building_policy == "not_allowed":
+        return "rejected", REASON_BUILDING_PETS
 
     # Patong is out whatever the flat looks like, so this is checked before
     # price and size rather than left to cost points in `score`.
@@ -394,6 +412,14 @@ def score(fields: dict[str, Any], district: str | None = None) -> int:
     soft budget) push it down. Fields the ad never mentions leave the score
     untouched — including the district, which is why an unrecognised area is
     worth exactly zero rather than a penalty.
+
+    The building's own pets policy is deliberately absent here, in both
+    directions. A confirmed ``not_allowed`` needs no penalty — it rejects in
+    `decide` and never reaches the ranking — and a confirmed ``allowed`` must
+    not pay a bonus: it would lift exactly the rows already easiest to rank,
+    and it would put a researched building above an identical unresearched one
+    for a reason that is about the research rather than the flat. This is the
+    tie-at-100 trap below, in its cheapest disguise.
 
     Nothing is scored for merely *saying* something. An earlier version paid
     points for a non-empty `internet`, `pool_gym` or `extra_rooms`, which
