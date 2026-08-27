@@ -397,6 +397,14 @@ _ENUM_WEIGHTS: dict[str, dict[str, int]] = {
     # and a view into a wall cannot be staged away.
     "light": {"bright": 3, "dark": -4},
     "appeal": {"attractive": 2, "unattractive": -5},
+    # `sea` is worth no more than `green` on purpose. The sea is a minor plus
+    # for this user and is already inside the district ratings; paying extra
+    # for the view would smuggle the same preference in a second time, and a
+    # green view is worth as much to someone who walks a dog. `wall` is the
+    # signal here — and it is softened to -3 rather than -4 because a window
+    # into the next tower is usually also a `dark` flat, which has already
+    # been charged for.
+    "view": {"sea": 2, "green": 2, "wall": -3},
     # Photos that show something other than the flat on offer are a defect,
     # not an absence: you cannot judge the place at all. `real` scores zero
     # on purpose — most rows have had no photo pass yet, and paying a bonus

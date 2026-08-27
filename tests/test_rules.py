@@ -254,6 +254,18 @@ def test_light_and_appeal_cost_more_than_they_pay():
     assert score(wrap(light="unclear", appeal="unclear")) == baseline
 
 
+def test_sea_view_is_worth_no_more_than_a_green_one():
+    # The sea is already inside the district ratings, so paying extra for the
+    # view would count the same preference twice. A window into the next
+    # tower is the signal worth having here.
+    baseline = score({})
+    assert score(wrap(view="sea")) == baseline + 2
+    assert score(wrap(view="green")) == baseline + 2
+    assert score(wrap(view="city")) == baseline
+    assert score(wrap(view="wall")) == baseline - 3
+    assert score(wrap(view="unclear")) == baseline
+
+
 # --- districts ----------------------------------------------------------
 
 
