@@ -177,6 +177,45 @@ building.
 
 Append after a real run. Do not rewrite what is here.
 
+### 27 August 2026 — first run, the five biggest buildings
+
+One subagent per building over the head of the queue: DCondo Reef, The Base
+Bukit, Phanason Green Place, The Base Central, The Base Uptown.
+
+- **Nothing came back `unknown`** — 0 of 5. Every building had a source.
+- **Every source was the same source.** All five hits trace to one FazWaz feed,
+  reprinted verbatim by KaiBaanThai, LivePhuket, Thaiger Property and
+  homes-thailand, carrying one sentence: «No pets are allowed at X unless
+  specifically permitted by the juristic office.» No management-company
+  document was found for any of the five, and the "same chain, different tower"
+  failure the design expected did not appear — but the mirrors did, and they
+  look like corroboration until you read the URLs. Treat four agency sites
+  agreeing as **one** source.
+- The pass first read that sentence as `negotiable` on all five. The user
+  rejected the reading — walking into a juristic office for one rented flat is
+  not a path they will take — and the classification rule changed; see the
+  policy table above. All five are now confirmed `not_allowed`.
+- **130 active rows left the table**: DCondo Reef 40, The Base Bukit 31, The
+  Base Central 22, The Base Uptown 19, Phanason Green Place 18. Across the
+  whole DB 327 rows now carry «Кондо запрещает животных» as their reason — the
+  building check runs early, so it also takes over rows that another rule had
+  already rejected. The active set stands at 999 of 2235.
+- Aliases earned their keep immediately: `base central` and `the base bukit
+  phuket` pulled in 2 more rows each over what the proposal counted.
+- **One contradiction, and it is real.** Phuket Insider lists THE BASE Central
+  Phuket among Phuket's pet-friendly condos («no more than two pets per unit»),
+  against the same feed's ban. The user confirmed the ban anyway.
+- The ad-level disagreement barely exists in these five: **zero** ads claiming
+  `pets: allowed` in the four Sansiri buildings, two in Phanason Green Place —
+  which is the entire contents of `buildings conflicts` today (1 building, 2
+  listings).
+- 292 buildings left unresearched.
+
+What the run leaves open: whether a source that is not the FazWaz feed exists
+at all for a Phuket condo, and what `unknown` looks like when one does not.
+Five buildings is not enough to say the queue is worth grinding through — but
+it is enough to say the first five paid for themselves.
+
 ### 27 August 2026 — implemented, not yet run
 
 The code and the skill are in; no research has happened, and
