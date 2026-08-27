@@ -15,6 +15,7 @@ Where the rest is:
 - `docs/plans/completed/20260825-photo-analysis.md` — the implementation plan.
 
 Last checked against live data: **25 August 2026**, commit `204f6cd`.
+Fields `light` and `appeal` added 28 August 2026, not yet run on live data.
 
 ## What the pass is for
 
@@ -27,7 +28,14 @@ promised as full and shown as a kitchenette, a gallery that turns out to be a
 
 `photo_quality` is the signal the text cannot have at all: `real`, `render`,
 `floorplan`, `other_unit`, `unclear`. Under `render` the subagent fills nothing
-else — a render shows the developer's intent, not the flat.
+else — a render shows the developer's intent, not the flat. That rule now
+covers `light` and `appeal` too, and it has to: a render is perfectly lit and
+tastefully furnished by construction, so those two are exactly the fields it
+would lie about most convincingly.
+
+`light` and `appeal` (added 28 August 2026, `schema_version` 5) are the second
+kind of signal the text cannot have — not because ads never mention light, but
+because every ad claims it. See the entry below on where their limit is.
 
 The reader is a **Sonnet subagent, one per listing**: the images never enter the
 orchestrator's context, and about 12 subagents run at once, so 50 listings
@@ -110,6 +118,28 @@ is not worth that risk.
 photo pass yet. A bonus for authenticity would rank them below the analysed
 ones for a reason that has nothing to do with the flat. Only the defect is
 penalised: `render` and `other_unit` −8, `floorplan` −6.
+
+**`light` and `appeal` are facts about what is visible, not taste.** The
+temptation is a "beauty 1-5" field, and it breaks the property the whole pass
+rests on: subagents produce facts, `rules.py` produces the judgement, so the
+same gallery always yields the same outcome. A rating nobody can cite has no
+`ev` and drifts between runs. Both prompts therefore ask for the visible
+grounds — window size, daylight, a view into a wall; freshness of the finish,
+clutter, wear — and `appeal` says outright that it rates the flat and not the
+photography, because a good agency photographer and a tired flat go together
+often.
+
+The weights are asymmetric on purpose, and by more than the usual house rule:
+`bright` +3 against `dark` −4, `attractive` +2 against `unattractive` −5. Two
+reasons. The pair correlates — a bright flat photographs as an attractive one —
+so a full bonus on each would pay the same photogenic listing twice. And the
+plus side is the weaker evidence: a wide-angle daylight shot with the lamps on
+makes anything look bright, while small windows and a view into the next tower
+cannot be staged away.
+
+Measured before adding them: 4 of 530 active rows sat at exactly 100, so the
+ceiling had room for +5. Re-measure after the first real batch — the tie at the
+top is the failure mode, see `CLAUDE.md`.
 
 **`photo-apply` must rewrite `score`.** `decide` is recomputed on every read
 (`storage.py`, `fetch_enriched`); `score` is only recomputed on apply. The
