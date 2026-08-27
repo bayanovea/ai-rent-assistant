@@ -384,30 +384,30 @@ the last one so the researcher can see a contradiction coming.
 **Files:**
 - Create: `.claude/skills/pets-policy/SKILL.md`
 
-- [ ] frontmatter `description` making it explicit the skill runs **only on
+- [x] frontmatter `description` making it explicit the skill runs **only on
       request** — same wording discipline as `photo-analyze`, which says so to
       stop a non-empty queue from being read as an invitation
-- [ ] the loop: `ai-status` → `buildings-batch` → subagent fan-out → result file
+- [x] the loop: `ai-status` → `buildings-batch` → subagent fan-out → result file
       → `buildings-apply` → `AskUserQuestion` per proposal → `buildings set` →
       `export` → report
-- [ ] **one subagent per building**, launched in a single message so they run in
+- [x] **one subagent per building**, launched in a single message so they run in
       parallel: search results and fetched pages never enter the orchestrator's
       context (the `photo-analyze` rule, same reason)
-- [ ] the subagent contract: given name + area, search the management site,
+- [x] the subagent contract: given name + area, search the management site,
       agency listing pages, Google/FB reviews and expat forums; return JSON only
       — `policy`, `confidence`, `note`, `sources[{url, title, quote}]`; it never
       sets status, never writes files, never touches listings
-- [ ] research rules: `not_allowed` needs a verbatim quote saying so; a rule
+- [x] research rules: `not_allowed` needs a verbatim quote saying so; a rule
       about *size or breed* is `negotiable`, not `not_allowed`; any hint that the
       management or owner decides case by case is `negotiable`; silence is
       `unknown`; a source about a different building in the same chain is not
       evidence
-- [ ] the confirmation step: one `AskUserQuestion` per proposal showing policy,
+- [x] the confirmation step: one `AskUserQuestion` per proposal showing policy,
       confidence, quotes, URLs and how many listings it would reject — with
       «оставить как есть» always an option
-- [ ] the report: confirmed buildings, rows they rejected, proposals declined,
+- [x] the report: confirmed buildings, rows they rejected, proposals declined,
       buildings that came back `unknown` and are worth asking an agent about
-- [ ] state plainly that the skill writes nothing except through the CLI
+- [x] state plainly that the skill writes nothing except through the CLI
 
 ### Task 9: Verify acceptance criteria
 
