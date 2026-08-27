@@ -15,7 +15,8 @@ Where the rest is:
 - `docs/plans/completed/20260825-photo-analysis.md` — the implementation plan.
 
 Last checked against live data: **25 August 2026**, commit `204f6cd`.
-Fields `light` and `appeal` added 28 August 2026, not yet run on live data.
+Fields `light`, `appeal` and `view` added 28 August 2026, not yet run on
+live data.
 
 ## What the pass is for
 
@@ -33,9 +34,10 @@ covers `light` and `appeal` too, and it has to: a render is perfectly lit and
 tastefully furnished by construction, so those two are exactly the fields it
 would lie about most convincingly.
 
-`light` and `appeal` (added 28 August 2026, `schema_version` 5) are the second
-kind of signal the text cannot have — not because ads never mention light, but
-because every ad claims it. See the entry below on where their limit is.
+`light`, `appeal` and `view` (added 28 August 2026, `schema_version` 6) are the
+second kind of signal the text cannot have — not because ads never mention
+light or a sea view, but because every ad claims them. See the entry below on
+where their limit is.
 
 The reader is a **Sonnet subagent, one per listing**: the images never enter the
 orchestrator's context, and about 12 subagents run at once, so 50 listings
@@ -137,9 +139,22 @@ plus side is the weaker evidence: a wide-angle daylight shot with the lamps on
 makes anything look bright, while small windows and a view into the next tower
 cannot be staged away.
 
-Measured before adding them: 4 of 530 active rows sat at exactly 100, so the
-ceiling had room for +5. Re-measure after the first real batch — the tie at the
-top is the failure mode, see `CLAUDE.md`.
+**A sea view is worth no more than a green one.** `view` (`sea`, `green`,
+`city`, `wall`) pays +2 for either and charges −3 for a window into the next
+tower. Equal weights are the point: the sea is a minor plus for this user and
+is already baked into the district ratings, so a bonus for the view would
+smuggle the same preference in a second time — the beach-distance rule in
+`CLAUDE.md` in a new disguise. `wall` is the signal actually worth collecting,
+and it is −3 rather than −4 because a window into a wall usually comes with a
+`dark` flat, which the score has already charged for.
+
+The prompt draws one line the pictures blur: a sea view from the shared pool or
+the roof terrace is not a view from the flat. Agency galleries lead with
+exactly that shot.
+
+Measured before adding all three: 4 of 530 active rows sat at exactly 100, so
+the ceiling had room for +7. Re-measure after the first real batch — the tie at
+the top is the failure mode, see `CLAUDE.md`.
 
 **`photo-apply` must rewrite `score`.** `decide` is recomputed on every read
 (`storage.py`, `fetch_enriched`); `score` is only recomputed on apply. The
