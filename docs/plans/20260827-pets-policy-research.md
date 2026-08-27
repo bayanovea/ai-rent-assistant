@@ -306,16 +306,16 @@ the last one so the researcher can see a contradiction coming.
 - Modify: `src/fb_rent/storage.py`
 - Modify: `tests/test_storage.py`
 
-- [ ] load the confirmed-policy map once per `fetch_enriched` call and resolve
+- [x] load the confirmed-policy map once per `fetch_enriched` call and resolve
       each row through its `project_name` field
-- [ ] pass `building_policy` into `rules.decide`
-- [ ] expose `building_policy`, `building_status`, `building_name` and
+- [x] pass `building_policy` into `rules.decide`
+- [x] expose `building_policy`, `building_status`, `building_name` and
       `building_sources` on each item for the export
-- [ ] write tests: a confirmed `not_allowed` building flips its listings to
+- [x] write tests: a confirmed `not_allowed` building flips its listings to
       `rejected` with the new reason, and a user decision still outranks it
-- [ ] write tests: a `proposed` building changes nothing; a DB with no rows in
+- [x] write tests: a `proposed` building changes nothing; a DB with no rows in
       `buildings` behaves exactly as before
-- [ ] run tests — must pass before task 5
+- [x] run tests — must pass before task 5
 
 ### Task 5: Batch and apply
 

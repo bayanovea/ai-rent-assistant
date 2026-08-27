@@ -1362,15 +1362,28 @@ def sync_buildings_to_db(
     return len(rows)
 
 
+def acting_policy(policy: Any, status: Any) -> str | None:
+    """Return the policy allowed to act on a listing, or ``None``.
+
+    A policy acts only when the user confirmed it and it says something: a
+    ``proposed`` building is inert by design and a confirmed ``unknown`` is
+    research that found nothing. Both yield the same ``None`` an unresearched
+    building yields — :func:`.rules.decide` cannot tell the three apart and
+    does not need to.
+    """
+    if status != "confirmed":
+        return None
+    if policy not in buildings.POLICIES or policy == "unknown":
+        return None
+    return str(policy)
+
+
 def building_policies(conn: sqlite3.Connection) -> dict[str, str]:
     """Return ``{spelling: policy}`` for every policy allowed to act.
 
-    Only ``confirmed`` entries, and only a policy that says something: a
-    ``proposed`` building is inert by design and a confirmed ``unknown`` is
-    research that found nothing. Both are absent from the map, which is the
-    same absence an unresearched building has — the caller cannot tell the
-    three apart and no rule needs to. Mirrors :func:`.buildings.policy_for`,
-    over the table instead of the file.
+    Only ``confirmed`` entries, and only a policy that says something — see
+    :func:`acting_policy`. Mirrors :func:`.buildings.policy_for`, over the
+    table instead of the file.
 
     Aliases get their own entry pointing at the same policy, so a lookup by
     :func:`.buildings.building_key` of whatever the ad wrote hits.
@@ -1381,14 +1394,57 @@ def building_policies(conn: sqlite3.Connection) -> dict[str, str]:
 
     out: dict[str, str] = {}
     for row in rows:
-        policy = row["policy"]
-        if policy not in buildings.POLICIES or policy == "unknown":
+        policy = acting_policy(row["policy"], "confirmed")
+        if policy is None:
             continue
-        out[str(row["key"])] = str(policy)
+        out[str(row["key"])] = policy
         for alias in _json_list(row["aliases_json"]):
             alias_key = buildings.building_key(alias)
             if alias_key:
-                out.setdefault(alias_key, str(policy))
+                out.setdefault(alias_key, policy)
+    return out
+
+
+def mirrored_buildings(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
+    """Return every mirrored building indexed by every spelling that names it.
+
+    Unlike :func:`building_policies` this keeps the ``proposed`` entries too,
+    and carries the name, the status and the sources: the export shows what
+    research proposed so it can be vetted, and shows it in a class of its own
+    so an unvetted proposal never looks like a decision. Filtering to what may
+    actually reject is :func:`acting_policy`'s job, not this one's.
+
+    A database predating the ``buildings`` table yields an empty map, which is
+    how everything downstream behaves exactly as it did before the pass
+    existed.
+    """
+    if not {row["name"] for row in conn.execute("PRAGMA table_info(buildings)")}:
+        return {}
+
+    rows = conn.execute(
+        "SELECT key, name, policy, status, aliases_json, sources_json FROM buildings"
+    ).fetchall()
+
+    out: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        entry = {
+            "key": str(row["key"]),
+            "name": row["name"],
+            "policy": row["policy"],
+            "status": row["status"],
+            "sources": [
+                s for s in _json_list(row["sources_json"]) if isinstance(s, dict)
+            ],
+        }
+        # The building's own key wins over anyone's alias; between two aliases
+        # the first one seen keeps the spelling, because a collision means the
+        # alias list needs fixing by hand and silently picking a side would
+        # hide that.
+        out[entry["key"]] = entry
+        for alias in _json_list(row["aliases_json"]):
+            alias_key = buildings.building_key(alias)
+            if alias_key:
+                out.setdefault(alias_key, entry)
     return out
 
 
@@ -1519,6 +1575,13 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     column is only what the last pass computed. A user decision always wins:
     ``status``, ``reason`` and ``decided_by`` reflect the ``decisions`` table
     whenever it has a row for the listing.
+
+    The building's pets rule is joined in the same way: the mirror is read once
+    per call and each row is matched through its ``project_name`` field, so a
+    building confirmed today rejects the listings scraped tomorrow without any
+    pass re-running. ``building_policy``, ``building_status``,
+    ``building_name`` and ``building_sources`` carry what was found — including
+    a merely ``proposed`` entry, which the export shows and no rule reads.
     """
     rows = conn.execute(
         """
@@ -1538,6 +1601,7 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     ).fetchall()
 
     reposts = duplicates_by_canonical(conn)
+    known_buildings = mirrored_buildings(conn)
 
     enriched: list[dict[str, Any]] = []
     for row in rows:
@@ -1552,12 +1616,21 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         item["analyzed"] = item.get("analyzed_at") is not None
         item["photo_analyzed"] = item.get("photos_analyzed_at") is not None
 
+        building = known_buildings.get(
+            buildings.building_key(rules.value_of(fields, "project_name"))
+        )
+        item["building_policy"] = building["policy"] if building else None
+        item["building_status"] = building["status"] if building else None
+        item["building_name"] = building["name"] if building else None
+        item["building_sources"] = building["sources"] if building else []
+
         if item["analyzed"]:
             ai_status, ai_reason = rules.decide(
                 fields,
                 item.get("price_thb"),
                 item.get("data_quality"),
                 item.get("district"),
+                acting_policy(item["building_policy"], item["building_status"]),
             )
             item["score"] = rules.score(fields, item.get("district"))
         else:

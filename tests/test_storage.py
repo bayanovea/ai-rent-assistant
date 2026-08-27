@@ -2198,3 +2198,131 @@ def test_pending_buildings_loads_the_store_itself(conn, monkeypatch, tmp_path: P
     _in_building(conn, "b1", "Zcape III")
 
     assert [e["key"] for e in storage.fetch_pending_buildings(conn)] == ["zcape-iii"]
+
+
+# --- buildings: the policy joined into the read funnel ---------------------
+
+
+def _enriched_by_id(conn):
+    return {item["fb_id"]: item for item in storage.fetch_enriched(conn)}
+
+
+def test_enriched_rejects_every_listing_of_a_confirmed_building(conn):
+    _in_building(conn, "a1", "The Base Central Phuket")
+    _in_building(conn, "a2", "Base Central")  # the alias spelling
+    _in_building(conn, "b1", "Zcape III")
+    storage.sync_buildings_to_db(conn, _building())
+
+    items = _enriched_by_id(conn)
+    for fb_id in ("a1", "a2"):
+        assert items[fb_id]["status"] == "rejected"
+        assert items[fb_id]["reason"] == rules.REASON_BUILDING_PETS
+        assert items[fb_id]["decided_by"] == "ai"
+    assert items["b1"]["status"] == "active"
+    assert items["b1"]["reason"] is None
+
+
+def test_enriched_carries_the_building_for_the_export(conn):
+    _in_building(conn, "a1", "The Base Central Phuket")
+    _in_building(conn, "b1", "Zcape III")
+    storage.sync_buildings_to_db(conn, _building())
+
+    items = _enriched_by_id(conn)
+    assert items["a1"]["building_policy"] == "not_allowed"
+    assert items["a1"]["building_status"] == "confirmed"
+    assert items["a1"]["building_name"] == "The Base Central Phuket"
+    assert items["a1"]["building_sources"] == [
+        {
+            "url": "https://example.com/rules",
+            "title": "House Rules",
+            "quote": "Pets are not allowed in the building.",
+        }
+    ]
+    # An unresearched building says nothing rather than saying "unknown".
+    assert items["b1"]["building_policy"] is None
+    assert items["b1"]["building_status"] is None
+    assert items["b1"]["building_name"] is None
+    assert items["b1"]["building_sources"] == []
+
+
+def test_enriched_lets_a_user_decision_outrank_the_building(conn):
+    _in_building(conn, "a1", "The Base Central Phuket")
+    storage.sync_buildings_to_db(conn, _building())
+    decisions.sync_to_db(conn, {"a1": {"status": "shortlist", "rating": 5}})
+
+    item = _enriched_by_id(conn)["a1"]
+    assert item["status"] == "shortlist"
+    assert item["decided_by"] == "user"
+    # The rule still says what it says — the row just does not obey it.
+    assert item["ai_status"] == "rejected"
+    assert item["ai_reason"] == rules.REASON_BUILDING_PETS
+
+
+def test_enriched_keeps_the_ads_own_reason_when_both_apply(conn):
+    _in_building(conn, "a1", "The Base Central Phuket", pets="not_allowed")
+    storage.sync_buildings_to_db(conn, _building())
+    assert _enriched_by_id(conn)["a1"]["reason"] == rules.REASON_PETS
+
+
+@pytest.mark.parametrize("policy", ["negotiable", "allowed", "unknown"])
+def test_enriched_never_rejects_on_a_policy_other_than_not_allowed(conn, policy):
+    _in_building(conn, "a1", "The Base Central Phuket", pets="allowed")
+    storage.sync_buildings_to_db(conn, _building(policy=policy))
+
+    item = _enriched_by_id(conn)["a1"]
+    assert item["status"] == "active"
+    # Visible on the row all the same: `negotiable` is what the user asks about.
+    assert item["building_policy"] == policy
+    # And the ad's own claim is never overwritten by the research.
+    assert item["fields"]["pets"]["v"] == "allowed"
+
+
+def test_enriched_leaves_a_proposal_inert(conn):
+    _in_building(conn, "a1", "The Base Central Phuket")
+    storage.sync_buildings_to_db(conn, _building(status="proposed"))
+
+    item = _enriched_by_id(conn)["a1"]
+    assert item["status"] == "active"
+    assert item["reason"] is None
+    # Still on the row, so the export can show it as the unvetted thing it is.
+    assert (item["building_policy"], item["building_status"]) == (
+        "not_allowed",
+        "proposed",
+    )
+
+
+def test_enriched_building_rejection_needs_good_data_quality(conn):
+    _in_building(conn, "a1", "The Base Central Phuket")
+    storage.upsert_ai_analysis(
+        conn,
+        _make_analysis(
+            fb_id="a1",
+            data_quality="sidebar_noise",
+            data_json={"project_name": {"v": "The Base Central Phuket"}},
+        ),
+    )
+    storage.sync_buildings_to_db(conn, _building())
+    assert _enriched_by_id(conn)["a1"]["status"] == "active"
+
+
+def test_enriched_scores_nothing_for_a_building_policy(conn):
+    # No weight in either direction — the tie-at-100 trap in `CLAUDE.md`.
+    _in_building(conn, "a1", "The Base Central Phuket")
+    before = _enriched_by_id(conn)["a1"]["score"]
+    storage.sync_buildings_to_db(conn, _building(policy="allowed"))
+    assert _enriched_by_id(conn)["a1"]["score"] == before
+
+
+def test_enriched_on_an_empty_buildings_table_is_unchanged(conn):
+    _in_building(conn, "a1", "The Base Central Phuket")
+    item = _enriched_by_id(conn)["a1"]
+    assert item["status"] == "active"
+    assert item["building_policy"] is None
+
+
+def test_enriched_survives_a_database_without_the_buildings_table(conn):
+    _in_building(conn, "a1", "The Base Central Phuket")
+    conn.execute("DROP TABLE buildings")
+    item = _enriched_by_id(conn)["a1"]
+    assert item["status"] == "active"
+    assert item["building_policy"] is None
