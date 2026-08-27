@@ -884,6 +884,70 @@ def test_export_html_price_and_area_prefer_the_ai_reading(conn, tmp_path: Path):
     assert "area" in keys and keys.count("area") == 1
 
 
+def test_the_verdict_column_is_a_tag_with_the_sentence_behind_it(conn, tmp_path: Path):
+    # The AI's sentence was 240px of clipped prose whose first two words were
+    # the same on most of the table. The column shows the tag, sorts by
+    # urgency, and keeps the sentence as the tooltip.
+    registry = ai_schema.load_registry()
+    storage.upsert_listing(conn, _make_listing(fb_id="v1"))
+    storage.upsert_ai_analysis(
+        conn,
+        _make_analysis(
+            fb_id="v1",
+            schema_version=registry.schema_version,
+            verdict="Уточнить — дом в Катху, но про животных молчат",
+        ),
+    )
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out, registry)
+    text = out.read_text(encoding="utf-8")
+    row = _inline_payload(text, "DATA")[0]
+
+    assert row["cells"]["verdict"]["t"] == "спросить"
+    assert row["cells"]["verdict"]["tag"] == "ask"
+    assert row["cells"]["verdict"]["ev"].startswith("Уточнить —")
+    assert row["cells"]["verdict"]["n"] == rules.verdict_order("ask")
+    # Short enough for chips: the filter panel enumerates values under 30 chars.
+    assert len(row["cells"]["verdict"]["t"]) < 30
+
+    columns = {c["key"]: c for c in _inline_payload(text, "COLUMNS")}
+    assert columns["verdict"]["kind"] == "tag"
+
+
+def test_the_district_rating_is_a_column_so_the_preset_can_filter_on_it(
+    conn, tmp_path: Path
+):
+    # Free-text `Район` has hundreds of values and no order; "хороший район"
+    # is only expressible as a filter once the 1-5 scale is a column.
+    registry = ai_schema.load_registry()
+    for fb_id, area in (("kathu", "Kathu"), ("chalong", "Chalong"), ("nowhere", "")):
+        storage.upsert_listing(conn, _make_listing(fb_id=fb_id, district=None))
+        storage.upsert_ai_analysis(
+            conn,
+            _make_analysis(
+                fb_id=fb_id,
+                schema_version=registry.schema_version,
+                data_json={"area": {"v": area, "conf": "high", "ev": ""}},
+            ),
+        )
+
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out, registry)
+    text = out.read_text(encoding="utf-8")
+    rows = {r["fb_id"]: r for r in _inline_payload(text, "DATA")}
+
+    assert rows["kathu"]["cells"]["area_rating"]["n"] == 5.0
+    assert rows["chalong"]["cells"]["area_rating"]["n"] == 3.0
+    assert rows["nowhere"]["cells"]["area_rating"]["t"] == ""
+    # It is machinery, not reading matter, so it ships folded away.
+    columns = {c["key"]: c for c in _inline_payload(text, "COLUMNS")}
+    assert columns["area_rating"]["hidden"] is True
+    # The preset is an ordinary set of filters over real columns.
+    assert 'verdict: { kind: "enum"' in text
+    assert 'area_rating: { kind: "range", min: 4' in text
+
+
 def test_unclear_reads_as_the_grey_dash_except_for_pets(conn, tmp_path: Path):
     # "Не сказано" is what the dash already means, and the word takes as much
     # room on screen as a real answer — on five columns where it is the most

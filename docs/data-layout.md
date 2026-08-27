@@ -42,13 +42,24 @@ a second header appends it as a tie-breaker instead of replacing the current
 key — the arrows are then numbered by priority, and a third shift-click drops
 the key back out. The "Фильтры" button opens a panel with one control per
 column, and the shape of the control is inferred from the data rather than
-declared in the registry: numbers and `Опубликовано` get a from/to pair,
-a column whose values are few and short (район, pets, тип жилья) gets a row of
+declared in the registry: numbers and dates get a from/to pair, a column whose
+values are few and short (район, pets, тип жилья, рекомендация) gets a row of
 chips including one for the empty cell, everything else gets a substring box.
 Filters combine with each other, with the search box and with the tab; the
 button counts how many are set and the panel says how many rows survived.
 A filter set on a folded-away column keeps its control on screen, so nothing
 can trim the table invisibly.
+
+**"Кандидаты"** sets four of them at once — the hard part of the letter in
+`config/requirements.md`, which nobody assembles by hand four controls at a
+time: recommendation ∈ {смотреть, спросить}, district rating ≥ 4, price
+≤ 30 000. On the current corpus that is 1123 active rows down to 311. It is a
+preset, not a mode: the filters it sets stay visible and adjustable, and
+dropping the `спросить` chip — the rows where the ad simply never mentioned the
+dog — takes it to 202. Editing any of them turns the button off, because the
+set on screen is then no longer the preset. One caveat worth knowing: a from/to
+filter excludes empty cells, so rows whose district nobody named fall out of
+the set even though the rules deliberately do not penalise them.
 
 Columns run in reading order — ID, Score, Pets, price, district, type,
 bedrooms, size, publication date, your own mark, and only then the prose. The
@@ -57,6 +68,22 @@ photo pass), which put three clipped paragraphs between the price and the
 bedroom count; where a single value came from is still on the cell itself, as
 the `fb` and `≠ текст` badges, and the photo columns keep a green tint. The
 rarely-scanned fields fold away behind the "Ещё N полей" toggle.
+
+**`Рекомендация` is a tag, not the sentence.** The AI writes one line per
+listing; its first two words were "Стоит посмотреть" on 62% of the active set,
+spelled four different ways, and the rest was 240px of clipped prose duplicating
+`Комментарий AI`. The column now shows the normalised tag — `смотреть`,
+`спросить`, `сомнительно`, `перечитать`, `отказ` — which fits a filter chip and
+sorts by urgency rather than alphabetically; the sentence itself is the
+tooltip. `rules.verdict_tag` derives it from what the AI wrote, and
+`.claude/skills/analyze` fixes the vocabulary at the source so it keeps
+deriving cleanly. A sentence matching none of the stems leaves the cell blank,
+which shows the drift instead of filing it under a wrong heading.
+
+`Оценка района` is the same district scale the score uses, as a folded-away
+numeric column. Nobody reads it row by row — it exists so that "хороший район"
+is expressible as a filter and a sort key, which free-text `Район` with its 306
+distinct values never was.
 
 Three things are deliberately not columns:
 

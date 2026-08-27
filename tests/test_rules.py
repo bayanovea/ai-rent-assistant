@@ -19,6 +19,8 @@ from fb_rent.rules import (
     decide,
     district_rating,
     score,
+    verdict_order,
+    verdict_tag,
 )
 
 
@@ -359,3 +361,44 @@ def test_missing_living_room_barely_costs_anything():
     mentioned = wrap(pets="allowed", living_room="yes", bedrooms=1)
     silent = wrap(pets="allowed", bedrooms=1)
     assert score(mentioned) - score(silent) <= 5
+
+
+def test_verdict_tag_normalises_the_ai_sentence():
+    # The AI writes the same recommendation four ways; the column shows one.
+    for sentence in ("Стоит посмотреть — дом 3 спальни",
+                     "Стоит взглянуть — таунхаус у аэропорта",
+                     "Стоит присмотреться — дом в Катху"):
+        assert verdict_tag(sentence) == ("see", "смотреть")
+    assert verdict_tag("Уточнить у агента — про животных молчат")[0] == "ask"
+    assert verdict_tag("Сомнительно: кондо 35 м²")[0] == "doubt"
+    assert verdict_tag("Нужен повторный скрейп: текста нет")[0] == "reread"
+    assert verdict_tag("Мало данных — четыре строки текста")[0] == "reread"
+    assert verdict_tag("Не жильё: сдаётся земельный участок")[0] == "no"
+
+
+def test_the_earliest_word_of_the_verdict_decides():
+    # "Стоит посмотреть, но стоит уточнить парковку" is a recommendation with
+    # a caveat; "Стоит уточнить" is a question. Position tells them apart.
+    assert verdict_tag("Стоит посмотреть — но надо уточнить про парковку")[0] == "see"
+    assert verdict_tag("Стоит уточнить, есть ли парковка")[0] == "ask"
+
+
+def test_bad_data_quality_outranks_whatever_the_ai_concluded():
+    # The analysis read the sidebar, so its recommendation is about the wrong
+    # text; the only thing to do with the row is read it again.
+    assert verdict_tag("Стоит посмотреть — дом", "sidebar_noise")[0] == "reread"
+    assert verdict_tag("Стоит посмотреть — дом", "good")[0] == "see"
+
+
+def test_an_unrecognised_verdict_stays_blank_rather_than_guessing():
+    # A blank cell shows the drift; a wrong bucket hides it, and the sentence
+    # itself is still one hover away.
+    assert verdict_tag("Животные разрешены, но вы уже отклонили как дубль") == ("", "")
+    assert verdict_tag("") == ("", "")
+    assert verdict_tag(None) == ("", "")
+
+
+def test_verdict_order_sorts_what_to_look_at_first():
+    order = [verdict_order(slug) for slug in ("see", "ask", "doubt", "reread", "no")]
+    assert order == sorted(order) and None not in order
+    assert verdict_order("nonesuch") is None

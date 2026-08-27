@@ -1354,6 +1354,9 @@ _HTML_TEMPLATE = r"""<!doctype html>
   #flt { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #33405c; white-space: nowrap; }
   #flt:hover { background: #eef2fa; }
   #flt.on { background: #33405c; border-color: #33405c; color: #fff; }
+  #preset { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #33405c; white-space: nowrap; }
+  #preset:hover { background: #eef2fa; }
+  #preset.on { background: #137333; border-color: #137333; color: #fff; }
   #dec { border: 1px solid #e0c48a; background: #fffdf5; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #7a5c14; white-space: nowrap; }
   #dec:hover { background: #fdf6e3; }
   #dec.on { background: #8a6d00; border-color: #8a6d00; color: #fff; }
@@ -1445,6 +1448,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
   <button class="tab" data-tab="all"></button>
   <input id="q" type="search" placeholder="поиск по всем колонкам…">
   <button id="flt"></button>
+  <button id="preset"></button>
   <button id="dec"></button>
   <span class="spacer"></span>
   <button id="more"></button>
@@ -1653,6 +1657,41 @@ function rowHTML(row) {
     + visibleColumns().map(c => tdHTML(row, c)).join("") + '</tr>';
 }
 
+/* ---- пресет «Кандидаты» --------------------------------------------------
+   requirements.md называет жёсткие условия словами, а в панели они ставятся
+   по одному руками — и поэтому не ставятся: из 1123 активных строк набор,
+   отвечающий письму агенту, приходится собирать четырьмя движениями. Кнопка
+   ставит их разом и оставляет видимыми: это пресет, а не отдельный режим, так
+   что любое условие снимается по одному, не унося остальные.
+
+   `спросить` из набора не выкидывается намеренно — это строки, где про
+   животных в объявлении просто не написано, а по требованиям молчание это
+   вопрос агенту, а не отказ. Снять этот чип — одно нажатие.
+
+   Одна оговорка, которую стоит знать: фильтр «от» отбрасывает пустые ячейки,
+   так что строки, где район не назван вовсе, в набор не попадают — хотя
+   правила их за это не наказывают. */
+function presetFilters() {
+  return {
+    verdict: { kind: "enum", values: new Set(["смотреть", "спросить"]) },
+    area_rating: { kind: "range", min: 4, max: null },
+    price: { kind: "range", min: null, max: 30000 },
+  };
+}
+let presetOn = false;
+
+function togglePreset() {
+  const turningOn = !presetOn;
+  Object.keys(FILTERS).forEach(k => delete FILTERS[k]);
+  if (turningOn) {
+    Object.assign(FILTERS, presetFilters());
+    document.getElementById("filters").classList.add("on");
+  }
+  presetOn = turningOn;
+  renderFilters();
+  render();
+}
+
 function loadPending() {
   try { PENDING = JSON.parse(localStorage.getItem(PENDING_KEY) || "{}"); }
   catch (e) { PENDING = {}; }
@@ -1754,6 +1793,9 @@ const NUM_KINDS = { num: 1, score: 1, count: 1, rating: 1 };
 // длиной в предложение — уже нет, там нужна подстрока.
 const ENUM_MAX = 60;
 const ENUM_MAX_LEN = 30;
+// Даты приходят как обычный текст, но набором кнопок читаются только пока
+// корпус собран за неделю: на трёх месяцах чипы бесполезны, а «от/до» нет.
+const DATE_COLUMNS = { first_seen_at: 1, published_at: 1 };
 const specCache = {};
 
 function numOf(cell) {
@@ -1772,7 +1814,7 @@ function filterSpec(col) {
   let spec;
   if (NUM_KINDS[col.kind]) {
     spec = { kind: "range" };
-  } else if (col.kind === "date" || col.key === "first_seen_at") {
+  } else if (col.kind === "date" || DATE_COLUMNS[col.key]) {
     spec = { kind: "date" };
   } else if (col.kind === "id") {
     spec = { kind: "text" };
@@ -1944,6 +1986,10 @@ function render() {
   document.getElementById("flt-note").textContent =
     "показано " + rows.length + " из " + inTabCount + " во вкладке";
 
+  const preset = document.getElementById("preset");
+  preset.textContent = presetOn ? "✓ Кандидаты" : "Кандидаты";
+  preset.classList.toggle("on", presetOn);
+
   const queued = Object.keys(PENDING).length;
   const dec = document.getElementById("dec");
   dec.textContent = queued ? "Решения (" + queued + ")" : "Решения";
@@ -2003,6 +2049,7 @@ document.getElementById("flt-grid").addEventListener("click", ev => {
   chip.classList.toggle("on", f.values.has(value));
   dropIfEmpty(key);
   markSet(key);
+  presetOn = false;
   render();
 });
 
@@ -2029,6 +2076,7 @@ document.getElementById("flt-grid").addEventListener("input", ev => {
     dropIfEmpty(key);
   }
   markSet(key);
+  presetOn = false;
   render();
 });
 
@@ -2039,9 +2087,12 @@ function markSet(key) {
 
 document.getElementById("flt-reset").addEventListener("click", () => {
   Object.keys(FILTERS).forEach(k => delete FILTERS[k]);
+  presetOn = false;
   renderFilters();
   render();
 });
+
+document.getElementById("preset").addEventListener("click", togglePreset);
 
 document.getElementById("dec").addEventListener("click", () => {
   document.getElementById("decisions").classList.toggle("on");
@@ -2123,7 +2174,13 @@ _FIXED_COLUMNS: dict[str, dict[str, Any]] = {
     "published_at": {"label": "Опубликовано", "kind": "text", "src": "fb"},
     "first_seen_at": {"label": "Первый показ", "kind": "text", "src": "fb"},
     "score": {"label": "Score", "kind": "score", "src": "ai"},
-    "verdict": {"label": "Рекомендация", "kind": "verdict", "src": "ai"},
+    # The district on the 1-5 scale the score already uses. It is not a column
+    # anyone reads row by row — it exists so "хороший район" is expressible as
+    # a filter and a sort key, which free-text `Район` never was.
+    "area_rating": {"label": "Оценка района", "kind": "num", "src": "ai"},
+    # The AI's recommendation, reduced to its tag. The sentence it wrote is
+    # the tooltip, so nothing is lost and the column costs one word.
+    "verdict": {"label": "Рекомендация", "kind": "tag", "src": "ai"},
     "comment": {"label": "Комментарий AI", "kind": "comment", "src": "ai"},
     "photo_comment": {
         "label": "Комментарий по фото", "kind": "comment", "src": "photo",
@@ -2156,8 +2213,11 @@ _VISIBLE_ORDER: tuple[str, ...] = (
 )
 
 # Fixed columns that ship folded away. `first_seen_at` is ours, not the ad's —
-# useful when a sweep is being debugged, noise the rest of the time.
-_HIDDEN_FIXED: tuple[str, ...] = ("first_seen_at",)
+# useful when a sweep is being debugged, noise the rest of the time; the
+# district rating is machinery for the "Кандидаты" preset rather than reading
+# matter, but it stays a real column so the preset is an ordinary set of
+# filters the user can see and adjust.
+_HIDDEN_FIXED: tuple[str, ...] = ("area_rating", "first_seen_at")
 
 # Registry fields the base columns already cover: `area` and the monthly price
 # are merged with their parsed counterparts into a single column each.
@@ -2287,6 +2347,44 @@ def html_columns(registry: ai_schema.Registry) -> list[dict[str, Any]]:
     return columns
 
 
+# Tags that mean "something stands between this row and a phone call". The
+# recommendation the AI gives most often is deliberately not among them: paint
+# 64% of the tab and the colour stops pointing at anything.
+_VERDICT_CLASSES: dict[str, str] = {
+    "ask": rules.CLASS_WARN,
+    "doubt": rules.CLASS_WARN,
+    "reread": rules.CLASS_STALE,
+    "no": rules.CLASS_BAD,
+}
+
+
+def _verdict_cell(item: dict[str, Any], analyzed: bool) -> dict[str, Any]:
+    """The recommendation as a tag, with the AI's sentence in the tooltip."""
+    sentence = item.get("verdict") or ""
+    slug, label = rules.verdict_tag(sentence, item.get("data_quality"))
+    cell: dict[str, Any] = {
+        "t": label,
+        "c": _VERDICT_CLASSES.get(slug, "") if analyzed else rules.CLASS_NONE,
+        "tag": slug,
+        # Sorting ascending puts what to look at first, which alphabetical
+        # order of the labels would not.
+        "n": rules.verdict_order(slug),
+    }
+    if sentence:
+        cell["ev"] = sentence
+    return cell
+
+
+def _area_rating_cell(item: dict[str, Any]) -> dict[str, Any]:
+    """The district on the 1-5 scale, or an empty cell if none was named."""
+    rating = rules.area_rating(item.get("fields") or {}, item.get("district"))
+    if rating is None:
+        return {"t": "", "c": rules.CLASS_NONE}
+    return {"t": f"{rating:g}", "c": rules.area_class(
+        rules.value_of(item.get("fields") or {}, "area") or item.get("district")
+    ), "n": float(rating)}
+
+
 def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, Any]:
     """Turn one :func:`fetch_enriched` item into a row for the HTML payload.
 
@@ -2362,10 +2460,8 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
             "c": "" if analyzed else rules.CLASS_NONE,
             "n": score if isinstance(score, int) else None,
         },
-        "verdict": {
-            "t": item.get("verdict") or "",
-            "c": "" if analyzed else rules.CLASS_NONE,
-        },
+        "verdict": _verdict_cell(item, analyzed),
+        "area_rating": _area_rating_cell(item),
         "comment": {
             "t": item.get("comment") or "",
             "c": "" if analyzed else rules.CLASS_NONE,

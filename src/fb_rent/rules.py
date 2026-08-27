@@ -222,6 +222,73 @@ def decide(
     return "active", None
 
 
+# The AI writes its recommendation as one sentence, and the sentence is what
+# the table used to show: 240px of clipped prose whose first two words were
+# "Стоит посмотреть" on 62% of the active set, spelled four different ways
+# ("Стоит взглянуть", "Стоит присмотреться"). The tag below is those first two
+# words, normalised — narrow enough for a column, short enough for a filter
+# chip, ordered so that sorting ascending puts what to look at first.
+#
+# The vocabulary is also fixed at the source (`.claude/skills/analyze`), so the
+# stems here are a net for what the AI has already written rather than a
+# permanent parser. A sentence that matches nothing yields an empty tag — a
+# blank cell that shows the drift instead of quietly filing it under a wrong
+# heading, with the sentence itself still one hover away.
+VERDICT_TAGS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("see", "смотреть", ("стоит посмотреть", "стоит взглянуть",
+                         "стоит присмотреться", "стоит рассмотреть")),
+    ("ask", "спросить", ("уточнить", "спросить")),
+    ("doubt", "сомнительно", ("сомнительно", "под вопросом", "спорно")),
+    ("reread", "перечитать", ("повторный скрейп", "повторного скрейпа",
+                              "re-scrape", "рескрейп", "мало данных",
+                              "текста объявления нет", "нет текста")),
+    ("no", "отказ", ("отказ", "не жильё", "не жилье", "не аренда",
+                     "не подходит", "не сдают")),
+)
+
+# Longest stems first, so "стоит уточнить" is a question rather than a
+# recommendation: whichever stem appears earliest in the sentence wins, and on
+# a tie the more specific one does.
+_VERDICT_STEMS: tuple[tuple[str, str, str], ...] = tuple(
+    sorted(
+        ((stem, slug, label) for slug, label, stems in VERDICT_TAGS
+         for stem in stems),
+        key=lambda item: -len(item[0]),
+    )
+)
+
+
+def verdict_tag(verdict: Any, data_quality: str | None = None) -> tuple[str, str]:
+    """Return ``(slug, label)`` for the AI's one-line recommendation.
+
+    ``data_quality`` outranks the sentence: if the analysis read the sidebar
+    or read nothing, whatever it concluded is about the wrong text, and the
+    only thing to do with the row is read it again.
+    """
+    if data_quality and data_quality != "good":
+        return "reread", "перечитать"
+    text = str(verdict or "").lower()
+    if not text.strip():
+        return "", ""
+    best: tuple[int, int, str, str] | None = None
+    for stem, slug, label in _VERDICT_STEMS:
+        found = text.find(stem)
+        if found < 0:
+            continue
+        candidate = (found, -len(stem), slug, label)
+        if best is None or candidate < best:
+            best = candidate
+    return (best[2], best[3]) if best else ("", "")
+
+
+def verdict_order(slug: str) -> int | None:
+    """Rank of a tag for sorting: what to look at first sorts first."""
+    for index, (name, _label, _stems) in enumerate(VERDICT_TAGS):
+        if name == slug:
+            return index
+    return None
+
+
 def cell_class(
     field_key: str,
     value: Any,
