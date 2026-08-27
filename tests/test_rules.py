@@ -196,11 +196,11 @@ def test_a_district_nobody_named_is_unrated():
 
 def test_district_moves_the_score_around_the_pivot():
     baseline = score({})
-    assert score(wrap(area="Kathu")) == baseline + 12
-    assert score(wrap(area="Cherngtalay")) == baseline + 8
-    assert score(wrap(area="Rawai")) == baseline + 4
+    assert score(wrap(area="Kathu")) == baseline + 9
+    assert score(wrap(area="Cherngtalay")) == baseline + 6
+    assert score(wrap(area="Rawai")) == baseline + 3
     assert score(wrap(area="Kata")) == baseline
-    assert score(wrap(area="Chalong")) == baseline - 4
+    assert score(wrap(area="Chalong")) == baseline - 3
 
 
 def test_an_unknown_district_costs_nothing():
@@ -209,8 +209,8 @@ def test_an_unknown_district_costs_nothing():
 
 
 def test_facebooks_district_scores_only_when_the_ai_named_none():
-    assert score(wrap(area="Chalong"), "Kathu, Phuket, Thailand") == score({}) - 4
-    assert score(wrap(area=""), "Kathu, Phuket, Thailand") == score({}) + 12
+    assert score(wrap(area="Chalong"), "Kathu, Phuket, Thailand") == score({}) - 3
+    assert score(wrap(area=""), "Kathu, Phuket, Thailand") == score({}) + 9
 
 
 # --- cell colours -------------------------------------------------------
@@ -313,10 +313,34 @@ def test_unknown_fields_score_near_the_baseline():
     assert 45 <= score(unknown) <= 55
 
 
-def test_extra_rooms_raise_the_score():
+def test_extra_bedrooms_raise_the_score():
     one_bed = wrap(pets="allowed", bedrooms=1)
     three_bed = wrap(pets="allowed", bedrooms=3)
     assert score(three_bed) > score(one_bed)
+
+
+def test_a_wordy_ad_does_not_outrank_a_terse_one():
+    # Points for a merely non-empty `internet` / `pool_gym` / `extra_rooms`
+    # rewarded whoever wrote the ad, not the flat behind it.
+    terse = wrap(pets="allowed", bedrooms=2)
+    wordy = wrap(
+        pets="allowed",
+        bedrooms=2,
+        extra_rooms="кабинет",
+        internet="AIS fibre 300 Mbps",
+        pool_gym="общий бассейн",
+    )
+    assert score(wordy) == score(terse)
+
+
+def test_what_every_survivor_has_earns_nothing():
+    # The first bedroom and a price inside the budget are entry conditions,
+    # not merits: a listing missing either is rejected before it is scored,
+    # so paying for them only pushed the whole field towards the ceiling.
+    assert score(wrap(bedrooms=1)) == score({})
+    assert score(wrap(price_month_thb=24_000)) == score({})
+    # The stretch above the soft ceiling still costs.
+    assert score(wrap(price_month_thb=33_000)) < score({})
 
 
 def test_amenities_raise_the_score():

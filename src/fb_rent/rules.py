@@ -24,7 +24,6 @@ from typing import Any
 from .config import (
     BUDGET_HARD_MAX_THB,
     DEFAULT_MAX_PRICE,
-    DEFAULT_MIN_PRICE,
     MIN_SIZE_SQM,
 )
 
@@ -118,7 +117,7 @@ _AREA_RATINGS: dict[str, float] = {
 # half-step away from it is worth `_AREA_WEIGHT / 2` points.
 _AREA_REJECT_MAX = 1.5
 _AREA_PIVOT = 3.5
-_AREA_WEIGHT = 8
+_AREA_WEIGHT = 6
 
 
 def _area_words(text: Any) -> str:
@@ -270,23 +269,30 @@ def cell_class(
 
 # Weights per field, applied on top of a neutral baseline. Unknown values
 # score 0 — silence in an ad is not evidence against the listing.
+#
+# The two sides are deliberately asymmetric: a stop-factor hits at full
+# strength, a nice-to-have is worth about two thirds of what it once was.
+# The old, symmetric table let so many small pluses stack that a third of
+# the active set sat at exactly 100 and the sort had nothing left to order
+# them by — see docs/ai-enrichment.md. Anything that raises the ceiling here
+# has to be checked against that: a tie at the top is the failure mode.
 _ENUM_WEIGHTS: dict[str, dict[str, int]] = {
-    "pets": {"allowed": 20, "not_allowed": -30},
+    "pets": {"allowed": 14, "not_allowed": -30},
     "property_type": {
-        "house": 10,
-        "townhouse": 10,
-        "villa": 8,
-        "condo": 2,
-        "apartment": 2,
+        "house": 7,
+        "townhouse": 7,
+        "villa": 6,
+        "condo": 1,
+        "apartment": 1,
         "studio": -10,
     },
-    "furnished": {"full": 6, "partial": 2, "none": -5},
-    "living_room": {"yes": 5, "no": -3},
-    "kitchen": {"full": 5, "kitchenette": -2, "none": -5},
-    "green_area": {"yes": 6, "no": -2},
-    "parking": {"yes": 5, "no": -3},
-    "security": {"yes": 4, "no": -1},
-    "condition": {"new": 3, "good": 2, "worn": -3},
+    "furnished": {"full": 4, "partial": 1, "none": -5},
+    "living_room": {"yes": 4, "no": -3},
+    "kitchen": {"full": 4, "kitchenette": -2, "none": -5},
+    "green_area": {"yes": 4, "no": -2},
+    "parking": {"yes": 4, "no": -3},
+    "security": {"yes": 3, "no": -1},
+    "condition": {"new": 2, "good": 1, "worn": -3},
     # Photos that show something other than the flat on offer are a defect,
     # not an absence: you cannot judge the place at all. `real` scores zero
     # on purpose — most rows have had no photo pass yet, and paying a bonus
@@ -316,11 +322,19 @@ def area_class(text: Any) -> str:
 def score(fields: dict[str, Any], district: str | None = None) -> int:
     """Rank a listing 0-100 against `config/requirements.md`.
 
-    Extra rooms, a green area, parking and security push the score up;
-    only explicit mismatches (no pets, kitchenette, over budget) push it
-    down. Fields the ad never mentions leave the score untouched — including
-    the district, which is why an unrecognised area is worth exactly zero
-    rather than a penalty.
+    A green area, parking, security and rooms beyond the first bedroom push
+    the score up; only explicit mismatches (no pets, kitchenette, over the
+    soft budget) push it down. Fields the ad never mentions leave the score
+    untouched — including the district, which is why an unrecognised area is
+    worth exactly zero rather than a penalty.
+
+    Nothing is scored for merely *saying* something. An earlier version paid
+    points for a non-empty `internet`, `pool_gym` or `extra_rooms`, which
+    ranked the wordy ad above the terse one describing the same flat, and
+    paid a flat bonus for the first bedroom and for a price inside the
+    budget — both of which every survivor has. Together they pinned a third
+    of the active set at exactly 100, where the sort could no longer tell
+    them apart.
     """
     total = _BASELINE
 
@@ -335,32 +349,24 @@ def score(fields: dict[str, Any], district: str | None = None) -> int:
         if isinstance(value, str):
             total += weights.get(value, 0)
 
+    # A price inside the budget is the norm, not an achievement: paying
+    # points for it would hand the same bonus to almost every survivor, since
+    # anything over BUDGET_HARD_MAX_THB is rejected before it ever gets here.
+    # Only the stretch above the soft ceiling costs anything.
     price = _as_int(value_of(fields, "price_month_thb"))
-    if price is not None:
-        if DEFAULT_MIN_PRICE <= price <= DEFAULT_MAX_PRICE:
-            total += 10
-        elif price < DEFAULT_MIN_PRICE:
-            total += 6
-        elif price <= BUDGET_HARD_MAX_THB:
-            total += 3
-        else:
-            total -= 15
+    if price is not None and price > DEFAULT_MAX_PRICE:
+        total += -8 if price <= BUDGET_HARD_MAX_THB else -15
 
-    # One bedroom is the requirement; every extra one is a bonus, capped so
-    # a six-bedroom villa does not outrank a matching townhouse on size alone.
+    # One bedroom is the requirement, so it earns nothing — a studio is
+    # rejected outright and every survivor has at least one. Extra bedrooms
+    # are the bonus, capped so a six-bedroom villa does not outrank a
+    # matching townhouse on room count alone.
     bedrooms = _as_int(value_of(fields, "bedrooms"))
     if bedrooms is not None and bedrooms >= 1:
-        total += 4 + min(bedrooms - 1, 2) * 3
-
-    if not is_empty(value_of(fields, "extra_rooms")):
-        total += 3
-    if not is_empty(value_of(fields, "internet")):
-        total += 3
-    if not is_empty(value_of(fields, "pool_gym")):
-        total += 1
+        total += min(bedrooms - 1, 2) * 3
 
     months = _as_int(value_of(fields, "contract_min_months"))
     if months is not None:
-        total += 3 if months <= 12 else -2
+        total += 2 if months <= 12 else -2
 
     return max(0, min(100, total))

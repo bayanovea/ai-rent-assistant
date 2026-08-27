@@ -70,10 +70,23 @@ internet — is a remark in the verdict, never a rejection.
 
 The score starts from a baseline of 50 and moves on evidence only. Fields the
 ad never mentions leave it untouched, which is the whole design: silence must
-not rank a listing below one that spoke. The district is worth up to ±12 (the
-1–5 scale in `config/requirements.md`, pivoting at 3.5, four points per half
-step), pets `allowed` +20 against `not_allowed` −30, a price inside the target
-window +10, and the rest are the smaller weights in `rules.py`.
+not rank a listing below one that spoke. The district is worth up to ±9 (the
+1–5 scale in `config/requirements.md`, pivoting at 3.5, three points per half
+step), pets `allowed` +14 against `not_allowed` −30, and the rest are the
+smaller weights in `rules.py`.
+
+The two sides are asymmetric on purpose: a stop-factor hits at full strength, a
+nice-to-have is worth about two thirds of what a mirror-image penalty would
+cost. **The failure mode to watch for is a tie at the top.** An earlier version
+paid points for a merely non-empty `internet`, `pool_gym` or `extra_rooms` —
+which ranks the wordy ad above the terse one describing the same flat — plus a
+flat bonus for the first bedroom and for a price inside the budget, both of
+which every survivor has by definition. Together they pinned **352 of 1123
+active listings at exactly 100**, so the default sort had nothing left to order
+the first screen by. Removing them and trimming the positive weights spread the
+same corpus over 56 distinct values with a median of 69 and four rows at 100.
+Anything added here has to be checked the same way: raise the ceiling and the
+sort quietly stops working.
 
 Two details about districts that are easy to get wrong:
 

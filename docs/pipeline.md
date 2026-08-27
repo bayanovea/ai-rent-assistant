@@ -47,7 +47,7 @@ the AI's either.
   traced back to. It never writes `verdict`, `score` or `status`; values for
   those in a result file are ignored.
 - **`rules.py` decides.** Five conditions auto-reject; the district is worth up
-  to ±12 points of the score. The same facts therefore always produce the same
+  to ±9 points of the score. The same facts therefore always produce the same
   outcome — see [ai-enrichment.md](ai-enrichment.md).
 - **You override.** `decisions.json` beats the rules in both directions and is
   the only file here that a DB wipe would actually lose.
