@@ -242,22 +242,22 @@ the last one so the researcher can see a contradiction coming.
 - Create: `src/fb_rent/buildings.py`
 - Create: `tests/test_buildings.py`
 
-- [ ] `building_key(name)` — lowercase, alphanumerics only, collapse whitespace,
+- [x] `building_key(name)` — lowercase, alphanumerics only, collapse whitespace,
       hyphen-join; returns `""` for empty/None input
-- [ ] `POLICIES` / `STATUSES` frozensets and a `BuildingError` for invalid values
-- [ ] `load_buildings(path=None)` / `save_building(...)` with the atomic
+- [x] `POLICIES` / `STATUSES` frozensets and a `BuildingError` for invalid values
+- [x] `load_buildings(path=None)` / `save_building(...)` with the atomic
       temp-file + `os.replace` write copied from `decisions.py`
-- [ ] `resolve(store, project_name)` — exact key, then alias lookup; returns the
+- [x] `resolve(store, project_name)` — exact key, then alias lookup; returns the
       entry or `None`
-- [ ] `policy_for(store, project_name)` — the confirmed policy string or `None`
+- [x] `policy_for(store, project_name)` — the confirmed policy string or `None`
       (`proposed` and unknown buildings both yield `None`)
-- [ ] write tests for `building_key` (spelling variants collapse, punctuation,
+- [x] write tests for `building_key` (spelling variants collapse, punctuation,
       Cyrillic, empty input)
-- [ ] write tests for load/save round-trip, atomic write leaving the old file
+- [x] write tests for load/save round-trip, atomic write leaving the old file
       intact on failure, and rejection of an invalid policy/status
-- [ ] write tests for `resolve` via alias and for `policy_for` returning `None`
+- [x] write tests for `resolve` via alias and for `policy_for` returning `None`
       on a `proposed` entry
-- [ ] run tests — must pass before task 2
+- [x] run tests — must pass before task 2
 
 ### Task 2: The `buildings` table and the research queue
 

@@ -84,6 +84,9 @@ BROWSER_PROFILE_DIR: Path = FB_RENT_HOME / "browser-profile"
 AI_DIR: Path = FB_RENT_HOME / "ai"
 PHOTOS_DIR: Path = FB_RENT_HOME / "photos"
 DECISIONS_PATH: Path = FB_RENT_HOME / "decisions.json"
+# Researched pets policy per building — like decisions.json, a file no
+# init_db can wipe, mirrored into a table only so fetch_enriched can JOIN.
+BUILDINGS_PATH: Path = FB_RENT_HOME / "buildings.json"
 
 
 def ensure_home() -> Path:
