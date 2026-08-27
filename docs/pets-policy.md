@@ -177,6 +177,56 @@ building.
 
 Append after a real run. Do not rewrite what is here.
 
+### 27 August 2026 — second run, twelve buildings
+
+The next twelve off the queue, one subagent each, with the mirror warning from
+the first run written into every prompt.
+
+- **Again nothing came back `unknown`** — 0 of 12. Eight `not_allowed`, three
+  `allowed`, one `negotiable`.
+- **The FazWaz field is per-object, not boilerplate.** The open question from
+  the first run has an answer: the same feed says «all kind of pets are
+  allowed» for Phuket Villa Suanluang and prints the ban for The View Condo
+  Suanluang, its neighbour. Read the feed; just do not count its four mirrors
+  as four votes.
+- **PropertyScout's version of the sentence *is* boilerplate.** «X does not
+  allow pets unless permitted by the juristic office» turns up on pool-villa
+  estates (The Lake House, Two Villas Tara) where a blanket ban is not
+  credible. It had been taken as independent corroboration for Phyll Phuket;
+  it is not. Both findings are now in the skill.
+- **One building had genuinely independent evidence**: The Base Height —
+  Hipflat (naming the manager, Plus Living Management), agency ads on
+  Thailand-Property («Strictly: No Pets Allowed») and a Trip.com unit card.
+  It is the only `high` among the eight bans.
+- **The first confirmed `allowed`**: The Base Cherngtalay, on the developer's
+  own site — «Pet-welcome», a Pet Park in the amenities and separate "Pet"
+  unit variants in the floor plans. Caveat worth keeping: several agencies say
+  only Building B, levels 2–3, are the pet-friendly ones.
+- **Estates of houses are not condos**, and the pass now says so. Phuket Villa
+  Suanluang, Supalai Bella Thalang and Siri Place Airport are moo baan; no
+  village regulation exists online for any of them. Siri Place is the sharp
+  case: both "rules" the search returned were boilerplate pointing opposite
+  ways, while individual lots inside the estate are tagged both «เลี้ยงสัตว์ได้»
+  and «pets prohibited» — the owner decides, which is what `negotiable` means.
+- **Supalai Lagoon splits and `building_key` cannot see it.** The ban belongs
+  to the condo towers; the houses at the same address are allowed by the same
+  feed. Confirmed `not_allowed` because both listings on hand are condos — the
+  note carries the warning for the day a house shows up.
+- 41 active rows rejected. Across the DB 245 rows now carry «Кондо запрещает
+  животных»; the active set is 637 of 1401. 224 buildings left unresearched,
+  17 confirmed.
+- The `conflicts` pile is empty: not one ad claiming `pets: allowed` sits in a
+  forbidding building right now.
+
+**A dedupe ran mid-pass, from another session.** At 19:37–19:38 UTC
+`fb-rent dedupe` collapsed 834 duplicates (2235 listings → 1401), between the
+batch being built and the results being applied. Nothing was lost — every
+collapsed row is in the `duplicates` table with its canonical id — but the
+batch file's counts, the apply report's counts and the confirmation's counts
+were each measured on a different side of it (The Base Height read 16, then
+11, then 8). **A listing count in a batch file is a snapshot, not a fact**:
+re-measure before quoting one to the user.
+
 ### 27 August 2026 — first run, the five biggest buildings
 
 One subagent per building over the head of the queue: DCondo Reef, The Base
