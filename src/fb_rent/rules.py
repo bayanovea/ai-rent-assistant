@@ -194,9 +194,17 @@ def decide(
     reaches this function is one the user has vetted. Only ``not_allowed``
     rejects: ``negotiable`` is the case the user wants kept and asked about,
     ``allowed`` and ``unknown`` say nothing to act on, and ``None`` is the
-    unresearched building. The ad's own ``pets`` field is a separate source and
-    is never overwritten by this one — a "pet friendly" ad in a building that
-    forbids dogs stays visible as the contradiction it is.
+    unresearched building.
+
+    An ad that says ``pets: allowed`` outright is the one exception, and it
+    survives a building that forbids them. The two remain separate sources —
+    neither overwrites the other — but they are not equally specific: the
+    house rule is about the tower, while "с животными можно" is about this
+    flat, and it is usually a landlord who already has the permission the rule
+    talks about. Rejecting it would throw away the only listings in a
+    forbidding building worth looking at. Repeated such ads in one building
+    are a signal the research got the tower wrong, which is what
+    :func:`.storage.fetch_pets_conflicts` collects.
 
     ``data_quality`` other than ``good`` suppresses every rejection: the
     text the AI read was the sidebar or was missing entirely, so its
@@ -211,8 +219,9 @@ def decide(
         return "rejected", REASON_PETS
 
     # Checked after the ad's own field so that a listing saying "no pets"
-    # outright keeps the more direct reason when both apply.
-    if building_policy == "not_allowed":
+    # outright keeps the more direct reason when both apply — and skipped
+    # entirely for the ad that says the opposite, see the docstring.
+    if building_policy == "not_allowed" and value_of(fields, "pets") != "allowed":
         return "rejected", REASON_BUILDING_PETS
 
     # Patong is out whatever the flat looks like, so this is checked before

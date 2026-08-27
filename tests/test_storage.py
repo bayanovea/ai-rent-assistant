@@ -2339,20 +2339,88 @@ def test_enriched_rejects_a_listing_scraped_after_the_research(conn):
     assert item["reason"] == rules.REASON_BUILDING_PETS
 
 
-def test_enriched_rejection_leaves_the_ads_own_pets_field_alone(conn):
+def test_enriched_keeps_the_ad_that_promises_pets_in_a_forbidding_building(conn):
     # The contradiction is the point: an ad promising "pet friendly" in a
-    # building that forbids animals stays readable as the disagreement it is.
+    # building that forbids animals stays readable as the disagreement it is —
+    # and stays active, because it is the more specific claim about this flat.
     _in_building(conn, "a1", "The Base Central Phuket", pets="allowed")
     storage.sync_buildings_to_db(conn, _building())
 
     item = _enriched_by_id(conn)["a1"]
-    assert item["status"] == "rejected"
-    assert item["reason"] == rules.REASON_BUILDING_PETS
+    assert item["status"] == "active"
+    assert item["reason"] is None
     assert item["fields"]["pets"]["v"] == "allowed"
     stored = conn.execute(
         "SELECT data_json FROM ai_analysis WHERE fb_id = 'a1'"
     ).fetchone()["data_json"]
     assert json.loads(stored)["pets"]["v"] == "allowed"
+
+
+# --- fetch_pets_conflicts ---------------------------------------------------
+
+
+def test_conflicts_collects_a_building_its_ads_keep_contradicting(conn):
+    _in_building(conn, "a1", "The Base Central Phuket", pets="allowed")
+    _in_building(conn, "a2", "Base Central", pets="allowed")
+    _in_building(conn, "a3", "The Base Central Phuket", pets="unclear")
+    store = _building()
+
+    conflicts = storage.fetch_pets_conflicts(conn, store)
+
+    assert len(conflicts) == 1
+    conflict = conflicts[0]
+    assert conflict["key"] == buildings.building_key("The Base Central Phuket")
+    assert conflict["policy"] == "not_allowed"
+    # The alias spelling counts for the same building, and the ad that said
+    # nothing is not a signal.
+    assert {row["fb_id"] for row in conflict["listings"]} == {"a1", "a2"}
+
+
+def test_conflicts_ignores_a_single_ad(conn):
+    # One landlord with a permission is noise; the pile is the claim.
+    _in_building(conn, "a1", "The Base Central Phuket", pets="allowed")
+
+    assert storage.fetch_pets_conflicts(conn, _building()) == []
+    assert len(storage.fetch_pets_conflicts(conn, _building(), min_signals=1)) == 1
+
+
+def test_conflicts_only_look_at_buildings_researched_as_forbidding(conn):
+    _in_building(conn, "a1", "The Base Central Phuket", pets="allowed")
+    _in_building(conn, "a2", "The Base Central Phuket", pets="allowed")
+
+    for policy in ("negotiable", "allowed", "unknown"):
+        assert storage.fetch_pets_conflicts(conn, _building(policy=policy)) == []
+
+
+def test_conflicts_keep_a_proposal(conn):
+    # A proposal rejects nothing, but a contradiction is exactly what should be
+    # seen before it is confirmed.
+    _in_building(conn, "a1", "The Base Central Phuket", pets="allowed")
+    _in_building(conn, "a2", "The Base Central Phuket", pets="allowed")
+
+    conflicts = storage.fetch_pets_conflicts(conn, _building(status="proposed"))
+    assert [c["status"] for c in conflicts] == ["proposed"]
+
+
+def test_conflicts_drop_hand_rejected_and_unreadable_rows(conn):
+    _in_building(conn, "a1", "The Base Central Phuket", pets="allowed")
+    _in_building(conn, "a2", "The Base Central Phuket", pets="allowed")
+    _in_building(conn, "a3", "The Base Central Phuket", pets="allowed")
+    # The user threw this one out: it is not worth arguing about any more.
+    conn.execute(
+        "INSERT INTO decisions (fb_id, status, reason, decided_at) VALUES (?,?,?,?)",
+        ("a1", "rejected", "не нравится", "2026-08-26T10:00:00Z"),
+    )
+    # This one was read off the sidebar, so its "pets allowed" is not evidence.
+    conn.execute(
+        "UPDATE ai_analysis SET data_quality = 'sidebar_noise' WHERE fb_id = 'a2'"
+    )
+    conn.commit()
+
+    assert storage.fetch_pets_conflicts(conn, _building()) == []
+    assert len(
+        storage.fetch_pets_conflicts(conn, _building(), min_signals=1)[0]["listings"]
+    ) == 1
 
 
 @pytest.mark.parametrize("policy", sorted(buildings.POLICIES))

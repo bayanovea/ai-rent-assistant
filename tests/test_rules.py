@@ -114,6 +114,24 @@ def test_the_ads_own_pets_field_wins_the_reason_when_both_apply():
     assert (status, reason) == ("rejected", REASON_PETS)
 
 
+def test_an_ad_promising_pets_survives_a_forbidding_building():
+    # The house rule is about the tower, "с животными можно" is about this
+    # flat — and it is usually a landlord who already has the permission the
+    # rule talks about. Rejecting it would throw away the only listings in a
+    # forbidding building worth looking at.
+    fields = wrap(pets="allowed", bedrooms=2)
+    assert decide(fields, 20_000, building_policy="not_allowed") == ("active", None)
+
+
+def test_only_an_outright_yes_survives_it():
+    # Silence is not a promise: `unclear` is what most ads say, and treating
+    # it as consent would make the building rule reject nothing at all.
+    for pets in ("unclear", "", None):
+        fields = wrap(pets=pets, bedrooms=2)
+        assert decide(fields, 20_000, building_policy="not_allowed") == (
+            "rejected", REASON_BUILDING_PETS)
+
+
 def test_the_building_rule_is_checked_before_the_district():
     # Both would reject; the building rule is the earlier check, as in
     # `decide`'s own order.
