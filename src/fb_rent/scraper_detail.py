@@ -187,19 +187,40 @@ def _extract_description(page: "Page", lines: list[str]) -> str | None:
 # the prefix alone.
 _GALLERY_IMG_SELECTOR = 'img[src*="/t39.30808-6/"]'
 
+# A "similar listings" card is a link to *another* ad; a gallery shot is not
+# inside a link at all. Measured on 28 August 2026 across three live pages:
+# every suggestion card sat inside such an anchor, every one of the 17
+# gallery images sat outside one.
+_SUGGESTION_LINK_JS = (
+    "(img) => Boolean(img.closest('a[href*=\"/marketplace/item/\"]'))"
+)
+
 
 def extract_gallery_urls(page: "Page") -> list[str]:
     """Return the listing's gallery image URLs, in DOM (= gallery) order.
 
     The spike found the whole gallery already in the DOM — no lightbox
-    click needed. What still has to be separated out are the "similar
-    listings" cards, which live under the same CDN prefix. The tell is
-    ``alt``: every gallery shot shares one caption ("Фото <заголовок>"),
-    while each suggestion card carries its own. So the modal ``alt`` group
-    is the gallery, and a locale-independent one at that.
+    click needed. What has to be separated out are the "similar listings"
+    cards, which live under the same CDN prefix.
+
+    Two filters, in this order. First the structural one: a suggestion card
+    is wrapped in an anchor to another marketplace item, and a gallery shot
+    is in no anchor at all. Then the ``alt`` grouping: gallery shots share
+    one caption while each card carries its own, so the modal group wins.
+
+    The link filter is what the grouping alone could not do. On a page whose
+    gallery is simply absent — it happens, and no amount of waiting or
+    scrolling brings it back — the largest ``alt`` group was a *suggestion*
+    group of five, and on 28 August six shortlisted listings were handed
+    565x565 cards from other people's ads as if they were the flat. Grouping
+    has no way to notice that: it ranks groups against each other and cannot
+    tell that none of them belongs to this listing. The right answer for such
+    a page is an empty list, and only the link test produces it.
 
     Best-effort like the rest of this module: a churned DOM yields an empty
-    list, never an exception.
+    list, never an exception. An element that cannot be interrogated is
+    dropped rather than kept — for a gallery, missing a shot is cheap and
+    keeping a stranger's is not.
     """
     try:
         handles = page.query_selector_all(_GALLERY_IMG_SELECTOR)
@@ -211,7 +232,10 @@ def extract_gallery_urls(page: "Page") -> list[str]:
         try:
             src = handle.get_attribute("src")
             alt = handle.get_attribute("alt")
+            in_suggestion = handle.evaluate(_SUGGESTION_LINK_JS)
         except Exception:  # noqa: BLE001 — element may be stale
+            continue
+        if in_suggestion:
             continue
         if not src or not alt or not alt.strip():
             continue

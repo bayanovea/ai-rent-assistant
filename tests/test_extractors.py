@@ -350,12 +350,19 @@ _AVATAR = "https://scontent.xx.fbcdn.net/v/t39.30808-1/avatar.jpg"
 
 
 class _FakeImg:
-    def __init__(self, src: str, alt: str | None) -> None:
+    def __init__(
+        self, src: str, alt: str | None, in_suggestion: bool = False
+    ) -> None:
         self._src = src
         self._alt = alt
+        self._in_suggestion = in_suggestion
 
     def get_attribute(self, name: str) -> str | None:
         return {"src": self._src, "alt": self._alt}[name]
+
+    def evaluate(self, script: str) -> bool:
+        assert "marketplace/item" in script
+        return self._in_suggestion
 
 
 class _FakePage:
@@ -416,3 +423,53 @@ def test_extract_gallery_urls_empty_gallery(imgs) -> None:
 
 def test_extract_gallery_urls_swallows_selector_failure() -> None:
     assert extract_gallery_urls(_FakePage([], raises=True)) == []
+
+
+def test_extract_gallery_urls_ignores_images_inside_suggestion_links() -> None:
+    """A card linking to another ad is never this listing's gallery."""
+    page = _FakePage(
+        [
+            _FakeImg(_GALLERY.format(i), "Фото Дом в Катху") for i in range(3)
+        ]
+        + [
+            _FakeImg(_GALLERY.format("s1"), "Похожее", in_suggestion=True),
+            _FakeImg(_GALLERY.format("s2"), "Похожее", in_suggestion=True),
+            _FakeImg(_GALLERY.format("s3"), "Похожее", in_suggestion=True),
+            _FakeImg(_GALLERY.format("s4"), "Похожее", in_suggestion=True),
+        ]
+    )
+    assert extract_gallery_urls(page) == [_GALLERY.format(i) for i in range(3)]
+
+
+def test_extract_gallery_urls_empty_when_only_suggestions_rendered() -> None:
+    """The 28 August failure: the page has no gallery, only other ads' cards.
+
+    Grouping alone hands back the largest suggestion group. The answer has to
+    be an empty list — a listing with no pictures, not one with somebody
+    else's.
+    """
+    page = _FakePage(
+        [
+            _FakeImg(_GALLERY.format(f"s{i}"), "Похожее объявление",
+                     in_suggestion=True)
+            for i in range(5)
+        ]
+    )
+    assert extract_gallery_urls(page) == []
+
+
+def test_extract_gallery_urls_drops_an_element_it_cannot_interrogate() -> None:
+    """A stale element is dropped, not kept: a stranger's shot costs more."""
+
+    class _Stale(_FakeImg):
+        def evaluate(self, script: str) -> bool:
+            raise RuntimeError("element is detached")
+
+    page = _FakePage(
+        [
+            _FakeImg(_GALLERY.format("a"), "Фото Дом"),
+            _Stale(_GALLERY.format("b"), "Фото Дом"),
+            _FakeImg(_GALLERY.format("c"), "Фото Дом"),
+        ]
+    )
+    assert extract_gallery_urls(page) == [_GALLERY.format("a"), _GALLERY.format("c")]
