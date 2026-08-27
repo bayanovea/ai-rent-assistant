@@ -538,6 +538,7 @@ def scrape_cmd(
                 )
 
             _sync_decisions(conn)
+            _sync_buildings(conn)
             csv_path = export_csv(conn, config.CSV_PATH)
             html_path = export_html(conn, config.HTML_PATH)
 
@@ -626,6 +627,7 @@ def export_cmd(csv_path: Path | None, html_path: Path | None) -> None:
     conn = _open_db()
     try:
         _sync_decisions(conn)
+        _sync_buildings(conn)
         csv_written = export_csv(conn, csv_out)
         html_written = export_html(conn, html_out)
     finally:

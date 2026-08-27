@@ -13,7 +13,16 @@ import shutil
 import pytest
 from click.testing import CliRunner
 
-from fb_rent import ai_batch, ai_schema, buildings, cli, config, photos, storage
+from fb_rent import (
+    ai_batch,
+    ai_schema,
+    buildings,
+    cli,
+    config,
+    photos,
+    rules,
+    storage,
+)
 from fb_rent.cli import main
 
 
@@ -1362,3 +1371,49 @@ def test_ai_status_counts_the_buildings(home):
     _run("buildings", "set", "the-base-central-phuket", "--policy", "not_allowed")
     confirmed = _run("ai-status")
     assert "Подтверждены:   1" in confirmed.output
+
+
+def test_export_repopulates_the_buildings_mirror_after_a_db_wipe(home):
+    # `data/buildings.json` is the source of truth and the table is only a
+    # mirror: a wiped DB must come back with the same rejections, without any
+    # research being re-run.
+    _condo("1")
+    _run("buildings-apply", str(_result_file(home)))
+    assert (
+        _run("buildings", "set", "the-base-central-phuket", "--policy", "not_allowed")
+    ).exit_code == 0
+
+    config.DB_PATH.unlink()
+    _condo("1")  # a fresh scrape into a fresh database
+    conn = storage.init_db(config.DB_PATH)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+    result = _run("export")
+
+    assert result.exit_code == 0, result.output
+    conn = storage.init_db(config.DB_PATH)
+    try:
+        assert storage.building_policies(conn) == {
+            "the-base-central-phuket": "not_allowed"
+        }
+        row = storage.fetch_enriched(conn)[0]
+    finally:
+        conn.close()
+    assert (row["status"], row["reason"]) == ("rejected", rules.REASON_BUILDING_PETS)
+
+
+def test_export_reports_a_broken_buildings_file(home):
+    _condo("1")
+    config.BUILDINGS_PATH.write_text(
+        json.dumps({"x": {"name": "X", "policy": "maybe", "status": "confirmed"}}),
+        encoding="utf-8",
+    )
+
+    result = _run("export")
+
+    assert result.exit_code != 0
+    assert "unknown pets policy" in result.output
+    assert "Traceback" not in result.output

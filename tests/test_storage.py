@@ -2328,6 +2328,45 @@ def test_enriched_survives_a_database_without_the_buildings_table(conn):
     assert item["building_policy"] is None
 
 
+def test_enriched_rejects_a_listing_scraped_after_the_research(conn):
+    # The mirror is read on every `fetch_enriched`, so a building confirmed
+    # today rejects the units that turn up tomorrow with no pass re-running.
+    storage.sync_buildings_to_db(conn, _building())
+    _in_building(conn, "later", "The Base Central Phuket")
+
+    item = _enriched_by_id(conn)["later"]
+    assert item["status"] == "rejected"
+    assert item["reason"] == rules.REASON_BUILDING_PETS
+
+
+def test_enriched_rejection_leaves_the_ads_own_pets_field_alone(conn):
+    # The contradiction is the point: an ad promising "pet friendly" in a
+    # building that forbids animals stays readable as the disagreement it is.
+    _in_building(conn, "a1", "The Base Central Phuket", pets="allowed")
+    storage.sync_buildings_to_db(conn, _building())
+
+    item = _enriched_by_id(conn)["a1"]
+    assert item["status"] == "rejected"
+    assert item["reason"] == rules.REASON_BUILDING_PETS
+    assert item["fields"]["pets"]["v"] == "allowed"
+    stored = conn.execute(
+        "SELECT data_json FROM ai_analysis WHERE fb_id = 'a1'"
+    ).fetchone()["data_json"]
+    assert json.loads(stored)["pets"]["v"] == "allowed"
+
+
+@pytest.mark.parametrize("policy", sorted(buildings.POLICIES))
+@pytest.mark.parametrize("status", sorted(buildings.STATUSES))
+def test_enriched_score_never_moves_with_the_building(conn, policy, status):
+    # Nothing the research says is worth a point in either direction: a
+    # rejection needs no weight and a reward would lift the rows already
+    # easiest to rank. See the tie-at-100 trap in `CLAUDE.md`.
+    _in_building(conn, "a1", "The Base Central Phuket")
+    before = _enriched_by_id(conn)["a1"]["score"]
+    storage.sync_buildings_to_db(conn, _building(policy=policy, status=status))
+    assert _enriched_by_id(conn)["a1"]["score"] == before
+
+
 # --- buildings in the table: the badge on «Проект/посёлок» ------------------
 
 

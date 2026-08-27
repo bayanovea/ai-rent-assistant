@@ -411,17 +411,35 @@ the last one so the researcher can see a contradiction coming.
 
 ### Task 9: Verify acceptance criteria
 
-- [ ] a confirmed `not_allowed` building rejects every one of its listings with
+- [x] a confirmed `not_allowed` building rejects every one of its listings with
       «Кондо запрещает животных», including listings scraped after the research
-- [ ] `negotiable` keeps the listing and is visible on the row
-- [ ] a `proposed` building changes nothing anywhere
-- [ ] the ad's own `pets` field is never overwritten by research
-- [ ] `data/buildings.json` survives a DB wipe and re-populates the mirror on the
-      next `init_db`
-- [ ] no score changed for any reason other than a rejection
-- [ ] run the full suite: `pytest`
-- [ ] check the tie-at-100 spread on the live DB is unchanged (`fetch_enriched` →
-      count rows at exactly 100, before and after)
+      — `test_enriched_rejects_a_listing_scraped_after_the_research`
+- [x] `negotiable` keeps the listing and is visible on the row —
+      `test_enriched_never_rejects_on_a_policy_other_than_not_allowed`,
+      `test_export_html_colours_the_badge_by_policy`
+- [x] a `proposed` building changes nothing anywhere —
+      `test_enriched_leaves_a_proposal_inert`,
+      `test_buildings_apply_stores_a_proposal_and_rejects_nothing`
+- [x] the ad's own `pets` field is never overwritten by research —
+      `test_enriched_rejection_leaves_the_ads_own_pets_field_alone` asserts it
+      both on the read funnel and in the stored `data_json`
+- [x] `data/buildings.json` survives a DB wipe and re-populates the mirror on the
+      next `init_db` — ⚠️ it did not: `init_db` only creates the table, and only
+      `buildings set` was syncing the file into it, so a wiped DB exported
+      without a single policy until the next confirmation. Fixed by calling
+      `_sync_buildings` next to `_sync_decisions` in `export` and in `scrape`,
+      which is the decisions precedent exactly. Covered by
+      `test_export_repopulates_the_buildings_mirror_after_a_db_wipe` and
+      `test_export_reports_a_broken_buildings_file`
+- [x] no score changed for any reason other than a rejection —
+      `test_enriched_score_never_moves_with_the_building`, parametrised over
+      all four policies × both statuses
+- [x] run the full suite: `pytest` — 663 passed
+- [x] check the tie-at-100 spread on the live DB is unchanged (`fetch_enriched` →
+      count rows at exactly 100, before and after) — 2235 rows, 1122 active,
+      **4** at exactly 100 with the buildings table joined and **4** with it
+      dropped. Identical, as the code guarantees: `score()` never reads the
+      policy
 
 ### Task 10: [Final] Documentation
 
