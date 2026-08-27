@@ -14,9 +14,7 @@ Where the rest is:
 - `.claude/skills/photo-analyze/SKILL.md` — the procedure itself;
 - `docs/plans/completed/20260825-photo-analysis.md` — the implementation plan.
 
-Last checked against live data: **25 August 2026**, commit `204f6cd`.
-Fields `light`, `appeal` and `view` added 28 August 2026, not yet run on
-live data.
+Last checked against live data: **28 August 2026**, commit `5ab065c`.
 
 ## What the pass is for
 
@@ -104,6 +102,36 @@ out to be `partial` (one bedroom empty); `kitchen: full` twice turned out to be
 `photo_quality: other_unit`: instead of the flat, a marketing collage of The
 Origin Phuket-Patong.
 
+## The 28 August run — shortlist and longlist
+
+Ten listings, everything the user had marked `shortlist` or `longlist`, run on
+the user's explicit request rather than off the queue. **Four of the ten
+produced a gallery. Six produced nothing**, which is the run's main finding and
+is written up as gap 1 below.
+
+The four that worked cost ~52k tokens each (15-23 shots) and returned 12
+disagreements with the text, none of them a rejection:
+
+| What the text said | What the photos showed |
+|---|---|
+| `kitchen: full` | `kitchenette` — a two-ring hob and a microwave, no oven |
+| `condition: unclear` ×2 | `new` (factory stickers still on the fridge), `good` |
+| `living_room: unclear` ×2 | `yes` |
+| `parking: unclear` ×2 | `yes` — a carport in the frame |
+| `green_area: unclear` ×4 | `yes` |
+
+The three new fields filled on all four: `light` one `bright` and three
+`normal`; `appeal` two `attractive` and two `ok`; `view` one `green`, two
+`city`, one `wall`. Nothing scored `dark` or `unattractive`, which is what a
+hand-picked shortlist should look like — the sample cannot say whether the
+scale discriminates on the wider set. Score changes were small and in both
+directions: 81, 84, 90, 100.
+
+Worth keeping from the subagents' prose, because no field carries it: on one
+house the living rooms are finished to a different standard than the kitchen
+block (exposed pipes, corrugated roof — probably a separate Thai wet kitchen),
+and on another the third bedroom is empty while the ad says fully furnished.
+
 ## Decisions not to undo
 
 **The whole gallery, no sampling.** `PHOTO_MAX_COUNT = None`. Downloading costs
@@ -169,7 +197,29 @@ look. The tooltip rendering did not change.
 
 In descending order of importance.
 
-**1. No targeted photo catch-up.** `--refresh` only re-opens what came back
+**1. A page with no gallery yields two "similar listings" cards, and they are
+downloaded as if they were the flat.** Six of the ten listings in the 28 August
+run came back with either nothing or exactly two 565x565 images — and on four
+different listings those two were the same file byte for byte. A second
+`scrape --ids` reproduced it exactly, so it is not a timing flake.
+
+The cause is that `extract_gallery_urls` has no floor: it groups `img` by `alt`
+and takes the largest group, so when the gallery is absent from the DOM the
+largest group is whatever recommendation cards happen to share an `alt`. Their
+`src` is the give-away — truncated at `cstp=mx1` with none of the `_nc_ohc` /
+`_nc_oc` signature a real gallery URL carries, and 565x565 rather than 960 on
+the long edge.
+
+What makes it worse than a miss: `_download_photos` writes them, `photos_hash`
+is then non-empty, and the listing counts as having photos forever. The run's
+bogus directories were moved to `data/photos-bogus-20260828/` rather than
+deleted.
+
+Two candidate fixes, neither tried: require a signed URL (`_nc_ohc` present),
+or require the group to be larger than two. The first is the more honest
+condition — it says "this is a gallery link", not "this is a big enough group".
+
+**2. No targeted photo catch-up.** `--refresh` only re-opens what came back
 from the feed. 29 rows had already fallen out of the 7-day window and past the
 60-card limit — they will never get pictures that way. The plan assumed
 "`--refresh` will fill in what we already have"; in practice that holds only
@@ -177,19 +227,19 @@ for the fresh part of the database. `scrape --ids` is the path, with the caveat
 in [dedupe.md](dedupe.md#the-trap-a-dead-pages-gallery-belongs-to-someone-else)
 about dead pages.
 
-**2. Subagent overhead.** ~26k of the 31k per listing is the `general-purpose`
+**3. Subagent overhead.** ~26k of the 31k per listing is the `general-purpose`
 system prompt. Curable either with a dedicated subagent type carrying a minimal
 prompt, or by batching (5 listings per agent), which would cut the cost roughly
 threefold. Against batching: the cross-listing confusion risk above.
 
-**3. The `Stale` counter in `ai-status` lies.** `storage.py`, `fetch_pending`
+**4. The `Stale` counter in `ai-status` lies.** `storage.py`, `fetch_pending`
 compares against the whole `registry.schema_version` without looking at a
 field's `source`. Add a photo field and every text row becomes "stale", and the
 command advises a backfill that need not happen. No extra work actually occurs
 (`analysis_version` is set explicitly, so the rows go to `stale`, not
 `pending`) — only the number is wrong.
 
-**4. Fifty directories hold six shots each.** They were downloaded under the
+**5. Fifty directories hold six shots each.** They were downloaded under the
 old limit, and `_download_photos` skips non-empty directories. The full gallery
 for a given listing can be had like this — but only while it is still in the
 feed:
