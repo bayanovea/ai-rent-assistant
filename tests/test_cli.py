@@ -13,7 +13,7 @@ import shutil
 import pytest
 from click.testing import CliRunner
 
-from fb_rent import ai_batch, ai_schema, cli, config, photos, storage
+from fb_rent import ai_batch, ai_schema, buildings, cli, config, photos, storage
 from fb_rent.cli import main
 
 
@@ -29,6 +29,7 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "AI_DIR", root / "ai")
     monkeypatch.setattr(config, "PHOTOS_DIR", root / "photos")
     monkeypatch.setattr(config, "DECISIONS_PATH", root / "decisions.json")
+    monkeypatch.setattr(config, "BUILDINGS_PATH", root / "buildings.json")
     return root
 
 
@@ -1074,3 +1075,290 @@ def test_photo_hash_reports_listings_without_gallery_links(home, monkeypatch):
     assert "No stored gallery links for 1 listing(s)" in result.output
     assert "fb-rent scrape --ids 1" in result.output
     assert _hash_rows("1") == []
+
+
+# --- the pets policy per building ---------------------------------------
+
+
+def _condo(fb_id: str, project: str = "The Base Central Phuket", *, pets="unclear"):
+    """One analysed listing advertising a flat in ``project``."""
+    conn = storage.init_db(config.DB_PATH)
+    try:
+        _add_listing(conn, fb_id, description="Квартира в кондо.")
+        storage.upsert_ai_analysis(
+            conn,
+            {
+                "fb_id": fb_id,
+                "schema_version": 1,
+                "analyzed_at": "2026-08-25T10:00:00Z",
+                "source_hash": f"hash-{fb_id}",
+                "model": "claude-opus-5 (claude-code)",
+                "verdict": "Подходит, квартира в кондо.",
+                "data_quality": "good",
+                "data_json": {
+                    "project_name": {"v": project},
+                    "area": {"v": "Phuket Town"},
+                    "pets": {"v": pets},
+                },
+            },
+        )
+    finally:
+        conn.close()
+
+
+def _result_file(home, **overrides):
+    entry = {
+        "key": "the-base-central-phuket",
+        "name": "The Base Central Phuket",
+        "area": "Phuket Town",
+        "policy": "not_allowed",
+        "confidence": "high",
+        "note": "УК: no pets of any kind.",
+        "sources": [
+            {
+                "url": "https://example.com/rules",
+                "title": "The Base Central — House Rules",
+                "quote": "Pets are not allowed in the building.",
+            }
+        ],
+    }
+    entry.update(overrides)
+    path = home / "buildings-result.json"
+    path.write_text(
+        json.dumps({"model": "claude-opus-5", "results": [entry]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _batch(home):
+    written = sorted((home / "ai").glob("buildings-batch-*.json"))
+    return json.loads(written[-1].read_text(encoding="utf-8"))
+
+
+def test_buildings_batch_writes_the_queue(home):
+    _condo("1")
+    _condo("2")
+
+    result = _run("buildings-batch")
+
+    assert result.exit_code == 0, result.output
+    assert "1 building(s)" in result.output
+    batch = _batch(home)
+    assert [b["key"] for b in batch["buildings"]] == ["the-base-central-phuket"]
+    assert batch["buildings"][0]["listings"] == 2
+    assert batch["research_prompt"]
+
+
+def test_buildings_batch_narrows_to_the_named_key(home):
+    _condo("1", "The Base Central Phuket")
+    _condo("2", "Zcape III")
+
+    result = _run("buildings-batch", "--key", "Zcape III")
+
+    assert result.exit_code == 0, result.output
+    assert [b["key"] for b in _batch(home)["buildings"]] == ["zcape-iii"]
+
+
+def test_buildings_batch_caps_at_the_limit(home):
+    _condo("1", "The Base Central Phuket")
+    _condo("2", "Zcape III")
+
+    result = _run("buildings-batch", "--limit", "1")
+
+    assert result.exit_code == 0, result.output
+    assert len(_batch(home)["buildings"]) == 1
+
+
+def test_buildings_batch_writes_nothing_on_an_empty_queue(home):
+    result = _run("buildings-batch")
+
+    assert result.exit_code == 0, result.output
+    assert "Nothing to research" in result.output
+    assert not list((home / "ai").glob("buildings-batch-*.json"))
+
+
+def test_buildings_batch_limit_must_be_positive(home):
+    result = _run("buildings-batch", "--limit", "0")
+
+    assert result.exit_code != 0
+    assert "--limit must be a positive number" in result.output
+
+
+def test_buildings_apply_stores_a_proposal_and_rejects_nothing(home):
+    _condo("1")
+    path = _result_file(home)
+
+    result = _run("buildings-apply", str(path))
+
+    assert result.exit_code == 0, result.output
+    assert "Proposed 1 building(s)" in result.output
+    assert "1 listing(s)" in result.output
+    store = buildings.load_buildings(config.BUILDINGS_PATH)
+    assert store["the-base-central-phuket"]["status"] == "proposed"
+
+    conn = storage.init_db(config.DB_PATH)
+    try:
+        rows = storage.fetch_enriched(conn)
+    finally:
+        conn.close()
+    assert [row["status"] for row in rows] == ["active"]
+
+
+def test_buildings_apply_dry_run_writes_no_file(home):
+    _condo("1")
+    path = _result_file(home)
+
+    result = _run("buildings-apply", str(path), "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert "Dry-run: would propose 1 building(s)" in result.output
+    assert buildings.load_buildings(config.BUILDINGS_PATH) == {}
+
+
+def test_buildings_apply_reports_an_unknown_policy(home):
+    _condo("1")
+    path = _result_file(home, policy="no-pets-ever")
+
+    result = _run("buildings-apply", str(path))
+
+    assert result.exit_code != 0
+    assert "unknown pets policy" in result.output
+    assert buildings.load_buildings(config.BUILDINGS_PATH) == {}
+
+
+def test_buildings_apply_reports_a_missing_file(home):
+    result = _run("buildings-apply", str(home / "nope.json"))
+
+    assert result.exit_code != 0
+    assert "nope.json" in result.output
+
+
+def test_buildings_apply_reports_a_broken_file(home):
+    path = home / "broken.json"
+    path.write_text("{not json", encoding="utf-8")
+
+    result = _run("buildings-apply", str(path))
+
+    assert result.exit_code != 0
+    assert "not valid JSON" in result.output
+
+
+def test_buildings_list_shows_the_evidence(home):
+    _condo("1")
+    _run("buildings-apply", str(_result_file(home)))
+
+    result = _run("buildings", "list")
+
+    assert result.exit_code == 0, result.output
+    assert "The Base Central Phuket" in result.output
+    assert "not_allowed / proposed" in result.output
+    assert "1 listing(s)" in result.output
+    assert "https://example.com/rules" in result.output
+    assert "Pets are not allowed in the building." in result.output
+
+
+def test_buildings_list_filters_by_status(home):
+    _condo("1")
+    _run("buildings-apply", str(_result_file(home)))
+
+    result = _run("buildings", "list", "--status", "confirmed")
+
+    assert result.exit_code == 0, result.output
+    assert "match" in result.output
+    assert "The Base Central Phuket" not in result.output
+
+
+def test_buildings_set_confirms_and_rejects_the_listings(home):
+    _condo("1")
+    _run("buildings-apply", str(_result_file(home)))
+
+    result = _run(
+        "buildings", "set", "the-base-central-phuket", "--policy", "not_allowed"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "confirmed" in result.output
+    entry = buildings.load_buildings(config.BUILDINGS_PATH)["the-base-central-phuket"]
+    assert entry["status"] == "confirmed"
+    # The sources the proposal carried survive the confirmation.
+    assert entry["sources"][0]["url"] == "https://example.com/rules"
+
+    conn = storage.init_db(config.DB_PATH)
+    try:
+        rows = storage.fetch_enriched(conn)
+    finally:
+        conn.close()
+    assert [row["status"] for row in rows] == ["rejected"]
+    assert rows[0]["reason"] == "Кондо запрещает животных"
+
+
+def test_buildings_set_finds_the_building_by_name_and_takes_aliases(home):
+    _condo("1")
+    _run("buildings-apply", str(_result_file(home)))
+
+    result = _run(
+        "buildings",
+        "set",
+        "The Base Central Phuket",
+        "--policy",
+        "negotiable",
+        "--note",
+        "УК: только мелкие собаки",
+        "--alias",
+        "base central",
+    )
+
+    assert result.exit_code == 0, result.output
+    entry = buildings.load_buildings(config.BUILDINGS_PATH)["the-base-central-phuket"]
+    assert entry["policy"] == "negotiable"
+    assert entry["aliases"] == ["base central"]
+    assert entry["note"] == "УК: только мелкие собаки"
+
+    # negotiable keeps the listing — the user's stated rule.
+    conn = storage.init_db(config.DB_PATH)
+    try:
+        rows = storage.fetch_enriched(conn)
+    finally:
+        conn.close()
+    assert [row["status"] for row in rows] == ["active"]
+
+
+def test_buildings_set_reports_an_unknown_key(home):
+    result = _run("buildings", "set", "no-such-condo", "--policy", "not_allowed")
+
+    assert result.exit_code != 0
+    assert "unknown building" in result.output
+
+
+def test_buildings_set_reports_an_invalid_policy(home):
+    _condo("1")
+    _run("buildings-apply", str(_result_file(home)))
+
+    result = _run(
+        "buildings", "set", "the-base-central-phuket", "--policy", "no-pets-ever"
+    )
+
+    assert result.exit_code != 0
+    assert "no-pets-ever" in result.output
+    store = buildings.load_buildings(config.BUILDINGS_PATH)
+    assert store["the-base-central-phuket"]["status"] == "proposed"
+
+
+def test_ai_status_counts_the_buildings(home):
+    _condo("1")
+
+    unresearched = _run("ai-status")
+    assert unresearched.exit_code == 0, unresearched.output
+    assert "Не исследованы: 1" in unresearched.output
+    assert "Предложены:     0" in unresearched.output
+
+    _run("buildings-apply", str(_result_file(home)))
+    proposed = _run("ai-status")
+    assert "Не исследованы: 0" in proposed.output
+    assert "Предложены:     1" in proposed.output
+    assert "Подтверждены:   0" in proposed.output
+
+    _run("buildings", "set", "the-base-central-phuket", "--policy", "not_allowed")
+    confirmed = _run("ai-status")
+    assert "Подтверждены:   1" in confirmed.output

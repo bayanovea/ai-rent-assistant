@@ -35,7 +35,17 @@ from typing import Any
 
 import click
 
-from . import ai_batch, ai_schema, config, decisions, fingerprint, photo_batch, photos
+from . import (
+    ai_batch,
+    ai_schema,
+    buildings,
+    buildings_batch,
+    config,
+    decisions,
+    fingerprint,
+    photo_batch,
+    photos,
+)
 from .browser import (
     LoginRequiredError,
     is_logged_in,
@@ -57,6 +67,7 @@ from .storage import (
     export_csv,
     export_html,
     fetch_pending,
+    fetch_pending_buildings,
     fetch_pending_photos,
     gallery_urls_of,
     init_db,
@@ -64,6 +75,7 @@ from .storage import (
     listings_missing_photo_hashes,
     marketplace_url,
     save_photo_hashes,
+    sync_buildings_to_db,
     upsert_listing,
 )
 from .url_builder import build_marketplace_url, price_bands
@@ -745,8 +757,17 @@ def ai_status_cmd() -> None:
         hashed_listings = conn.execute(
             "SELECT COUNT(DISTINCT fb_id) FROM photo_hashes"
         ).fetchone()[0]
+        building_store = _load_buildings()
+        unresearched = len(fetch_pending_buildings(conn, building_store))
     finally:
         conn.close()
+
+    proposed = sum(
+        1 for e in building_store.values() if e.get("status") == "proposed"
+    )
+    confirmed = sum(
+        1 for e in building_store.values() if e.get("status") == "confirmed"
+    )
 
     reasons: dict[str, int] = {}
     for row in pending:
@@ -799,6 +820,13 @@ def ai_status_cmd() -> None:
             click.echo(f"    - {row['fb_id']} {row.get('url') or ''}")
         if len(no_photos) > 10:
             click.echo(f"    ... and {len(no_photos) - 10} more")
+
+    # A proposal is inert until the user confirms it, so `Предложены` is a
+    # queue of questions to answer, not of work already done.
+    click.echo("Здания:")
+    click.echo(f"  Не исследованы: {unresearched}")
+    click.echo(f"  Предложены:     {proposed}")
+    click.echo(f"  Подтверждены:   {confirmed}")
 
 
 @main.command("ai-batch")
@@ -1415,6 +1443,291 @@ def photo_apply_cmd(path: Path, dry_run: bool) -> None:
     for warning in report.warnings:
         _echo_err(f"warning: {warning}")
 
+
+# --- pets policy per building -------------------------------------------
+
+
+def _sync_buildings(
+    conn: sqlite3.Connection, store: dict[str, Any] | None = None
+) -> None:
+    """Refresh the buildings mirror the exports JOIN against.
+
+    ``data/buildings.json`` is hand-editable in the same way decisions are —
+    an alias is added there by hand — so a bad policy or status in it is a
+    user error to report, not a traceback.
+    """
+    try:
+        sync_buildings_to_db(conn, store)
+    except (buildings.BuildingError, ValueError) as exc:
+        raise click.ClickException(f"{config.BUILDINGS_PATH}: {exc}") from exc
+
+
+def _load_buildings() -> dict[str, Any]:
+    try:
+        return buildings.load_buildings()
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _find_building(
+    store: dict[str, Any], key: str
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Look a building up by its key, by its name or by one of its aliases."""
+    if key in store:
+        return key, store[key]
+    entry = buildings.resolve(store, key)
+    if entry is None:
+        return None, None
+    for stored_key, stored in store.items():
+        if stored is entry:
+            return stored_key, stored
+    return None, None
+
+
+def _affected_listings(
+    conn: sqlite3.Connection, store: dict[str, Any]
+) -> dict[str, int]:
+    """How many still-active listings each stored building covers."""
+    return {
+        row["key"]: row["listings"]
+        for row in fetch_pending_buildings(conn, store, refresh=True)
+    }
+
+
+@main.command("buildings-batch")
+@click.option(
+    "--limit",
+    type=int,
+    default=25,
+    show_default=True,
+    help="Maximum number of buildings to put in the batch.",
+)
+@click.option(
+    "--key",
+    "keys",
+    multiple=True,
+    help="Research only these buildings (repeatable); a name or a key.",
+)
+@click.option(
+    "--refresh",
+    is_flag=True,
+    default=False,
+    help="Include buildings already in the store (they are skipped by default).",
+)
+def buildings_batch_cmd(limit: int, keys: tuple[str, ...], refresh: bool) -> None:
+    """Assemble the JSON batch of buildings awaiting a pets-policy lookup."""
+    if limit <= 0:
+        raise click.ClickException("--limit must be a positive number")
+
+    store = _load_buildings()
+    conn = _open_db()
+    try:
+        # The queue drops the buildings whose every ad the user rejected, and
+        # decisions.json is the source of truth for that verdict.
+        _sync_decisions(conn)
+        batch = buildings_batch.build_buildings_batch(
+            conn,
+            store,
+            limit=limit,
+            keys=list(keys) or None,
+            refresh=refresh,
+        )
+    finally:
+        conn.close()
+
+    if not batch["buildings"]:
+        click.echo(
+            "No such building in the queue."
+            if keys
+            else "Nothing to research — every building in the active set is "
+            "already in the store."
+        )
+        return
+
+    written = buildings_batch.write_buildings_batch(batch)
+    click.echo(
+        f"Buildings batch written: {written} "
+        f"({len(batch['buildings'])} building(s))"
+    )
+
+
+@main.command("buildings-apply")
+@click.argument(
+    "path", type=click.Path(exists=True, dir_okay=False, path_type=Path)
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Validate and report without writing anything.",
+)
+def buildings_apply_cmd(path: Path, dry_run: bool) -> None:
+    """Store a research result file as proposals awaiting confirmation.
+
+    Nothing this command writes can reject a listing: every entry lands as
+    `proposed`, and only `fb-rent buildings set` makes a policy act.
+    """
+    try:
+        result = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"{path} is not valid JSON: {exc}") from exc
+
+    conn = _open_db()
+    try:
+        try:
+            report = buildings_batch.apply_buildings_results(
+                conn, None, result, dry_run=dry_run
+            )
+        except buildings_batch.BatchError as exc:
+            raise click.ClickException(str(exc)) from exc
+        except buildings.BuildingError as exc:
+            raise click.ClickException(str(exc)) from exc
+    finally:
+        conn.close()
+
+    prefix = "Dry-run: would propose" if dry_run else "Proposed"
+    click.echo(f"{prefix} {report.applied} building(s)")
+    for proposal in report.proposed:
+        key = proposal["key"]
+        confidence = proposal.get("confidence") or "?"
+        click.echo(
+            f"  - {proposal.get('name') or key} [{key}]: "
+            f"{proposal['policy']} ({confidence}), "
+            f"{report.affected.get(key, 0)} listing(s)"
+        )
+
+    if report.skipped:
+        click.echo(f"Skipped {len(report.skipped)}: {', '.join(report.skipped)}")
+
+    for warning in report.warnings:
+        _echo_err(f"warning: {warning}")
+
+    if report.proposed and not dry_run:
+        click.echo(
+            "These are proposals and change nothing yet — confirm one with "
+            "`fb-rent buildings set <key> --policy <policy>`."
+        )
+
+
+@main.group("buildings")
+def buildings_group() -> None:
+    """Review and confirm the pets policy researched per building."""
+
+
+@buildings_group.command("list")
+@click.option(
+    "--status",
+    type=click.Choice(sorted(buildings.STATUSES)),
+    default=None,
+    help="Show only proposals, or only what the user confirmed.",
+)
+@click.option(
+    "--policy",
+    type=click.Choice(sorted(buildings.POLICIES)),
+    default=None,
+    help="Show only buildings with this pets policy.",
+)
+def buildings_list_cmd(status: str | None, policy: str | None) -> None:
+    """Print every researched building with its evidence and affected rows."""
+    store = _load_buildings()
+    conn = _open_db()
+    try:
+        _sync_decisions(conn)
+        affected = _affected_listings(conn, store)
+    finally:
+        conn.close()
+
+    selected = [
+        (key, entry)
+        for key, entry in sorted(store.items())
+        if (status is None or entry.get("status") == status)
+        and (policy is None or entry.get("policy") == policy)
+    ]
+    if not selected:
+        click.echo(f"No buildings in {config.BUILDINGS_PATH} match.")
+        return
+
+    for key, entry in selected:
+        click.echo(
+            f"{entry.get('name') or key} [{key}]: {entry.get('policy')} "
+            f"/ {entry.get('status')} "
+            f"({entry.get('confidence') or '?'}), "
+            f"{affected.get(key, 0)} listing(s)"
+        )
+        if entry.get("area"):
+            click.echo(f"    Район: {entry['area']}")
+        if entry.get("aliases"):
+            click.echo(f"    Псевдонимы: {', '.join(entry['aliases'])}")
+        if entry.get("note"):
+            click.echo(f"    {entry['note']}")
+        for source in entry.get("sources") or []:
+            if not isinstance(source, dict):
+                continue
+            click.echo(f"    - {source.get('title') or ''} {source.get('url') or ''}")
+            if source.get("quote"):
+                click.echo(f"      «{source['quote']}»")
+    click.echo(f"{len(selected)} building(s) in {config.BUILDINGS_PATH}")
+
+
+@buildings_group.command("set")
+@click.argument("key")
+@click.option(
+    "--policy",
+    required=True,
+    type=click.Choice(sorted(buildings.POLICIES)),
+    help="The pets rule the user confirms for this building.",
+)
+@click.option("--note", default=None, help="A note to keep with the confirmation.")
+@click.option(
+    "--alias",
+    "aliases",
+    multiple=True,
+    help="Another spelling naming this same building (repeatable).",
+)
+def buildings_set_cmd(
+    key: str, policy: str, note: str | None, aliases: tuple[str, ...]
+) -> None:
+    """Confirm a building's pets policy; only a confirmed one can reject.
+
+    KEY is the stored key, the building's name or any of its aliases.
+    """
+    store = _load_buildings()
+    stored_key, entry = _find_building(store, key)
+    if entry is None:
+        raise click.ClickException(
+            f"unknown building {key!r} — `fb-rent buildings list` shows what "
+            "research proposed"
+        )
+
+    try:
+        saved = buildings.save_building(
+            None,
+            str(entry.get("name") or stored_key),
+            key=stored_key,
+            policy=policy,
+            status="confirmed",
+            aliases=list(aliases) or None,
+            note=note,
+        )
+    except buildings.BuildingError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    store[stored_key] = saved
+    conn = _open_db()
+    try:
+        _sync_decisions(conn)
+        _sync_buildings(conn, store)
+        affected = _affected_listings(conn, store).get(stored_key, 0)
+    finally:
+        conn.close()
+
+    click.echo(f"{saved['name']} [{stored_key}]: {policy} (confirmed)")
+    if policy == "not_allowed":
+        click.echo(f"  Отклонит объявлений: {affected}")
+    click.echo(
+        f"Saved to {config.BUILDINGS_PATH}. Run `fb-rent export` to refresh "
+        "the table."
+    )
 
 @main.group("ai-field")
 def ai_field_group() -> None:

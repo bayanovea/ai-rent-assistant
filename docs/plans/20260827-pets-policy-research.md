@@ -345,21 +345,21 @@ the last one so the researcher can see a contradiction coming.
 - Modify: `src/fb_rent/cli.py`
 - Modify: `tests/test_cli.py`
 
-- [ ] `fb-rent buildings-batch [--limit N] [--key K]... [--refresh]` — writes the
+- [x] `fb-rent buildings-batch [--limit N] [--key K]... [--refresh]` — writes the
       batch file, prints its path and the queue size
-- [ ] `fb-rent buildings-apply <file> [--dry-run]` — prints counters, each
+- [x] `fb-rent buildings-apply <file> [--dry-run]` — prints counters, each
       proposal with its policy, confidence and affected listing count
-- [ ] `fb-rent buildings list [--status proposed|confirmed] [--policy P]` —
+- [x] `fb-rent buildings list [--status proposed|confirmed] [--policy P]` —
       the review view: name, policy, status, sources, affected rows
-- [ ] `fb-rent buildings set <key> --policy P [--note TEXT] [--alias A]...` —
+- [x] `fb-rent buildings set <key> --policy P [--note TEXT] [--alias A]...` —
       records the user's confirmation (`status: "confirmed"`), syncs the mirror
       and re-exports nothing (the caller runs `export`)
-- [ ] a `buildings` block in `ai-status`: how many buildings are unresearched,
+- [x] a `buildings` block in `ai-status`: how many buildings are unresearched,
       proposed and confirmed
-- [ ] write tests for each command via Click's `CliRunner` (success path)
-- [ ] write tests for error paths: unknown key on `set`, invalid policy value,
+- [x] write tests for each command via Click's `CliRunner` (success path)
+- [x] write tests for error paths: unknown key on `set`, invalid policy value,
       missing batch file on `apply`
-- [ ] run tests — must pass before task 7
+- [x] run tests — must pass before task 7
 
 ### Task 7: Show the policy in the table
 
