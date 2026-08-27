@@ -387,6 +387,16 @@ _ENUM_WEIGHTS: dict[str, dict[str, int]] = {
     "parking": {"yes": 4, "no": -3},
     "security": {"yes": 3, "no": -1},
     "condition": {"new": 2, "good": 1, "worn": -3},
+    # Both are photo-only and both are about how the place feels rather than
+    # what it has, so the plus side is deliberately thin: they correlate — a
+    # bright flat photographs as an attractive one — and a full-strength bonus
+    # on each would pay the same photogenic listing twice. The minus side is
+    # not hedged, because a dark flat and a tired one are what this pass is
+    # for. `bright` is worth less than `dark` costs for a second reason: a
+    # wide-angle daylight shot makes anything look bright, while small windows
+    # and a view into a wall cannot be staged away.
+    "light": {"bright": 3, "dark": -4},
+    "appeal": {"attractive": 2, "unattractive": -5},
     # Photos that show something other than the flat on offer are a defect,
     # not an absence: you cannot judge the place at all. `real` scores zero
     # on purpose — most rows have had no photo pass yet, and paying a bonus

@@ -241,6 +241,19 @@ def test_genuine_photos_are_the_norm_not_a_bonus():
     assert score(wrap(photo_quality="unclear")) == baseline
 
 
+def test_light_and_appeal_cost_more_than_they_pay():
+    # Photo-only impressions: the defect is the signal, the compliment is
+    # thin because the two correlate and a wide-angle daylight shot makes
+    # anything look bright.
+    baseline = score({})
+    assert score(wrap(light="bright")) == baseline + 3
+    assert score(wrap(light="dark")) == baseline - 4
+    assert score(wrap(appeal="attractive")) == baseline + 2
+    assert score(wrap(appeal="unattractive")) == baseline - 5
+    assert score(wrap(light="normal", appeal="ok")) == baseline
+    assert score(wrap(light="unclear", appeal="unclear")) == baseline
+
+
 # --- districts ----------------------------------------------------------
 
 
