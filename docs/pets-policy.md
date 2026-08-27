@@ -177,6 +177,48 @@ building.
 
 Append after a real run. Do not rewrite what is here.
 
+### 28 August 2026 — fifth run: where the sitemap trick stops
+
+Pushed the remaining 70 as far as the feed allows. 14 more buildings were
+matched by hand off the second and third candidates the scorer had ranked
+below the cut, 13 of them yielded a rule (8 bans, 5 allowed).
+
+**The strict number rule has a blind spot: roman numerals in the source.**
+«NOON Village Tower 2» was refused against «Noon Village Tower I» — correctly —
+but the right card was «NOON Village Tower II», ranked just below it. The rule
+still earns its place; it just means the top candidate being refused is not the
+end of the search. The same held for «Pruksa Ville Kathu-Samkong», whose real
+card carries an internal number the ad does not («Pruksa Ville 822
+Kathu-Samkong»).
+
+Matches made by meaning rather than by the letter — «The Scene Kathu» ←
+«The Scene», «Kathu Country Club» ← «Phuket Country Club», «Happy Place
+Village» ← «The Happy Place» — are stored with `confidence: low` and a note
+naming the card they came from, so the weaker half is visible as weaker.
+
+**Two doors that turned out to be closed.** The mirror has no public search
+endpoint (`/api/` and `/graphql` are disallowed in `robots.txt` and were not
+touched). Hipflat — the one independent source known to carry a real per-project
+pets field — sits behind a Cloudflare challenge; a subagent got through it once
+by driving Playwright, but doing that at scale is evading anti-bot protection,
+not fetching a public page, and it was not done.
+
+A final area-restricted rematch (candidates limited to the ad's own
+subdistrict) surfaced 13 more pairs and **not one was genuine** — all were the
+phase-number and different-project cases already refused. That is the useful
+negative result: **the 56 that remain are not in the feed's 1807 Phuket
+projects under any recognisable name**, and no amount of better matching will
+find them.
+
+Final state of the pass: **143 buildings confirmed** — 62 `not_allowed`,
+44 `allowed`, 32 `unknown`, 5 `negotiable`. 382 rows carry «Кондо запрещает
+животных»; the active set is 530 of 1401. The conflicts pile is empty.
+
+The 56 left are one listing each and mostly informal names («NBC», «Solin
+Stay», «Moji Minimal House», «The Firsts Samkong»). They are queued, not
+written off: a session with web-search budget is the only remaining route, and
+`unknown` is the likely answer for most.
+
 ### 28 August 2026 — fourth run: the feed has a sitemap
 
 Continued the tail with the search budget still at 200/200. It turned out not
