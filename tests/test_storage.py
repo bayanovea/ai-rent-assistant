@@ -260,6 +260,16 @@ def test_export_html_hides_the_help_behind_two_buttons(conn, tmp_path: Path):
     assert "<h1" not in text
 
 
+def test_export_html_opens_the_cursor_row_in_a_tab(conn, tmp_path: Path):
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out)
+    text = out.read_text(encoding="utf-8")
+    # Строка открывается в соседней вкладке и курсор при этом не уезжает —
+    # иначе вернувшись из объявления вы решаете уже про соседа.
+    assert 'if (key === "o") {' in text
+    assert 'window.open(row.url, "_blank", "noopener")' in text
+
+
 def test_export_html_queues_dedupe_by_a_key(conn, tmp_path: Path):
     out = tmp_path / "rentals.html"
     storage.export_html(conn, out)

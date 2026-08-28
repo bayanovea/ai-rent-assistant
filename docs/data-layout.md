@@ -147,6 +147,11 @@ tab shrinks under the cursor as you go. The mark shows up in
 button opens the queue as a ready block of `fb-rent rate` / `reject` commands
 to paste into a terminal.
 
+`o` opens the row under the cursor on Facebook in a neighbouring tab — the
+same link the ID cell carries, so a row with several postings opens the one
+that stayed canonical. It is the one row key that does not move the cursor:
+you come back from the ad to decide about that row, not about its neighbour.
+
 `d` is the one key that is not about the row under the cursor: it queues
 `fb-rent dedupe` — search the whole DB for repeats of what is already there and
 collapse them into one row. It goes into the same block, after the marks and

@@ -2002,6 +2002,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
         <div class="kk">
           <span class="keys"><kbd>↓</kbd><kbd>↑</kbd><span class="or">или</span><kbd>j</kbd><kbd>k</kbd></span>
           <span class="d">перейти к следующей / предыдущей строке</span>
+          <span class="keys"><kbd>o</kbd></span>
+          <span class="d">открыть объявление в соседней вкладке; курсор остаётся на строке</span>
         </div>
         <div class="pop-h">Решение по строке под курсором</div>
         <div class="kk">
@@ -2806,6 +2808,16 @@ document.addEventListener("keydown", ev => {
   if (key === "ArrowUp" || key === "k") { ev.preventDefault(); moveCursor(-1); return; }
   if (key === "d") { ev.preventDefault(); toggleDedupe(); return; }
   if (!cursorId) return;
+
+  if (key === "o") {
+    // Та же ссылка, что на ID: у строки может быть несколько публикаций
+    // одной квартиры, открывается та, что осталась канонической.
+    ev.preventDefault();
+    const row = shownRows.find(r => r.fb_id === cursorId);
+    if (row && row.url) window.open(row.url, "_blank", "noopener");
+    // Курсор не двигается: объявление открыли, чтобы вернуться и решить.
+    return;
+  }
 
   if (key >= "1" && key <= "5") setDecision(cursorId, { kind: "rate", v: Number(key) });
   else if (key === "r") setDecision(cursorId, { kind: "rejected" });
