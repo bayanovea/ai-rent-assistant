@@ -264,13 +264,19 @@ def test_export_html_ships_the_preset_row(conn, tmp_path: Path):
     out = tmp_path / "rentals.html"
     storage.export_html(conn, out)
     text = out.read_text(encoding="utf-8")
-    # Пресеты рисуются из PRESETS в контейнер — по кнопке на запись, и
-    # включён всегда не больше одного.
-    assert 'id="presets"' in text
-    assert 'key: "candidates"' in text
-    assert 'key: "kathu2"' in text
+    # Пресеты рисуются из PRESETS в выпадающий список — включён всегда не
+    # больше одного, и пустой пункт снимает набор.
+    assert '<select id="presets"' in text
+    assert '<option value=\"\">Пресет…</option>' in text
+    assert [line for line in text.splitlines() if line.startswith('    key: "')] == [
+        '    key: "fresh",',
+        '    key: "candidates",',
+        '    key: "kathu2",',
+        '    key: "bangtao2",',
+    ]
     assert 'bedrooms: { kind: "range", min: 2, max: 2 }' in text
     assert 'area: areaFilter("Kathu")' in text
+    assert 'area: areaFilter("Tao")' in text
 
 
 def test_export_html_opens_the_cursor_row_in_a_tab(conn, tmp_path: Path):

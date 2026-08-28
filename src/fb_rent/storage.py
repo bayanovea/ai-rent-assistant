@@ -1851,10 +1851,12 @@ _HTML_TEMPLATE = r"""<!doctype html>
   #flt { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #33405c; white-space: nowrap; }
   #flt:hover { background: #eef2fa; }
   #flt.on { background: #33405c; border-color: #33405c; color: #fff; }
-  #presets { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
-  .preset { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #33405c; white-space: nowrap; }
-  .preset:hover { background: #eef2fa; }
-  .preset.on { background: #137333; border-color: #137333; color: #fff; }
+  #presets { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 8px; font-size: 12px; cursor: pointer; color: #33405c; }
+  #presets:hover { background: #eef2fa; }
+  #presets.on { background: #137333; border-color: #137333; color: #fff; }
+  /* Тёмный фон выбранного пресета не должен утекать в раскрытый список:
+     белым по белому там читать нечего. */
+  #presets option { background: #fff; color: #33405c; }
   #dec { border: 1px solid #e0c48a; background: #fffdf5; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #7a5c14; white-space: nowrap; }
   #dec:hover { background: #fdf6e3; }
   #dec.on { background: #8a6d00; border-color: #8a6d00; color: #fff; }
@@ -1992,7 +1994,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
   <div class="bar">
     <span class="search"><span class="ico">🔍</span><input id="q" type="search" placeholder="поиск по всем колонкам…"></span>
     <button id="flt"></button>
-    <span id="presets"></span>
+    <select id="presets" title="Готовый набор фильтров"></select>
     <span class="sep"></span>
     <button id="dec"></button>
     <span class="spacer"></span>
@@ -2291,9 +2293,10 @@ function rowHTML(row) {
 
    Пресетов больше одного, и включён всегда не больше одного: они пересекаются
    по колонкам, и «включить оба» означало бы пересечение, где условие одного
-   молча срезает другой. Второе нажатие по включённому пресету снимает его, а
-   правка любого фильтра руками просто гасит подсветку — набор при этом
-   остаётся и досбирается как угодно.
+   молча срезает другой. Поэтому выбор, а не кнопки. Пустой пункт снимает
+   набор целиком, а правка любого фильтра руками возвращает список в него же:
+   на экране уже не пресет, но собранные им условия остаются и досбираются
+   как угодно.
 
    `спросить` из «Кандидатов» не выкидывается намеренно — это строки, где про
    животных в объявлении просто не написано, а по требованиям молчание это
@@ -2303,6 +2306,11 @@ function rowHTML(row) {
    так что строки, где район или число спален не названы вовсе, в набор не
    попадают — хотя правила их за это не наказывают. */
 const PRESETS = [
+  {
+    key: "fresh",
+    label: "Только новые",
+    filters: () => ({ published_at: freshSince(3) }),
+  },
   {
     key: "candidates",
     label: "Кандидаты",
@@ -2318,6 +2326,16 @@ const PRESETS = [
     filters: () => ({
       bedrooms: { kind: "range", min: 2, max: 2 },
       area: areaFilter("Kathu"),
+    }),
+  },
+  {
+    // «Bang Tao» и «Bangtao» пишут оба, поэтому подстрока короче названия:
+    // «Tao» ловит и то и другое и на живой базе не задевает ничего чужого.
+    key: "bangtao2",
+    label: "2 спальни, Bang Tao",
+    filters: () => ({
+      bedrooms: { kind: "range", min: 2, max: 2 },
+      area: areaFilter("Tao"),
     }),
   },
 ];
@@ -2342,26 +2360,51 @@ function areaFilter(name) {
   return { kind: "text", q: needle, raw: name };
 }
 
-function togglePreset(key) {
+/* «Новые» отсчитываются от самой свежей даты в базе, а не от сегодняшней:
+   между прогонами проходит несколько дней, и окно «сегодня минус три» после
+   паузы молча пустеет — пресет показывал бы ноль строк на полной базе. Даты
+   приходят строками YYYY-MM-DD и панель сравнивает их как строки, так что и
+   считать можно строками. */
+function freshSince(days) {
+  let newest = "";
+  for (const row of DATA) {
+    const t = cellOf(row, "published_at").t;
+    if (t && String(t) > newest) newest = String(t);
+  }
+  if (!newest) return { kind: "date", min: null, max: null };
+  const from = new Date(newest + "T00:00:00Z");
+  from.setUTCDate(from.getUTCDate() - (days - 1));
+  return { kind: "date", min: from.toISOString().slice(0, 10), max: null };
+}
+
+/* Выбор из списка, а не набор кнопок: пресетов уже четыре, а включён всегда
+   не больше одного — список говорит это сам, ряду кнопок пришлось бы
+   объяснять. Пустой пункт — «без пресета», он же способ снять набор. */
+function applyPreset(key) {
   const preset = PRESETS.find(p => p.key === key);
-  if (!preset) return;
-  const turningOn = activePreset !== key;
   Object.keys(FILTERS).forEach(k => delete FILTERS[k]);
-  if (turningOn) {
+  if (preset) {
     Object.assign(FILTERS, preset.filters());
     document.getElementById("filters").classList.add("on");
   }
-  activePreset = turningOn ? key : null;
+  activePreset = preset ? key : null;
   renderFilters();
   render();
 }
 
-function renderPresets() {
-  document.getElementById("presets").innerHTML = PRESETS.map(p =>
-    '<button class="preset' + (activePreset === p.key ? " on" : "")
-    + '" data-preset="' + esc(p.key) + '">'
-    + (activePreset === p.key ? "✓ " : "") + esc(p.label) + "</button>"
-  ).join("");
+function buildPresetOptions() {
+  document.getElementById("presets").innerHTML =
+    '<option value="">Пресет…</option>'
+    + PRESETS.map(p => '<option value="' + esc(p.key) + '">' + esc(p.label)
+      + "</option>").join("");
+}
+
+// Список пересобирается один раз: render() зовут на каждый ввод в поиске, а
+// перерисованный <select> закрывает раскрытый список под рукой.
+function syncPreset() {
+  const sel = document.getElementById("presets");
+  sel.value = activePreset || "";
+  sel.classList.toggle("on", !!activePreset);
 }
 
 function loadPending() {
@@ -2678,7 +2721,7 @@ function render() {
   document.getElementById("flt-note").textContent =
     "показано " + rows.length + " из " + inTabCount + " во вкладке";
 
-  renderPresets();
+  syncPreset();
 
   const queued = Object.keys(PENDING).length + (dedupeQueued ? 1 : 0);
   const dec = document.getElementById("dec");
@@ -2782,9 +2825,8 @@ document.getElementById("flt-reset").addEventListener("click", () => {
   render();
 });
 
-document.getElementById("presets").addEventListener("click", ev => {
-  const btn = ev.target.closest(".preset");
-  if (btn) togglePreset(btn.dataset.preset);
+document.getElementById("presets").addEventListener("change", ev => {
+  applyPreset(ev.target.value);
 });
 
 document.getElementById("dec").addEventListener("click", () => {
@@ -2880,6 +2922,7 @@ document.addEventListener("keydown", ev => {
 });
 
 loadPending();
+buildPresetOptions();
 renderFilters();
 render();
 </script>
