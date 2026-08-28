@@ -260,6 +260,18 @@ def test_export_html_hides_the_help_behind_two_buttons(conn, tmp_path: Path):
     assert "<h1" not in text
 
 
+def test_export_html_queues_dedupe_by_a_key(conn, tmp_path: Path):
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out)
+    text = out.read_text(encoding="utf-8")
+    # Единственная команда блока, которая не про строку: клавиша работает без
+    # курсора, а флаг живёт со штампом сборки — иначе очередь не сбросится.
+    assert 'if (key === "d") { ev.preventDefault(); toggleDedupe(); return; }' in text
+    assert 'lines.push("fb-rent dedupe")' in text
+    assert 'const GENERATED_AT = "__GENERATED_AT__"' not in text
+    assert "const GENERATED_AT = " in text
+
+
 def _inline_payload(text: str, name: str):
     """Extract and decode one ``const <name> = ...;`` payload from the export."""
     marker = "const " + name + " = "

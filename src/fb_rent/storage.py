@@ -2012,6 +2012,10 @@ _HTML_TEMPLATE = r"""<!doctype html>
           <span class="keys"><kbd>a</kbd></span><span class="d">вернуть в «Разобрать»</span>
           <span class="keys"><kbd>0</kbd></span><span class="d">снять решение</span>
         </div>
+        <div class="pop-h">По всей базе</div>
+        <div class="kk">
+          <span class="keys"><kbd>d</kbd></span><span class="d">поставить в очередь dedupe — поиск повторов и слияние с уже существующими; повторное нажатие убирает</span>
+        </div>
         <div class="pop-h">Мышью</div>
         <div class="kk">
           <span class="keys">клик по заголовку</span><span class="d">сортировка; <kbd>Shift</kbd>+клик добавляет второй ключ</span>
@@ -2072,6 +2076,9 @@ _HTML_TEMPLATE = r"""<!doctype html>
 <script>
 const COLUMNS = __COLUMNS_JSON__;
 const DATA = __DATA_JSON__;
+// Штамп сборки файла. Нужен очереди: отложенный `dedupe` снимается сам,
+// когда файл пересобрался — значит блок команд уже прогнали.
+const GENERATED_AT = "__GENERATED_AT__";
 
 // Active — что ещё не разобрано, остальные три — что уже посмотрели.
 const TAB_LABELS = {
@@ -2102,6 +2109,13 @@ const openCells = new Set();
    открывается с диска, без сервера и без сети. */
 const PENDING_KEY = "fb-rent:pending";
 let PENDING = {};
+/* `dedupe` — единственная команда блока, которая не про строку: он ищет
+   повторы по всей базе и сливает их с уже существующими. Поэтому не в
+   PENDING, а отдельным флагом, и хранится вместе со штампом сборки: файл
+   пересобрался — блок команд прогнали, флаг снят. Ровно так же решение
+   уходит из очереди, когда доедет до decisions.json. */
+const DEDUPE_KEY = "fb-rent:dedupe";
+let dedupeQueued = false;
 // Строка под курсором и то, что сейчас на экране: клавиши ходят по видимому
 // списку, а он зависит от вкладки, поиска и фильтров.
 let cursorId = null;
@@ -2312,6 +2326,8 @@ function loadPending() {
     if (!row || alreadyRecorded(row, PENDING[id])) delete PENDING[id];
   });
   savePending();
+  try { dedupeQueued = localStorage.getItem(DEDUPE_KEY) === GENERATED_AT; }
+  catch (e) { dedupeQueued = false; }
 }
 
 function alreadyRecorded(row, p) {
@@ -2323,6 +2339,19 @@ function alreadyRecorded(row, p) {
 function savePending() {
   try { localStorage.setItem(PENDING_KEY, JSON.stringify(PENDING)); }
   catch (e) { /* приватное окно — очередь живёт до перезагрузки */ }
+}
+
+function saveDedupe() {
+  try {
+    if (dedupeQueued) localStorage.setItem(DEDUPE_KEY, GENERATED_AT);
+    else localStorage.removeItem(DEDUPE_KEY);
+  } catch (e) { /* приватное окно — флаг живёт до перезагрузки */ }
+}
+
+function toggleDedupe() {
+  dedupeQueued = !dedupeQueued;
+  saveDedupe();
+  render();
 }
 
 function setDecision(id, p) {
@@ -2338,14 +2367,19 @@ function pendingLabel(p) {
 
 function commandText() {
   const ids = Object.keys(PENDING);
-  if (!ids.length) {
-    return "Очередь пуста. Встаньте на строку (↓ ↑ или клик) и нажмите 1–5, r или a.";
+  if (!ids.length && !dedupeQueued) {
+    return "Очередь пуста. Встаньте на строку (↓ ↑ или клик) и нажмите 1–5, r или a; d ставит в очередь поиск дублей.";
   }
-  return ids.map(id => {
+  const lines = ids.map(id => {
     const p = PENDING[id];
     if (p.kind === "rate") return "fb-rent rate " + id + " " + p.v;
     return (p.kind === "rejected" ? "fb-rent reject " : "fb-rent unreject ") + id;
-  }).join("\n") + "\nfb-rent export";
+  });
+  // dedupe идёт после решений, а не перед ними: он оставляет ту копию, что
+  // несёт больше работы, и ваша оценка — первое, на что он смотрит.
+  if (dedupeQueued) lines.push("fb-rent dedupe");
+  lines.push("fb-rent export");
+  return lines.join("\n");
 }
 
 function moveCursor(step) {
@@ -2598,7 +2632,7 @@ function render() {
   preset.textContent = presetOn ? "✓ Кандидаты" : "Кандидаты";
   preset.classList.toggle("on", presetOn);
 
-  const queued = Object.keys(PENDING).length;
+  const queued = Object.keys(PENDING).length + (dedupeQueued ? 1 : 0);
   const dec = document.getElementById("dec");
   dec.textContent = queued ? "Решения (" + queued + ")" : "Решения";
   dec.classList.toggle("on", queued > 0);
@@ -2728,6 +2762,8 @@ document.getElementById("dec-copy").addEventListener("click", () => {
 document.getElementById("dec-clear").addEventListener("click", () => {
   PENDING = {};
   savePending();
+  dedupeQueued = false;
+  saveDedupe();
   render();
 });
 
@@ -2768,6 +2804,7 @@ document.addEventListener("keydown", ev => {
   if (key === "Escape") { closeHelp(); return; }
   if (key === "ArrowDown" || key === "j") { ev.preventDefault(); moveCursor(1); return; }
   if (key === "ArrowUp" || key === "k") { ev.preventDefault(); moveCursor(-1); return; }
+  if (key === "d") { ev.preventDefault(); toggleDedupe(); return; }
   if (!cursorId) return;
 
   if (key >= "1" && key <= "5") setDecision(cursorId, { kind: "rate", v: Number(key) });
