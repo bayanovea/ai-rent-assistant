@@ -147,6 +147,15 @@ tab shrinks under the cursor as you go. The mark shows up in
 button opens the queue as a ready block of `fb-rent rate` / `reject` commands
 to paste into a terminal.
 
+`d` is the one key that is not about the row under the cursor: it queues
+`fb-rent dedupe` — search the whole DB for repeats of what is already there and
+collapse them into one row. It goes into the same block, after the marks and
+before `fb-rent export`, because dedupe keeps the copy carrying the most work
+and your decision is the first thing it looks at. Pressing `d` again takes it
+back out. The flag is stored next to the export's own timestamp, so a rebuilt
+file drops it — the same self-cleaning the marks get, since a whole-DB command
+leaves no per-row trace to check against.
+
 The queue lives in `localStorage`, not in the file, because `export` rewrites
 `rentals.html` after every stage and the decisions have to survive that. It
 cleans itself: on load, an entry whose decision the row already carries — the
