@@ -74,7 +74,7 @@ button counts how many are set and the panel says how many rows survived.
 A filter set on a folded-away column keeps its control on screen, so nothing
 can trim the table invisibly.
 
-**"Кандидаты"** sets four of them at once — the hard part of the letter in
+**"Кандидаты"** sets three of them at once — the hard part of the letter in
 `config/requirements.md`, which nobody assembles by hand four controls at a
 time: recommendation ∈ {смотреть, спросить}, district rating ≥ 4, price
 ≤ 30 000. On the current corpus that is 1122 active rows down to 310. It is a
@@ -84,6 +84,17 @@ dog — takes it to 201. Editing any of them turns the button off, because the
 set on screen is then no longer the preset. One caveat worth knowing: a from/to
 filter excludes empty cells, so rows whose district nobody named fall out of
 the set even though the rules deliberately do not penalise them.
+
+Presets are a row of buttons, one `PRESETS` entry each, and at most one is on
+at a time: they overlap on the same columns, so turning on a second would
+silently intersect the two. **"2 спальни, Kathu"** is the second one —
+bedrooms 2 to 2 and district Kathu, 11 rows of the 519 still on Разобрать.
+The district is free text (`Kathu`, `Kathu, Samkong`, `Patong, Kathu`) and the
+panel gives it a substring box rather than chips once the corpus holds more
+than 60 distinct districts — 78 today — so the preset asks the panel which
+control it draws instead of naming values, and lands in whichever the panel
+shows. Otherwise the preset would set a filter the panel has no control for,
+and there would be nothing on screen to take it back off with.
 
 Columns run in reading order — ID, Score, Pets, price, district, type,
 bedrooms, size, publication date, your own mark, and only then the prose. The

@@ -260,6 +260,19 @@ def test_export_html_hides_the_help_behind_two_buttons(conn, tmp_path: Path):
     assert "<h1" not in text
 
 
+def test_export_html_ships_the_preset_row(conn, tmp_path: Path):
+    out = tmp_path / "rentals.html"
+    storage.export_html(conn, out)
+    text = out.read_text(encoding="utf-8")
+    # Пресеты рисуются из PRESETS в контейнер — по кнопке на запись, и
+    # включён всегда не больше одного.
+    assert 'id="presets"' in text
+    assert 'key: "candidates"' in text
+    assert 'key: "kathu2"' in text
+    assert 'bedrooms: { kind: "range", min: 2, max: 2 }' in text
+    assert 'area: areaFilter("Kathu")' in text
+
+
 def test_export_html_opens_the_cursor_row_in_a_tab(conn, tmp_path: Path):
     out = tmp_path / "rentals.html"
     storage.export_html(conn, out)

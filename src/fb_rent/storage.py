@@ -1851,9 +1851,10 @@ _HTML_TEMPLATE = r"""<!doctype html>
   #flt { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #33405c; white-space: nowrap; }
   #flt:hover { background: #eef2fa; }
   #flt.on { background: #33405c; border-color: #33405c; color: #fff; }
-  #preset { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #33405c; white-space: nowrap; }
-  #preset:hover { background: #eef2fa; }
-  #preset.on { background: #137333; border-color: #137333; color: #fff; }
+  #presets { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+  .preset { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #33405c; white-space: nowrap; }
+  .preset:hover { background: #eef2fa; }
+  .preset.on { background: #137333; border-color: #137333; color: #fff; }
   #dec { border: 1px solid #e0c48a; background: #fffdf5; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #7a5c14; white-space: nowrap; }
   #dec:hover { background: #fdf6e3; }
   #dec.on { background: #8a6d00; border-color: #8a6d00; color: #fff; }
@@ -1991,7 +1992,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
   <div class="bar">
     <span class="search"><span class="ico">🔍</span><input id="q" type="search" placeholder="поиск по всем колонкам…"></span>
     <button id="flt"></button>
-    <button id="preset"></button>
+    <span id="presets"></span>
     <span class="sep"></span>
     <button id="dec"></button>
     <span class="spacer"></span>
@@ -2281,39 +2282,86 @@ function rowHTML(row) {
     + visibleColumns().map(c => tdHTML(row, c)).join("") + '</tr>';
 }
 
-/* ---- пресет «Кандидаты» --------------------------------------------------
+/* ---- пресеты -------------------------------------------------------------
    requirements.md называет жёсткие условия словами, а в панели они ставятся
    по одному руками — и поэтому не ставятся: из 1123 активных строк набор,
    отвечающий письму агенту, приходится собирать четырьмя движениями. Кнопка
    ставит их разом и оставляет видимыми: это пресет, а не отдельный режим, так
    что любое условие снимается по одному, не унося остальные.
 
-   `спросить` из набора не выкидывается намеренно — это строки, где про
+   Пресетов больше одного, и включён всегда не больше одного: они пересекаются
+   по колонкам, и «включить оба» означало бы пересечение, где условие одного
+   молча срезает другой. Второе нажатие по включённому пресету снимает его, а
+   правка любого фильтра руками просто гасит подсветку — набор при этом
+   остаётся и досбирается как угодно.
+
+   `спросить` из «Кандидатов» не выкидывается намеренно — это строки, где про
    животных в объявлении просто не написано, а по требованиям молчание это
    вопрос агенту, а не отказ. Снять этот чип — одно нажатие.
 
    Одна оговорка, которую стоит знать: фильтр «от» отбрасывает пустые ячейки,
-   так что строки, где район не назван вовсе, в набор не попадают — хотя
-   правила их за это не наказывают. */
-function presetFilters() {
-  return {
-    verdict: { kind: "enum", values: new Set(["смотреть", "спросить"]) },
-    area_rating: { kind: "range", min: 4, max: null },
-    price: { kind: "range", min: null, max: 30000 },
-  };
-}
-let presetOn = false;
+   так что строки, где район или число спален не названы вовсе, в набор не
+   попадают — хотя правила их за это не наказывают. */
+const PRESETS = [
+  {
+    key: "candidates",
+    label: "Кандидаты",
+    filters: () => ({
+      verdict: { kind: "enum", values: new Set(["смотреть", "спросить"]) },
+      area_rating: { kind: "range", min: 4, max: null },
+      price: { kind: "range", min: null, max: 30000 },
+    }),
+  },
+  {
+    key: "kathu2",
+    label: "2 спальни, Kathu",
+    filters: () => ({
+      bedrooms: { kind: "range", min: 2, max: 2 },
+      area: areaFilter("Kathu"),
+    }),
+  },
+];
+let activePreset = null;
 
-function togglePreset() {
-  const turningOn = !presetOn;
+/* Район — свободный текст: «Kathu», «Kathu, Samkong», «Patong, Kathu». Панель
+   даёт по нему то чипы, то поиск подстроки — что именно, решают сами данные
+   (78 разных районов на живой базе — это уже подстрока). Пресет поэтому не
+   перечисляет значения, а спрашивает у панели её же вид фильтра: иначе набор
+   чипов встал бы в колонку, которая рисует поле ввода, и снять его в панели
+   было бы нечем. */
+function areaFilter(name) {
+  const needle = name.toLowerCase();
+  const col = COLUMNS.find(c => c.key === "area");
+  const spec = col ? filterSpec(col) : null;
+  if (spec && spec.kind === "enum") {
+    const hit = spec.values.filter(v => v.toLowerCase().indexOf(needle) !== -1);
+    if (hit.length) return { kind: "enum", values: new Set(hit) };
+  }
+  // `raw` — то, что увидит поле в панели: там должно стоять «Kathu», как
+  // написали бы руками, а не приведённая к нижнему регистру пара букв.
+  return { kind: "text", q: needle, raw: name };
+}
+
+function togglePreset(key) {
+  const preset = PRESETS.find(p => p.key === key);
+  if (!preset) return;
+  const turningOn = activePreset !== key;
   Object.keys(FILTERS).forEach(k => delete FILTERS[k]);
   if (turningOn) {
-    Object.assign(FILTERS, presetFilters());
+    Object.assign(FILTERS, preset.filters());
     document.getElementById("filters").classList.add("on");
   }
-  presetOn = turningOn;
+  activePreset = turningOn ? key : null;
   renderFilters();
   render();
+}
+
+function renderPresets() {
+  document.getElementById("presets").innerHTML = PRESETS.map(p =>
+    '<button class="preset' + (activePreset === p.key ? " on" : "")
+    + '" data-preset="' + esc(p.key) + '">'
+    + (activePreset === p.key ? "✓ " : "") + esc(p.label) + "</button>"
+  ).join("");
 }
 
 function loadPending() {
@@ -2630,9 +2678,7 @@ function render() {
   document.getElementById("flt-note").textContent =
     "показано " + rows.length + " из " + inTabCount + " во вкладке";
 
-  const preset = document.getElementById("preset");
-  preset.textContent = presetOn ? "✓ Кандидаты" : "Кандидаты";
-  preset.classList.toggle("on", presetOn);
+  renderPresets();
 
   const queued = Object.keys(PENDING).length + (dedupeQueued ? 1 : 0);
   const dec = document.getElementById("dec");
@@ -2693,7 +2739,7 @@ document.getElementById("flt-grid").addEventListener("click", ev => {
   chip.classList.toggle("on", f.values.has(value));
   dropIfEmpty(key);
   markSet(key);
-  presetOn = false;
+  activePreset = null;
   render();
 });
 
@@ -2720,7 +2766,7 @@ document.getElementById("flt-grid").addEventListener("input", ev => {
     dropIfEmpty(key);
   }
   markSet(key);
-  presetOn = false;
+  activePreset = null;
   render();
 });
 
@@ -2731,12 +2777,15 @@ function markSet(key) {
 
 document.getElementById("flt-reset").addEventListener("click", () => {
   Object.keys(FILTERS).forEach(k => delete FILTERS[k]);
-  presetOn = false;
+  activePreset = null;
   renderFilters();
   render();
 });
 
-document.getElementById("preset").addEventListener("click", togglePreset);
+document.getElementById("presets").addEventListener("click", ev => {
+  const btn = ev.target.closest(".preset");
+  if (btn) togglePreset(btn.dataset.preset);
+});
 
 document.getElementById("dec").addEventListener("click", () => {
   document.getElementById("decisions").classList.toggle("on");
