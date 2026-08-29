@@ -25,7 +25,7 @@ import sqlite3
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, NamedTuple
 
 from . import ai_schema, buildings, config, extractors, photos, rules
@@ -801,6 +801,60 @@ def _group_duplicates(
     ]
 
 
+def _collapse_into(
+    conn: sqlite3.Connection,
+    keeper: dict[str, Any],
+    rest: list[dict[str, Any]],
+    ts: str,
+) -> None:
+    """Drop ``rest`` from the table, each remembered as a repost of ``keeper``.
+
+    Shared by the whole-base pass and by the per-row merge, because the
+    bookkeeping is the part that is easy to get half right: a copy that is
+    deleted without a row in ``duplicates`` comes back on the next scrape.
+    """
+    key = keeper.get("content_key") or content_key(keeper) or ""
+    for item in rest:
+        fb_id = item["fb_id"]
+        _record_duplicate(conn, fb_id, keeper["fb_id"], key, ts, item.get("url"))
+        # Reposts already hanging off this copy follow it to the keeper:
+        # the row they name is about to be deleted, and a repost pointing
+        # at a missing row disappears from the table's ID cell.
+        conn.execute(
+            "UPDATE duplicates SET canonical_fb_id = ? "
+            "WHERE canonical_fb_id = ? AND fb_id != ?",
+            (keeper["fb_id"], fb_id, keeper["fb_id"]),
+        )
+        conn.execute("DELETE FROM ai_analysis WHERE fb_id = ?", (fb_id,))
+        delete_photo_hashes(conn, fb_id)
+        conn.execute("DELETE FROM listings WHERE fb_id = ?", (fb_id,))
+        # The keeper's own photos stay: it is the row that survives.
+        photos.purge_photos(fb_id)
+
+
+def _keeper_rank(conn: sqlite3.Connection) -> Callable[[dict[str, Any]], tuple]:
+    """Order copies by how much work each carries; the smallest is the keeper.
+
+    Your decision first, then an AI analysis, then the fullest ad text, then
+    the one seen first. The decision comes first for the reason the per-row
+    merge exists at all: the copy you already rated or rejected is the one
+    that must survive, or the verdict is lost with the row.
+    """
+    decided = {row["fb_id"] for row in conn.execute("SELECT fb_id FROM decisions")}
+    analysed = {row["fb_id"] for row in conn.execute("SELECT fb_id FROM ai_analysis")}
+
+    def rank(item: dict[str, Any]) -> tuple[int, int, int, str]:
+        fb_id = item["fb_id"]
+        return (
+            0 if fb_id in decided else 1,
+            0 if fb_id in analysed else 1,
+            -item["_signature"]["text_len"],
+            str(item.get("first_seen_at") or ""),
+        )
+
+    return rank
+
+
 def dedupe_listings(
     conn: sqlite3.Connection,
     *,
@@ -824,18 +878,7 @@ def dedupe_listings(
     """
     ts = now or _now_iso()
     items = _load_for_dedupe(conn)
-
-    decided = {row["fb_id"] for row in conn.execute("SELECT fb_id FROM decisions")}
-    analysed = {row["fb_id"] for row in conn.execute("SELECT fb_id FROM ai_analysis")}
-
-    def rank(item: dict[str, Any]) -> tuple[int, int, int, str]:
-        fb_id = item["fb_id"]
-        return (
-            0 if fb_id in decided else 1,
-            0 if fb_id in analysed else 1,
-            -item["_signature"]["text_len"],
-            str(item.get("first_seen_at") or ""),
-        )
+    rank = _keeper_rank(conn)
 
     collapsed: list[dict[str, Any]] = []
     for members, why in _group_duplicates(items, fuzzy=fuzzy):
@@ -847,26 +890,200 @@ def dedupe_listings(
         })
         if dry_run:
             continue
-        key = keeper.get("content_key") or content_key(keeper) or ""
-        for item in rest:
-            fb_id = item["fb_id"]
-            _record_duplicate(conn, fb_id, keeper["fb_id"], key, ts, item.get("url"))
-            # Reposts already hanging off this copy follow it to the keeper:
-            # the row they name is about to be deleted, and a repost pointing
-            # at a missing row disappears from the table's ID cell.
-            conn.execute(
-                "UPDATE duplicates SET canonical_fb_id = ? "
-                "WHERE canonical_fb_id = ? AND fb_id != ?",
-                (keeper["fb_id"], fb_id, keeper["fb_id"]),
-            )
-            conn.execute("DELETE FROM ai_analysis WHERE fb_id = ?", (fb_id,))
-            delete_photo_hashes(conn, fb_id)
-            conn.execute("DELETE FROM listings WHERE fb_id = ?", (fb_id,))
-            # The keeper's own photos stay: it is the row that survives.
-            photos.purge_photos(fb_id)
+        _collapse_into(conn, keeper, rest, ts)
     if not dry_run:
         conn.commit()
     return collapsed
+
+
+class ManualMerge(NamedTuple):
+    """What a per-row ``dedupe <fb_id>`` did — or what it wants you to pick.
+
+    Either ``canonical`` names the row that survived and ``removed`` the
+    copies that went into it, or both are empty and ``candidates`` holds the
+    nearest rows, each with a ready ``--into`` to run if it is the same flat.
+    """
+
+    canonical: str | None
+    removed: list[str]
+    reason: str
+    candidates: list[dict[str, Any]]
+
+
+# Сколько строк показать, когда сигналы молчат. Список читают глазами, и
+# шестая строка в нём уже не про эту квартиру.
+_MANUAL_CANDIDATES = 5
+_CANDIDATE_TEXT_RATIO = 0.4
+
+
+def _candidate_score(a: dict[str, Any], b: dict[str, Any]) -> tuple[int, list[str]]:
+    """How alike two listings look, and in what words to say it.
+
+    Deliberately weaker than :func:`same_property` and without its veto: this
+    ranks a shortlist for a human to read, it never merges anything. The
+    listing you recognised is usually the one the strict rules refused —
+    a different agent's text, another claimed floor — so a scale that only
+    agrees with them would hand back an empty list exactly when it is needed.
+
+    Zero unless the project or the ad text matches, whatever else does. Half
+    of Phuket is a one-bedroom at 25 000, so "same price, same bedrooms" is
+    not a resemblance — it filled the list with five strangers on the live
+    base and the one row that mattered was never among them.
+    """
+    points = 0
+    why: list[str] = []
+    if a["project"] and b["project"] and _same_project(a["project"], b["project"]):
+        points += 3
+        why.append("тот же проект")
+    union = a["words"] | b["words"]
+    overlap = len(a["words"] & b["words"]) / len(union) if union else 0.0
+    if overlap >= _CANDIDATE_TEXT_RATIO:
+        points += 2 if overlap >= _TEXT_MATCH_RATIO else 1
+        why.append(f"текст совпадает на {round(overlap * 100)}%")
+    if not points:
+        return 0, []
+    if a["bedrooms"] is not None and a["bedrooms"] == b["bedrooms"]:
+        points += 2
+        why.append("столько же спален")
+    if _price_matches(a, b):
+        points += 2
+        why.append("та же цена")
+    return points, why
+
+
+def _matches_of(
+    target: dict[str, Any], items: list[dict[str, Any]]
+) -> dict[str, str]:
+    """Every listing the hard rules tie to ``target``, and why.
+
+    The same signals the whole-base pass runs, minus its group veto: here
+    the group is a pair, so there is no third member to check against — and
+    a pair blocked by a third member is precisely what leaves a duplicate
+    standing after `dedupe` has run.
+    """
+    fb_id = target["fb_id"]
+    signatures = {item["fb_id"]: item["_signature"] for item in items}
+    found: dict[str, str] = {}
+
+    key = target.get("content_key") or content_key(target)
+    for item in items:
+        if item["fb_id"] == fb_id:
+            continue
+        other = item.get("content_key") or content_key(item)
+        if key and other == key:
+            found[item["fb_id"]] = "exact"
+            continue
+        reason = same_property(target["_signature"], item["_signature"])
+        if reason:
+            found[item["fb_id"]] = reason
+
+    hashes_by_id = {
+        item["fb_id"]: item.get("_photo_hashes") or []
+        for item in items
+        if item.get("_photo_hashes")
+    }
+    for left, right in _photo_matches(hashes_by_id).pairs:
+        if fb_id not in (left, right):
+            continue
+        other = right if left == fb_id else left
+        if other in found or other not in signatures:
+            continue
+        if _contradicts(target["_signature"], signatures[other]):
+            continue
+        found[other] = "photos"
+    return found
+
+
+def _candidates_for(
+    conn: sqlite3.Connection, target: dict[str, Any], items: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The nearest rows to ``target``, the ones you have decided on first."""
+    decisions = {
+        row["fb_id"]: row
+        for row in conn.execute("SELECT fb_id, status, rating FROM decisions")
+    }
+    scored: list[dict[str, Any]] = []
+    for item in items:
+        if item["fb_id"] == target["fb_id"]:
+            continue
+        points, why = _candidate_score(target["_signature"], item["_signature"])
+        if not points:
+            continue
+        decision = decisions.get(item["fb_id"])
+        scored.append({
+            "fb_id": item["fb_id"],
+            "title": item.get("title") or "",
+            "price": item.get("price_thb"),
+            "status": decision["status"] if decision else "active",
+            "rating": decision["rating"] if decision else None,
+            "why": why,
+            "contradicts": _contradicts(target["_signature"], item["_signature"]),
+            # Своё решение весит больше любого признака: строку, которую вы
+            # уже разобрали, вы и вспомнили — похожая, но нетронутая строка
+            # в этот момент не при чём.
+            "points": points + (3 if decision else 0),
+        })
+    scored.sort(key=lambda c: (-c["points"], c["fb_id"]))
+    return scored[:_MANUAL_CANDIDATES]
+
+
+def dedupe_one(
+    conn: sqlite3.Connection,
+    fb_id: str,
+    *,
+    into: str | None = None,
+    dry_run: bool = False,
+    now: str | None = None,
+) -> ManualMerge:
+    """Merge one listing into the copy of it you have already looked at.
+
+    The whole-base pass answers "which rows are repeats"; this answers a
+    different question — "I have seen this flat before, find it". It is the
+    row under the cursor in the table, so the search runs from that row
+    outwards and the copy carrying your decision wins the merge.
+
+    Nothing is merged on a guess. Either a hard signal ties ``fb_id`` to
+    another row and the pair collapses, or the result carries a shortlist of
+    the nearest rows and the DB is untouched: naming one of them with
+    ``into`` merges it, and that is the only way a merge happens without a
+    signal behind it.
+    """
+    ts = now or _now_iso()
+    items = _load_for_dedupe(conn)
+    by_id = {item["fb_id"]: item for item in items}
+    target = by_id.get(fb_id)
+    if target is None:
+        raise LookupError(fb_id)
+
+    if into is not None:
+        keeper = by_id.get(into)
+        if keeper is None:
+            raise LookupError(into)
+        if into == fb_id:
+            raise ValueError(fb_id)
+        # You named the pair, so no signal is consulted and no veto applies —
+        # and the row you named is the keeper whatever it carries. Naming it
+        # is the whole point: it is where your verdict already lives.
+        if not dry_run:
+            _collapse_into(conn, keeper, [target], ts)
+            conn.commit()
+        return ManualMerge(into, [fb_id], "manual", [])
+
+    matched = _matches_of(target, items)
+    if not matched:
+        return ManualMerge(None, [], "", _candidates_for(conn, target, items))
+
+    members = [target] + [by_id[other] for other in sorted(matched)]
+    keeper, *rest = sorted(members, key=_keeper_rank(conn))
+    if not dry_run:
+        _collapse_into(conn, keeper, rest, ts)
+        conn.commit()
+    return ManualMerge(
+        keeper["fb_id"],
+        [item["fb_id"] for item in rest],
+        ", ".join(sorted(set(matched.values()))),
+        [],
+    )
 
 
 def known_fb_ids(conn: sqlite3.Connection) -> set[str]:
@@ -2016,10 +2233,11 @@ _HTML_TEMPLATE = r"""<!doctype html>
           <span class="keys"><kbd>r</kbd></span><span class="d">отклонить без оценки</span>
           <span class="keys"><kbd>a</kbd></span><span class="d">вернуть в «Разобрать»</span>
           <span class="keys"><kbd>0</kbd></span><span class="d">снять решение</span>
+          <span class="keys"><kbd>d</kbd></span><span class="d">«это я уже видел»: найти ту строку и влить эту в неё; повторное нажатие убирает из очереди</span>
         </div>
         <div class="pop-h">По всей базе</div>
         <div class="kk">
-          <span class="keys"><kbd>d</kbd></span><span class="d">поставить в очередь dedupe — поиск повторов и слияние с уже существующими; повторное нажатие убирает</span>
+          <span class="keys"><kbd>Shift</kbd>+<kbd>D</kbd></span><span class="d">поставить в очередь dedupe — поиск повторов по всей базе и слияние с уже существующими</span>
         </div>
         <div class="pop-h">Мышью</div>
         <div class="kk">
@@ -2114,13 +2332,18 @@ const openCells = new Set();
    открывается с диска, без сервера и без сети. */
 const PENDING_KEY = "fb-rent:pending";
 let PENDING = {};
-/* `dedupe` — единственная команда блока, которая не про строку: он ищет
-   повторы по всей базе и сливает их с уже существующими. Поэтому не в
-   PENDING, а отдельным флагом, и хранится вместе со штампом сборки: файл
-   пересобрался — блок команд прогнали, флаг снят. Ровно так же решение
-   уходит из очереди, когда доедет до decisions.json. */
+/* Очередь dedupe — рядом с решениями, но не в PENDING: у строки может быть
+   и оценка, и «это я уже видел», и одна ячейка PENDING их бы перезаписала.
+   `ids` — построчный `d`, `all` — `Shift+D` по всей базе.
+
+   Проверить, что команда доехала, тут нечем: слияние удаляет либо эту
+   строку, либо ту, в которую её влили, и «строки не стало» одинаково значит
+   и «получилось», и «вы её отклонили руками». Поэтому очередь привязана к
+   штампу сборки файла: файл пересобрался — блок команд прогнали, очередь
+   пуста. */
 const DEDUPE_KEY = "fb-rent:dedupe";
 let dedupeQueued = false;
+let dedupeIds = new Set();
 // Строка под курсором и то, что сейчас на экране: клавиши ходят по видимому
 // списку, а он зависит от вкладки, поиска и фильтров.
 let cursorId = null;
@@ -2209,7 +2432,14 @@ function tdHTML(row, col) {
           + ' — анализ читал не тот текст, строку надо перечитать">' + esc(cell.dq) + '</span>'
         : "";
       return '<span class="id-row">' + link + count + dq + '</span>';
-    }).join("") + '</span>';
+    }).join("")
+      // Очередь на слияние висит на ID, а не на оценке: сливают строки, а не
+      // решения, и в ячейке с оценкой этот значок закрыл бы саму оценку.
+      + (dedupeIds.has(row.fb_id)
+        ? '<span class="id-row"><span class="pend" title="в очереди на слияние'
+          + ' — нажмите «Решения» и выполните команды в терминале">склеить</span></span>'
+        : "")
+      + '</span>';
   } else if (col.kind === "score") {
     inner = empty ? '—' : esc(text);
     if (!empty && cell.n != null) style = scoreStyle(cell.n);
@@ -2419,8 +2649,7 @@ function loadPending() {
     if (!row || alreadyRecorded(row, PENDING[id])) delete PENDING[id];
   });
   savePending();
-  try { dedupeQueued = localStorage.getItem(DEDUPE_KEY) === GENERATED_AT; }
-  catch (e) { dedupeQueued = false; }
+  loadDedupe();
 }
 
 function alreadyRecorded(row, p) {
@@ -2434,14 +2663,38 @@ function savePending() {
   catch (e) { /* приватное окно — очередь живёт до перезагрузки */ }
 }
 
-function saveDedupe() {
-  try {
-    if (dedupeQueued) localStorage.setItem(DEDUPE_KEY, GENERATED_AT);
-    else localStorage.removeItem(DEDUPE_KEY);
-  } catch (e) { /* приватное окно — флаг живёт до перезагрузки */ }
+function loadDedupe() {
+  dedupeQueued = false;
+  dedupeIds = new Set();
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(DEDUPE_KEY) || "null"); }
+  catch (e) { saved = null; }
+  if (!saved || saved.stamp !== GENERATED_AT) return;
+  dedupeQueued = !!saved.all;
+  const alive = new Set(DATA.map(r => r.fb_id));
+  (saved.ids || []).forEach(id => { if (alive.has(id)) dedupeIds.add(id); });
 }
 
-function toggleDedupe() {
+function saveDedupe() {
+  try {
+    if (!dedupeQueued && !dedupeIds.size) localStorage.removeItem(DEDUPE_KEY);
+    else localStorage.setItem(DEDUPE_KEY, JSON.stringify({
+      stamp: GENERATED_AT, all: dedupeQueued, ids: Array.from(dedupeIds),
+    }));
+  } catch (e) { /* приватное окно — очередь живёт до перезагрузки */ }
+}
+
+// `d` по строке: «эту квартиру я уже где-то видел и уже разобрал» — команда
+// ищет ту строку и вливает эту в неё.
+function toggleDedupeRow(id) {
+  if (dedupeIds.has(id)) dedupeIds.delete(id); else dedupeIds.add(id);
+  saveDedupe();
+  render();
+}
+
+// `Shift+D` — единственная команда блока, которая не про строку: поиск
+// повторов по всей базе.
+function toggleDedupeAll() {
   dedupeQueued = !dedupeQueued;
   saveDedupe();
   render();
@@ -2460,8 +2713,8 @@ function pendingLabel(p) {
 
 function commandText() {
   const ids = Object.keys(PENDING);
-  if (!ids.length && !dedupeQueued) {
-    return "Очередь пуста. Встаньте на строку (↓ ↑ или клик) и нажмите 1–5, r или a; d ставит в очередь поиск дублей.";
+  if (!ids.length && !dedupeQueued && !dedupeIds.size) {
+    return "Очередь пуста. Встаньте на строку (↓ ↑ или клик) и нажмите 1–5, r или a; d — «это я уже видел», склеить с той строкой.";
   }
   const lines = ids.map(id => {
     const p = PENDING[id];
@@ -2470,6 +2723,7 @@ function commandText() {
   });
   // dedupe идёт после решений, а не перед ними: он оставляет ту копию, что
   // несёт больше работы, и ваша оценка — первое, на что он смотрит.
+  dedupeIds.forEach(id => lines.push("fb-rent dedupe " + id));
   if (dedupeQueued) lines.push("fb-rent dedupe");
   lines.push("fb-rent export");
   return lines.join("\n");
@@ -2723,7 +2977,8 @@ function render() {
 
   syncPreset();
 
-  const queued = Object.keys(PENDING).length + (dedupeQueued ? 1 : 0);
+  const queued = Object.keys(PENDING).length + dedupeIds.size
+    + (dedupeQueued ? 1 : 0);
   const dec = document.getElementById("dec");
   dec.textContent = queued ? "Решения (" + queued + ")" : "Решения";
   dec.classList.toggle("on", queued > 0);
@@ -2897,8 +3152,11 @@ document.addEventListener("keydown", ev => {
   if (key === "Escape") { closeHelp(); return; }
   if (key === "ArrowDown" || key === "j") { ev.preventDefault(); moveCursor(1); return; }
   if (key === "ArrowUp" || key === "k") { ev.preventDefault(); moveCursor(-1); return; }
-  if (key === "d") { ev.preventDefault(); toggleDedupe(); return; }
+  // Заглавная — по всей базе, строчная — по строке под курсором: команда без
+  // id ищет повторы везде, и спутать её со строчной стоит удалённых строк.
+  if (key === "D") { ev.preventDefault(); toggleDedupeAll(); return; }
   if (!cursorId) return;
+  if (key === "d") { ev.preventDefault(); toggleDedupeRow(cursorId); return; }
 
   if (key === "o") {
     // Та же ссылка, что на ID: у строки может быть несколько публикаций

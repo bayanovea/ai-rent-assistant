@@ -293,10 +293,15 @@ def test_export_html_queues_dedupe_by_a_key(conn, tmp_path: Path):
     out = tmp_path / "rentals.html"
     storage.export_html(conn, out)
     text = out.read_text(encoding="utf-8")
-    # Единственная команда блока, которая не про строку: клавиша работает без
-    # курсора, а флаг живёт со штампом сборки — иначе очередь не сбросится.
-    assert 'if (key === "d") { ev.preventDefault(); toggleDedupe(); return; }' in text
+    # `d` — про строку под курсором («это я уже видел»), `Shift+D` — про всю
+    # базу. Строчная поэтому стоит после проверки курсора, заглавная до неё.
+    assert 'if (key === "D") { ev.preventDefault(); toggleDedupeAll(); return; }' in text
+    assert 'if (key === "d") { ev.preventDefault(); toggleDedupeRow(cursorId); return; }' in text
+    assert text.index('key === "D"') < text.index("if (!cursorId) return;")
+    assert text.index("if (!cursorId) return;") < text.index('key === "d"')
+    assert 'lines.push("fb-rent dedupe " + id)' in text
     assert 'lines.push("fb-rent dedupe")' in text
+    # Очередь живёт со штампом сборки — иначе она не сбросится сама.
     assert 'const GENERATED_AT = "__GENERATED_AT__"' not in text
     assert "const GENERATED_AT = " in text
 
@@ -1346,6 +1351,113 @@ _AD_C = (
     "Brand new unit ready to move in, mountain view, covered parking, "
     "shuttle bus to the beach, one year contract preferred"
 )
+
+
+def _decided(conn, fb_id: str, status: str = "shortlist", rating: float = 5.0):
+    conn.execute(
+        "INSERT INTO decisions (fb_id, status, reason, rating, decided_at)"
+        " VALUES (?,?,?,?,?)",
+        (fb_id, status, "смотрели", rating, "2026-08-29T10:00:00Z"),
+    )
+    conn.commit()
+
+
+def test_dedupe_one_merges_the_row_into_the_copy_you_already_decided_on(conn):
+    # «Это я уже видел» с точки зрения таблицы: строка под курсором ещё в
+    # «Разобрать», а её копия лежит в Shortlist — выжить должна копия с
+    # решением, иначе вердикт уходит вместе со строкой.
+    _analysed(conn, "seen", _AD, 17000, project_name="Phanason Green Place",
+              bedrooms=1, size_sqm=48)
+    _analysed(conn, "cursor", _AD_B, 17000, project_name="Panason Green Place",
+              bedrooms=1, size_sqm=49)
+    _decided(conn, "seen")
+
+    result = storage.dedupe_one(conn, "cursor", dry_run=True)
+    assert (result.canonical, result.removed, result.reason) == (
+        "seen", ["cursor"], "facts"
+    )
+    assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 2
+
+    storage.dedupe_one(conn, "cursor")
+    left = [r["fb_id"] for r in conn.execute("SELECT fb_id FROM listings")]
+    assert left == ["seen"]
+    # Копия запомнена как репост, иначе следующий скрейп принесёт её обратно.
+    assert storage.duplicate_fb_ids(conn) == {"cursor"}
+
+
+def test_dedupe_one_ignores_the_group_veto_the_whole_base_pass_obeys(conn):
+    # Ровно то, ради чего построчная команда и нужна. Вето авто-прохода
+    # проверяется против всей группы: «cursor» и «seen» — одна квартира, но
+    # «third» с другим этажом уже в группе, и пару она разводит. По строке
+    # группа — это то, на что показали вы, и третьего в ней нет.
+    _analysed(conn, "a-cursor", _AD, 17000, project_name="Phanason Green Place",
+              bedrooms=1)
+    _analysed(conn, "b-third", _AD_C + " on the 5th floor", 17000,
+              project_name="Phanason Green Place", bedrooms=1)
+    _analysed(conn, "c-seen", _AD_B + " on the 8th floor", 17000,
+              project_name="Phanason Green Place", bedrooms=1)
+    _decided(conn, "c-seen")
+
+    # Авто-проход дотягивается только до «third» — «seen» остаётся строкой.
+    assert storage.dedupe_listings(conn, dry_run=True) == [
+        {"canonical": "b-third", "removed": ["a-cursor"], "reason": "facts"}
+    ]
+
+    result = storage.dedupe_one(conn, "a-cursor", dry_run=True)
+    assert result.canonical == "c-seen"
+    assert sorted(result.removed) == ["a-cursor", "b-third"]
+
+
+def test_dedupe_one_suggests_instead_of_guessing_when_no_signal_matches(conn):
+    # Сигналы молчат — площадь расходится на порядок, — и строка остаётся на
+    # месте: команда показывает ближайшие, разобранные впереди похожих.
+    _analysed(conn, "cursor", _AD, 17000, project_name="Phanason Green Place",
+              bedrooms=1, size_sqm=48)
+    _analysed(conn, "seen", _AD_C, 17000, project_name="Phanason Green Place",
+              bedrooms=1, size_sqm=90)
+    _analysed(conn, "other", _AD_B, 17000, project_name="Phanason Green Place",
+              bedrooms=1, size_sqm=95)
+    _decided(conn, "seen", status="rejected", rating=2.0)
+
+    result = storage.dedupe_one(conn, "cursor")
+    assert (result.canonical, result.removed) == (None, [])
+    assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 3
+    assert [c["fb_id"] for c in result.candidates] == ["seen", "other"]
+    first = result.candidates[0]
+    assert first["status"] == "rejected" and first["rating"] == 2.0
+    # Почему авто-проход её не взял, видно в самой подсказке.
+    assert first["contradicts"] is True
+    assert "тот же проект" in first["why"]
+
+
+def test_dedupe_one_into_merges_the_pair_you_named(conn):
+    # Явная пара не спрашивает сигналы и не спрашивает, кто несёт больше
+    # работы: выживает названная строка — там уже лежит ваше решение.
+    _analysed(conn, "cursor", _AD, 17000, project_name="Phanason Green Place",
+              bedrooms=1, size_sqm=48)
+    _analysed(conn, "seen", _AD_C, 31000, project_name="Другой Дом",
+              bedrooms=3, size_sqm=140)
+    conn.execute("DELETE FROM ai_analysis WHERE fb_id = 'seen'")
+    conn.commit()
+
+    result = storage.dedupe_one(conn, "cursor", into="seen")
+    assert (result.canonical, result.removed, result.reason) == (
+        "seen", ["cursor"], "manual"
+    )
+    left = [r["fb_id"] for r in conn.execute("SELECT fb_id FROM listings")]
+    assert left == ["seen"]
+    assert storage.duplicate_fb_ids(conn) == {"cursor"}
+
+
+def test_dedupe_one_refuses_an_id_that_is_not_in_the_table(conn):
+    _analysed(conn, "cursor", _AD, 17000, project_name="Phanason Green Place",
+              bedrooms=1)
+    with pytest.raises(LookupError):
+        storage.dedupe_one(conn, "нет-такого")
+    with pytest.raises(LookupError):
+        storage.dedupe_one(conn, "cursor", into="нет-такого")
+    with pytest.raises(ValueError):
+        storage.dedupe_one(conn, "cursor", into="cursor")
 
 
 def test_same_flat_from_two_agents_collapses(conn):

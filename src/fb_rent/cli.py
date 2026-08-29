@@ -63,6 +63,7 @@ from .scraper_detail import scrape_detail
 from .scraper_list import scrape_list
 from .storage import (
     dedupe_listings,
+    dedupe_one,
     duplicate_fb_ids,
     export_csv,
     export_html,
@@ -559,7 +560,60 @@ def scrape_cmd(
         conn.close()
 
 
+def _dedupe_one_cmd(
+    conn: sqlite3.Connection, fb_id: str, *, into: str | None, dry_run: bool
+) -> None:
+    """`dedupe <fb_id>`: merge one row, or print what it could be merged with.
+
+    No export at the end, unlike the whole-base pass: this runs from the
+    table's block of commands, which already ends in `fb-rent export`, and
+    a block with a dozen merges in it would otherwise rebuild the file a
+    dozen times.
+    """
+    try:
+        result = dedupe_one(conn, fb_id, into=into, dry_run=dry_run)
+    except LookupError as missing:
+        raise click.ClickException(f"No listing {missing.args[0]} in the DB.")
+    except ValueError:
+        raise click.ClickException("A listing cannot be merged into itself.")
+
+    if result.canonical:
+        prefix = "Dry-run: would merge" if dry_run else "Merged"
+        click.echo(
+            f"{prefix} {', '.join(result.removed)} into {result.canonical}"
+            f"  [{result.reason}]"
+        )
+        if not dry_run:
+            click.echo("Run `fb-rent export` to refresh the table.")
+        return
+
+    click.echo(f"Nothing merged: no signal ties {fb_id} to another listing.")
+    if not result.candidates:
+        click.echo(
+            "Nor is any other row close enough to suggest — find it in the "
+            f"table and merge by hand: fb-rent dedupe {fb_id} --into <fb_id>"
+        )
+        return
+    click.echo("Closest rows — run one of these if it is the same flat:")
+    for cand in result.candidates:
+        mark = cand["status"]
+        if cand["rating"] is not None:
+            mark += f" {cand['rating']:g}"
+        why = ", ".join(cand["why"])
+        if cand["contradicts"]:
+            why += "; но этаж, корпус или площадь расходятся"
+        price = f"{cand['price']} THB" if cand["price"] is not None else "цена не названа"
+        click.echo(f"  fb-rent dedupe {fb_id} --into {cand['fb_id']}")
+        click.echo(f"      {cand['title'][:60]} — {price} [{mark}] — {why}")
+
+
 @main.command("dedupe")
+@click.argument("fb_id", required=False)
+@click.option(
+    "--into",
+    metavar="FB_ID",
+    help="Merge FB_ID into this listing outright, without consulting a signal.",
+)
 @click.option(
     "--dry-run", is_flag=True, help="List the duplicates without deleting them."
 )
@@ -568,7 +622,9 @@ def scrape_cmd(
     is_flag=True,
     help="Match identical ad text only; skip the near-duplicate rules.",
 )
-def dedupe_cmd(dry_run: bool, exact_only: bool) -> None:
+def dedupe_cmd(
+    fb_id: str | None, into: str | None, dry_run: bool, exact_only: bool
+) -> None:
     """Collapse duplicates: one row per flat, however many ads it has.
 
     Facebook issues a new listing id every time an ad is republished, and
@@ -580,9 +636,20 @@ def dedupe_cmd(dry_run: bool, exact_only: bool) -> None:
 
     The near-duplicate rules read the AI's extracted fields, so run this
     after `ai-apply`; `--exact-only` falls back to matching ad text verbatim.
+
+    With FB_ID it answers the other question — "I have already seen this
+    flat, find it" — and merges that one row into the copy you decided on.
+    This is what `d` in the table queues. When no signal ties the row to
+    another, nothing is merged and the nearest rows are printed with the
+    `--into` that merges them.
     """
+    if into and not fb_id:
+        raise click.UsageError("--into needs the listing to merge: dedupe <fb_id> --into <fb_id>")
     conn = _open_db()
     try:
+        if fb_id:
+            _dedupe_one_cmd(conn, fb_id, into=into, dry_run=dry_run)
+            return
         collapsed = dedupe_listings(conn, dry_run=dry_run, fuzzy=not exact_only)
         if not collapsed:
             click.echo("No duplicates found — every listing is its own flat.")
