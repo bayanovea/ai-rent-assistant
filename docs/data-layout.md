@@ -173,14 +173,25 @@ same link the ID cell carries, so a row with several postings opens the one
 that stayed canonical. It is the one row key that does not move the cursor:
 you come back from the ad to decide about that row, not about its neighbour.
 
-`d` is the one key that is not about the row under the cursor: it queues
-`fb-rent dedupe` — search the whole DB for repeats of what is already there and
-collapse them into one row. It goes into the same block, after the marks and
-before `fb-rent export`, because dedupe keeps the copy carrying the most work
-and your decision is the first thing it looks at. Pressing `d` again takes it
-back out. The flag is stored next to the export's own timestamp, so a rebuilt
-file drops it — the same self-cleaning the marks get, since a whole-DB command
-leaves no per-row trace to check against.
+`d` means "I have seen this flat already": it queues
+`fb-rent dedupe <fb_id>`, which searches for the copy you decided on earlier
+and merges this row into it. `Shift`+`D` queues the whole-base `fb-rent dedupe`
+instead — the one key that is not about the row under the cursor. Both go into
+the same block, after the marks and before `fb-rent export`, because dedupe
+keeps the copy carrying the most work and your decision is the first thing it
+looks at. Pressing the key again takes it back out; the queued row wears
+`склеить` in its ID cell.
+
+This queue is stored next to the export's own timestamp, so a rebuilt file
+drops it whole. The marks can check themselves against the row they name; a
+merge cannot — it deletes either this row or the one it went into, and "the row
+is gone" reads the same as "you rejected it by hand".
+
+A merge is never a guess. When no signal ties the row to another, the command
+prints the nearest rows with a ready `--into` for each and changes nothing —
+and it stays silent unless the project name or the ad text matches, because
+half of Phuket is a one-bedroom at 25 000 and "same price, same bedrooms" fills
+that list with strangers.
 
 The queue lives in `localStorage`, not in the file, because `export` rewrites
 `rentals.html` after every stage and the decisions have to survive that. It

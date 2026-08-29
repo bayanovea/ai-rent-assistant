@@ -156,6 +156,24 @@ untouched one. `active` remains a valid status for exactly one writer:
 the middle band so that some mark maps back to `active` silently breaks the
 queue — nothing raises, the tab just stops emptying.
 
+**`d` is per-row, `Shift`+`D` is the whole base — and the merge never
+guesses.** `d` means "I have already seen this flat": `fb-rent dedupe <fb_id>`
+looks for the copy carrying your decision and merges this row into it, running
+the same hard signals **pairwise**, without the whole-base pass's group veto —
+which is the only reason the pair is still standing. When no signal matches it
+prints candidates and writes nothing; `--into` is the one path that merges on
+your word alone. Widen the candidate score to fire on price plus bedrooms and
+the list fills with strangers: half of Phuket is a one-bedroom at 25 000, and
+that was measured, not guessed.
+
+**The dedupe queue is stamp-bound, unlike the decisions next to it.** A mark
+checks itself against the row it names (`alreadyRecorded`); a merge cannot — it
+deletes either the queued row or the one it went into, and "the row is gone"
+is also what an ordinary rejection looks like. So the queue lives under
+`GENERATED_AT` and a rebuilt file drops it whole. Move it into `PENDING` to
+"unify" the two and you lose the other half of the reason it is separate: a row
+can carry both a rating and a merge, and one `PENDING` slot holds one of them.
+
 **The pending-decision queue is cleared by `export`, not by a button.** The
 page drops a queued decision when the row already carries it (same mark,
 `decided_by == "user"`), which is why running the commands and re-exporting is

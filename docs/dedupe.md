@@ -13,6 +13,7 @@ one catches something the others cannot.
 | `photos` | two of the first three gallery shots are the same pictures | `fb-rent dedupe` |
 | `text` | the ad body is all but identical — a repost with a line edited | `fb-rent dedupe` |
 | `facts` | same project, same price, same bedroom count | `fb-rent dedupe` |
+| `manual` | you pointed at the pair yourself | `fb-rent dedupe <id> --into <id>` |
 
 A listing whose text and price already exist is recorded in `duplicates` at
 write time instead of getting its own row. Whatever `dedupe` merges is
@@ -24,6 +25,43 @@ Ads that name **different floors, buildings or sizes** are never merged
 (`_contradicts`), whatever else matches. The one exception is `exact`:
 byte-identical text stays the same text no matter what the copies claim about
 the floor.
+
+## The row you recognised: `d` in the table
+
+The signals above answer "which rows are repeats". Standing on a row in the
+table and pressing `d` asks something else — *I have seen this flat before,
+find it* — and the answer has to survive being wrong, because a merge deletes
+a row.
+
+So `fb-rent dedupe <fb_id>` merges only what the hard signals already tie to
+that row, pairwise. Pairwise is the whole difference from the whole-base pass:
+there the veto is checked against the entire group, and a third listing that
+claims another floor pulls apart a pair that is one flat (see "the group of
+52"). By the time you press `d`, the group is what you pointed at, and there is
+no third member in it.
+
+When nothing matches, nothing is merged. The command prints the nearest rows —
+the ones you have already decided on first, since that is the memory the key
+runs on — each with the `--into` that merges it:
+
+```
+Nothing merged: no signal ties 9000000000000006 to another listing.
+Closest rows — run one of these if it is the same flat:
+  fb-rent dedupe 9000000000000006 --into 9000000000000005
+      1 bed 1 bathroom – Flat — 25000 THB [active] — тот же проект,
+      текст совпадает на 62%, столько же спален, та же цена;
+      но этаж, корпус или площадь расходятся
+```
+
+That shortlist stays silent unless the **project name or the ad text** match.
+Measured on the live base, dropping that requirement filled the list with five
+strangers that merely shared a price and a bedroom count — which describes
+half of Phuket — and pushed out the row worth looking at. Price and bedrooms
+still count, but only towards the order.
+
+`--into` is the one path that merges without a signal, and the row you name is
+the keeper whatever it carries: naming it is a statement that your verdict
+lives there.
 
 ## The photo signal
 

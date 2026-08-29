@@ -66,6 +66,19 @@ and matching photos; `--dry-run` reports without writing. Whatever is merged is
 remembered in `duplicates`, so the next scrape skips it without opening its
 page. See [dedupe.md](dedupe.md).
 
+```sh
+fb-rent dedupe                          # the whole base — Shift+D in the table
+fb-rent dedupe 9000000000000004         # one row — d in the table
+fb-rent dedupe 9000000000000004 --into 9000000000000005
+```
+
+With an id it answers the other question — "I have seen this flat before,
+find it" — and merges that row into the copy you already decided on. Nothing
+is merged on a guess: either a hard signal ties the row to another one, or the
+nearest rows are printed with the `--into` line that merges each, and the DB is
+untouched. `--into` is the only way a merge happens without a signal; the row
+you name is the keeper, whatever it carries.
+
 ## `fb-rent export`
 
 Regenerates the CSV and HTML from the current DB, and mirrors `decisions.json`
