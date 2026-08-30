@@ -269,3 +269,30 @@ that survived; every one of the 30 resolved.
 1433 records in `duplicates`, no orphans left. The cascade is expected — each
 merge frees pairings the previous pass could not see — and it is why the loop
 runs until the signal is dry.
+
+### The 2026-08-30 repair: three houses taken back apart
+
+The user pointed at `9000000000000007` and `9000000000000008` — merged on
+27 August, and not one flat. Tracing it produced the removal of `facts`
+[above](#the-signal-that-was-removed-facts); this is what the repair cost.
+
+There is no `unmerge`. The two records were deleted from `duplicates` by hand
+— without that step `scrape` skips the ids without opening a page — and
+`scrape --no-photos --ids` brought both rows back: `inserted: 2,
+duplicates: 0`, real descriptions, no sidebar. Their analyses had been deleted
+with the rows, so the entries were lifted out of the original result files and
+re-applied; `source_hash` had drifted, so both stay queued for a fresh pass.
+1399 → 1401 rows.
+
+Two things the repair confirmed:
+
+- **All three galleries are different pictures.** Six hashes, no collisions.
+  The photo signal would have said "different flats" — it just had nothing to
+  say, because the keeper `9000000000000007` is one of the 272 rows whose page
+  renders no gallery at all. That is the shape of the hole: the signal that
+  identifies is silent on a fifth of the base, and the signals that describe
+  filled the silence with a guess.
+- **The keeper is still gallery-less**, so nothing protects this trio from a
+  future signal that describes rather than identifies. Repairing it means
+  `scrape --ids` on a page whose gallery did not render once already — the
+  documented way to damage a row. Left alone deliberately.
