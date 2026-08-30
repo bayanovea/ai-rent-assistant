@@ -166,6 +166,24 @@ your word alone. Widen the candidate score to fire on price plus bedrooms and
 the list fills with strangers: half of Phuket is a one-bedroom at 25 000, and
 that was measured, not guessed.
 
+**A signal merges on its own only if it identifies the flat, not describes
+it.** `photos`, `exact`, `text` — the pictures, and the words the seller
+actually wrote. `_same_project` and `_price_matches` still exist and still
+look like half of a merge rule; they are not one, they only rank the shortlist
+in `_candidate_score`. Wiring them back into `same_property` restores `facts`,
+which on 27 August merged three different houses in one moobaan: hundreds of
+identical three-bedroom units at 30 000, no floor and no size in any ad, so
+`_contradicts` had nothing to veto with, and a middle spelling chained two
+project names that match each other at 0.667. The group veto does not save
+this — it needs a contradiction to exist. See `docs/dedupe.md`.
+
+**`text` has a word floor, and it is not decoration.** At 0.9 overlap two
+n-word sets may differ by ~n/19, so a short ad matches anything one token
+away — and the shortest ads in the base are agency cards whose only own
+content is a reference code. `_TEXT_MATCH_MIN_WORDS = 40` is the bar;
+lowering it re-opens exactly that. `content_key` carries the same guard as
+`_CONTENT_KEY_MIN_CHARS`.
+
 **The dedupe queue is stamp-bound, unlike the decisions next to it.** A mark
 checks itself against the row it names (`alreadyRecorded`); a merge cannot — it
 deletes either the queued row or the one it went into, and "the row is gone"

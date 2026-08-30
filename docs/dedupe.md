@@ -12,8 +12,11 @@ one catches something the others cannot.
 | `exact` | the same ad text at the same price (`content_key`) | on write |
 | `photos` | two of the first three gallery shots are the same pictures | `fb-rent dedupe` |
 | `text` | the ad body is all but identical — a repost with a line edited | `fb-rent dedupe` |
-| `facts` | same project, same price, same bedroom count | `fb-rent dedupe` |
 | `manual` | you pointed at the pair yourself | `fb-rent dedupe <id> --into <id>` |
+
+A signal merges on its own only if it **identifies** a flat rather than
+describes one. There used to be a sixth, `facts` — same project, same price,
+same bedroom count — and it is gone; see [below](#the-signal-that-was-removed-facts).
 
 A listing whose text and price already exist is recorded in `duplicates` at
 write time instead of getting its own row. Whatever `dedupe` merges is
@@ -58,6 +61,64 @@ Measured on the live base, dropping that requirement filled the list with five
 strangers that merely shared a price and a bedroom count — which describes
 half of Phuket — and pushed out the row worth looking at. Price and bedrooms
 still count, but only towards the order.
+
+Since `facts` was removed, this shortlist is also where the same flat handed
+to two agents ends up. It is no longer merged for you — you confirm it.
+
+## The signal that was removed: `facts`
+
+`facts` merged two listings that shared a project name, a price and a bedroom
+count. It was there for the case the text cannot catch: one flat given to
+several agents, who each write their own description. On 2026-08-27 it merged
+three **different houses** in Phanason Grandville Bangjo into one row, and the
+way it did it is the argument against the whole signal.
+
+The three ads name a moobaan — a housing estate of hundreds of near-identical
+three-bedroom houses, all asking 30 000. None of them names a floor, a
+building letter or a size, because houses do not have those: `_contradicts`
+had nothing to veto with. The estate is exactly the trap the price tolerance
+is withheld for inside a condo project (`_HOUSE_PRICE_TOLERANCE_THB`), not the
+exception to it — the tolerance reads `property_type` and hands houses *more*
+slack, which is backwards for a moobaan.
+
+And it merged them transitively, through a spelling that matched both ends
+while the ends matched nothing:
+
+| pair | `_same_project` | why |
+|---|---|---|
+| `Panason Grand` ↔ `Panason Grand Bang Jo` | ✅ | word subset: `{panason, grand}` ⊆ the other |
+| `Panason Grand Bang Jo` ↔ `Phanason Grandville Bangjo` | ✅ | ratio 0.851, threshold 0.85 |
+| `Panason Grand` ↔ `Phanason Grandville Bangjo` | ❌ | ratio 0.667 |
+
+Union-find put all three in one group. The group veto could not pull them
+apart, because it vetoes on contradictions and there were none to find.
+
+Both halves could be patched — a minimum word count for the subset rule, a
+higher ratio — and neither addresses the shape of the failure: `facts` compares
+descriptions of a flat, not the flat. `photos` compares the pictures, `exact`
+and `text` compare the words the seller actually wrote. Those identify. So
+`facts` no longer merges anything; `_same_project` and `_price_matches` live on
+in `_candidate_score`, where the pair is offered and you decide.
+
+The trade is deliberate and asymmetric. A duplicate left standing is a row you
+see in the queue and press `d` on. A false merge deletes a row silently, and
+"the row is gone" is also what an ordinary rejection looks like.
+
+## Why `text` has a floor
+
+`text` matches at 90% word overlap. At that ratio two word sets of *n* tokens
+may differ by about *n*/19 — so a 20-word ad matches another that is one token
+away from identity. The shortest ads in the base are exactly that: 92 rows
+carry fewer than 30 distinct words, and they are agency cards whose only own
+content is a reference code (`Vacant house for rent Dao Rung Villa CLS963 …`).
+Two such cards, different houses, one differing token.
+
+`_TEXT_MATCH_MIN_WORDS = 40` is where the ratio first admits two independent
+differences, so a match means the bodies agree about the flat and not about
+the template. Measured 2026-08-30: no pair on the live base reaches 0.9 with
+fewer than 41 distinct words, so the floor gives up nothing that was matching.
+`content_key` has had the same kind of guard from the start
+(`_CONTENT_KEY_MIN_CHARS = 60`); `text` did not, and that was the oversight.
 
 `--into` is the one path that merges without a signal, and the row you name is
 the keeper whatever it carries: naming it is a statement that your verdict
@@ -148,6 +209,13 @@ group**, not just the candidate pair. `exact` is exempt, as above.
 The price is 57 rows that go on living: pairs whose agents disagreed about the
 floor no longer merge. That is the right trade — before it, one row was hiding
 half a hundred different flats.
+
+The group veto held, but it was a patch on the wrong layer: it needs a
+contradiction to veto *with*, and the ads that chain groups together are
+precisely the ones that state nothing. Four days later the same shape came
+back in a moobaan where no ad names a floor at all, and `facts` was removed —
+see [above](#the-signal-that-was-removed-facts). The numbers in this section
+are history: those 100 `facts` edges no longer exist.
 
 **Run on 2026-08-26:** `dedupe` removed 274 rows (267 plus what repeated runs
 picked up until the signal ran dry), 779 → 503, with 359 records in
