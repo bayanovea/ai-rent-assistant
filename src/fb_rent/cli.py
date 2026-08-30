@@ -627,15 +627,21 @@ def dedupe_cmd(
 ) -> None:
     """Collapse duplicates: one row per flat, however many ads it has.
 
-    Facebook issues a new listing id every time an ad is republished, and
-    the same flat is often handed to several agents who each write their own
-    text. Both cases end up as separate rows. This keeps the copy carrying
-    the most work — your decision, then an AI analysis, then the fullest ad
-    text — drops the rest and remembers them, so the next scrape skips them
-    instead of adding them back.
+    Facebook issues a new listing id every time an ad is republished, so the
+    same flat ends up as several rows. This keeps the copy carrying the most
+    work — your decision, then an AI analysis, then the fullest ad text —
+    drops the rest and remembers them, so the next scrape skips them instead
+    of adding them back.
 
-    The near-duplicate rules read the AI's extracted fields, so run this
-    after `ai-apply`; `--exact-only` falls back to matching ad text verbatim.
+    Only signals that identify a flat rather than describe it merge on their
+    own: the same gallery shots, the same ad text verbatim, or an ad body
+    all but identical to another. The same flat handed to two agents who
+    each wrote their own text is *not* merged unasked — press `d` on the row
+    and confirm the pair.
+
+    The veto that keeps different floors apart reads the AI's extracted
+    fields, so run this after `ai-apply`; `--exact-only` skips the
+    near-identical text rule and matches verbatim only.
 
     With FB_ID it answers the other question — "I have already seen this
     flat, find it" — and merges that one row into the copy you decided on.

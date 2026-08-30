@@ -184,6 +184,15 @@ _WORD_RE = re.compile(r"[0-9a-zA-Zа-яёА-ЯЁ\u0e00-\u0e7f]+")
 # Agencies write from the same template, so two ads for different flats in
 # one project routinely read 80% alike. Only near-identical text counts.
 _TEXT_MATCH_RATIO = 0.9
+# ...and only a real ad body counts. At ratio 0.9 two word sets of n tokens
+# may differ by about n/19, so a 20-word ad matches another one token away
+# from identity — and the shortest ads in the base are pure boilerplate
+# ("House for rent", an agency card whose only distinguishing token is a
+# reference code). Forty is where the ratio first admits two independent
+# differences, so a match is agreement about the flat rather than about the
+# template. Measured 30 August: no pair on the live base reaches 0.9 with
+# fewer than 41 words, so the floor gives up nothing that was matching.
+_TEXT_MATCH_MIN_WORDS = 40
 # Project names arrive misspelled ("Panason" / "Phanason") and half
 # transliterated, so they are compared loosely.
 _PROJECT_MATCH_RATIO = 0.85
@@ -580,37 +589,41 @@ def _price_matches(a: dict[str, Any], b: dict[str, Any]) -> bool:
 def same_property(a: dict[str, Any], b: dict[str, Any]) -> str | None:
     """Why two listings are the same flat, or ``None`` if they are not.
 
-    Two independent signals, both vetoed by a contradicting floor, building
-    or size:
+    One signal, vetoed by a contradicting floor, building or size:
 
     ``text``
         The ad body is all but identical — a repost with a line edited, which
-        the exact fingerprint misses.
-    ``facts``
-        Same project, same price, same bedroom count. This is what catches
-        one flat listed by several agents, who each write their own text.
-        Both the project name and the price are matched with the slack that
-        such ads actually carry — see :func:`_same_project` and
-        :func:`_price_matches`.
+        the exact fingerprint misses. Only ads long enough to say something
+        of their own qualify; see ``_TEXT_MATCH_MIN_WORDS``.
+
+    There used to be a second, ``facts``: same project, same price, same
+    bedroom count, meant to catch one flat handed to several agents. It is
+    gone, and :func:`_same_project` with :func:`_price_matches` now serve
+    only the shortlist in :func:`_candidate_score`. What it actually merged
+    on 27 August was three different houses in Phanason Grandville Bangjo —
+    a moobaan of hundreds of identical 3-bedroom units all asking 30 000,
+    where no ad names a floor, a building letter or a size, so ``_contradicts``
+    had nothing to veto with. Worse, it merged them transitively: "Panason
+    Grand" ↔ "Panason Grand Bang Jo" by the subset rule, "Panason Grand Bang
+    Jo" ↔ "Phanason Grandville Bangjo" at ratio 0.851 against a 0.85
+    threshold — while the two ends match each other at 0.667 and would never
+    have paired. A housing estate is the condo trap the price tolerance was
+    written around, not the exception to it.
+
+    The pair is still offered, just never merged unasked: ``dedupe <fb_id>``
+    prints it as a candidate with the ``--into`` that merges it. A duplicate
+    left standing is a row you see and press ``d`` on; a false merge deletes
+    a row silently. Photos and the exact fingerprint are the signals that
+    identify a flat rather than describe it — see ``docs/dedupe.md``.
     """
     if _contradicts(a, b):
         return None
 
     union = a["words"] | b["words"]
-    if union:
+    if union and min(len(a["words"]), len(b["words"])) >= _TEXT_MATCH_MIN_WORDS:
         overlap = len(a["words"] & b["words"]) / len(union)
         if overlap >= _TEXT_MATCH_RATIO:
             return "text"
-
-    if (
-        a["project"]
-        and b["project"]
-        and _price_matches(a, b)
-        and a["bedrooms"] is not None
-        and a["bedrooms"] == b["bedrooms"]
-        and _same_project(a["project"], b["project"])
-    ):
-        return "facts"
 
     return None
 
@@ -724,9 +737,8 @@ def _group_duplicates(
     Every signal but ``exact`` is vetoed against the whole group, not just
     against the listing it paired with. A union is transitive and
     ``_contradicts`` is not: an ad that names neither floor nor building
-    contradicts nobody, so in a new complex where dozens of identical
-    one-bedrooms rent at the same price it matches every one of them on
-    ``facts`` and chains building A to building C through itself. Checking
+    contradicts nobody, so it can pair with two listings that contradict
+    each other and chain building A to building C through itself. Checking
     the newcomer against every member keeps a group internally consistent,
     which is what "one flat" means. ``exact`` skips the veto: a byte-identical
     ad body is the same text, whatever the two copies claim about the floor.
@@ -871,10 +883,10 @@ def dedupe_listings(
     analyses and are remembered in ``duplicates``, which is what stops the
     next scrape from fetching them again.
 
-    With ``fuzzy`` (the default) the near-duplicate rules in
-    :func:`same_property` run too, which is what merges one flat advertised
-    by several agents. They read the AI's extracted fields, so a listing
-    only joins such a group once it has been analysed.
+    With ``fuzzy`` (the default) the near-identical text rule in
+    :func:`same_property` runs too, which is what catches a repost with a
+    line edited. Its veto reads the AI's extracted fields, so a listing only
+    joins such a group once it has been analysed.
     """
     ts = now or _now_iso()
     items = _load_for_dedupe(conn)

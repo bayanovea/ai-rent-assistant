@@ -1342,6 +1342,17 @@ def _analysed(conn, fb_id: str, body: str, price: int, data_quality="good", **fi
     return listing
 
 
+# Длинное объявление: сигнал `text` не смотрит на тексты короче
+# ``_TEXT_MATCH_MIN_WORDS``, поэтому `_AD` для него уже не годится.
+_LONG_AD = (
+    "🔥 Condo for rent near Central Phuket, 1 bedroom, fully furnished, "
+    "pool and gym, 12-month contract, contact us for a viewing. "
+    "Kitchen with an oven, washing machine, two air conditioners, "
+    "covered parking, keycard access, security around the clock, "
+    "shuttle bus to Patong beach every hour, deposit two months."
+)
+_LONG_AD_EDITED = _LONG_AD + " Call today"
+
 _AD_B = (
     "Rent this bright one bedroom flat in the same project, walking distance "
     "to the mall, washing machine and a balcony, viewing any day"
@@ -1366,15 +1377,15 @@ def test_dedupe_one_merges_the_row_into_the_copy_you_already_decided_on(conn):
     # «Это я уже видел» с точки зрения таблицы: строка под курсором ещё в
     # «Разобрать», а её копия лежит в Shortlist — выжить должна копия с
     # решением, иначе вердикт уходит вместе со строкой.
-    _analysed(conn, "seen", _AD, 17000, project_name="Phanason Green Place",
+    _analysed(conn, "seen", _LONG_AD, 17000, project_name="Phanason Green Place",
               bedrooms=1, size_sqm=48)
-    _analysed(conn, "cursor", _AD_B, 17000, project_name="Panason Green Place",
-              bedrooms=1, size_sqm=49)
+    _analysed(conn, "cursor", _LONG_AD_EDITED, 17000,
+              project_name="Panason Green Place", bedrooms=1, size_sqm=49)
     _decided(conn, "seen")
 
     result = storage.dedupe_one(conn, "cursor", dry_run=True)
     assert (result.canonical, result.removed, result.reason) == (
-        "seen", ["cursor"], "facts"
+        "seen", ["cursor"], "text"
     )
     assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 2
 
@@ -1390,17 +1401,17 @@ def test_dedupe_one_ignores_the_group_veto_the_whole_base_pass_obeys(conn):
     # проверяется против всей группы: «cursor» и «seen» — одна квартира, но
     # «third» с другим этажом уже в группе, и пару она разводит. По строке
     # группа — это то, на что показали вы, и третьего в ней нет.
-    _analysed(conn, "a-cursor", _AD, 17000, project_name="Phanason Green Place",
-              bedrooms=1)
-    _analysed(conn, "b-third", _AD_C + " on the 5th floor", 17000,
+    _analysed(conn, "a-cursor", _LONG_AD, 17000,
               project_name="Phanason Green Place", bedrooms=1)
-    _analysed(conn, "c-seen", _AD_B + " on the 8th floor", 17000,
+    _analysed(conn, "b-third", _LONG_AD_EDITED + " 5th floor", 17000,
+              project_name="Phanason Green Place", bedrooms=1)
+    _analysed(conn, "c-seen", _LONG_AD + " 8th floor", 17000,
               project_name="Phanason Green Place", bedrooms=1)
     _decided(conn, "c-seen")
 
     # Авто-проход дотягивается только до «third» — «seen» остаётся строкой.
     assert storage.dedupe_listings(conn, dry_run=True) == [
-        {"canonical": "b-third", "removed": ["a-cursor"], "reason": "facts"}
+        {"canonical": "b-third", "removed": ["a-cursor"], "reason": "text"}
     ]
 
     result = storage.dedupe_one(conn, "a-cursor", dry_run=True)
@@ -1460,31 +1471,50 @@ def test_dedupe_one_refuses_an_id_that_is_not_in_the_table(conn):
         storage.dedupe_one(conn, "cursor", into="cursor")
 
 
-def test_same_flat_from_two_agents_collapses(conn):
-    # Different agents write their own text, so the exact fingerprint misses
-    # them; project + price + bedrooms is what identifies the flat.
-    _analysed(conn, "agent-a", _AD, 17000, project_name="Phanason Green Place",
-              bedrooms=1, size_sqm=48)
-    _analysed(conn, "agent-b", _AD_B, 17000, project_name="Panason Green Place",
-              bedrooms=1, size_sqm=50)
+def test_two_agents_writing_their_own_text_are_not_merged_unasked(conn):
+    # Раньше это была склейка по `facts`: тот же проект, та же цена, столько
+    # же спален. Ровно так 27 августа в одну строку ушли три разных дома в
+    # Phanason Grandville Bangjo — мубан на сотни одинаковых трёхспальных
+    # домов по 30 000, где ни одно объявление не называет ни этажа, ни
+    # корпуса, ни площади, так что вето было нечем поднять. Теперь пара
+    # остаётся стоять, а команда предлагает её глазами.
+    _analysed(conn, "agent-a", _AD, 30000, project_name="Panason Grand",
+              bedrooms=3, property_type="house")
+    _analysed(conn, "agent-b", _AD_B, 30000, project_name="Panason Grand Bang Jo",
+              bedrooms=3, property_type="house")
+
+    assert storage.dedupe_listings(conn, dry_run=True) == []
     assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 2
 
-    collapsed = storage.dedupe_listings(conn)
-    assert len(collapsed) == 1
-    assert collapsed[0]["reason"] == "facts"
-    assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 1
-    assert storage.duplicate_fb_ids(conn) == {collapsed[0]["removed"][0]}
+    result = storage.dedupe_one(conn, "agent-a")
+    assert (result.canonical, result.removed) == (None, [])
+    assert [c["fb_id"] for c in result.candidates] == ["agent-b"]
+
+
+def test_a_third_listing_no_longer_chains_two_project_spellings(conn):
+    # Транзитивность и была тем, что довело склейку до трёх строк: крайние
+    # написания не совпадают друг с другом (0.667), но среднее совпадает с
+    # обоими и сшивает их через себя.
+    for fb_id, project in (
+        ("a", "Panason Grand"),
+        ("b", "Panason Grand Bang Jo"),
+        ("c", "Phanason Grandville Bangjo"),
+    ):
+        _analysed(conn, fb_id, f"{_AD} {fb_id}", 30000, project_name=project,
+                  bedrooms=3, property_type="house")
+
+    assert storage.dedupe_listings(conn, dry_run=True) == []
 
 
 def test_an_ad_naming_no_floor_does_not_chain_two_floors_together(conn):
     # The trap the group-wide veto exists for: the silent ad contradicts
-    # nobody, so on `facts` alone it matches both stacked flats and would
-    # drag floor 2 and floor 8 into one row through itself.
-    _analysed(conn, "floor-2", _AD + " Building B, 2nd Floor", 20000,
+    # nobody, so it matches both stacked flats and would drag floor 2 and
+    # floor 8 into one row through itself.
+    _analysed(conn, "floor-2", _LONG_AD + " 2nd floor", 20000,
               project_name="The Base Bukit", bedrooms=1)
-    _analysed(conn, "floor-8", _AD_B + " Building B, 8th Floor", 20000,
+    _analysed(conn, "floor-8", _LONG_AD + " 8th floor", 20000,
               project_name="The Base Bukit", bedrooms=1)
-    _analysed(conn, "silent", _AD_C, 20000,
+    _analysed(conn, "silent", _LONG_AD, 20000,
               project_name="The Base Bukit", bedrooms=1)
 
     collapsed = storage.dedupe_listings(conn, dry_run=True)
@@ -1495,75 +1525,84 @@ def test_an_ad_naming_no_floor_does_not_chain_two_floors_together(conn):
 
 
 def test_different_floors_of_one_project_stay_apart(conn):
-    # Same project, same price, same size — but the ads name different
-    # floors, so they are two flats.
-    _analysed(conn, "floor-2", _AD + " Building B, 2nd Floor", 15000,
+    # Тот же текст с точностью до этажа — и всё же две квартиры.
+    _analysed(conn, "floor-2", _LONG_AD + " 2nd Floor", 15000,
               project_name="D Condo Reef", bedrooms=1, size_sqm=28)
-    _analysed(conn, "floor-1", _AD_B + " Building B, 1st Floor", 15000,
+    _analysed(conn, "floor-1", _LONG_AD + " 1st Floor", 15000,
               project_name="D Condo Reef", bedrooms=1, size_sqm=28)
 
     assert storage.dedupe_listings(conn, dry_run=True) == []
 
 
 def test_different_buildings_of_one_project_stay_apart(conn):
-    _analysed(conn, "bld-a", _AD + " Building A", 15000,
+    _analysed(conn, "bld-a", _LONG_AD + " Building A", 15000,
               project_name="The Origin", bedrooms=1)
-    _analysed(conn, "bld-b", _AD + " Building B", 15000,
+    _analysed(conn, "bld-b", _LONG_AD + " Building B", 15000,
               project_name="The Origin", bedrooms=1)
 
     assert storage.dedupe_listings(conn, dry_run=True) == []
 
 
-def test_same_project_at_a_different_price_stays_apart(conn):
-    _analysed(conn, "cheap", _AD, 15000, project_name="The Base Downtown", bedrooms=1)
-    _analysed(conn, "pricey", _AD_B, 16000, project_name="The Base Downtown", bedrooms=1)
+def test_sizes_far_apart_stay_apart_however_alike_the_text(conn):
+    _analysed(conn, "small", _LONG_AD, 15000, project_name="The Origin",
+              bedrooms=1, size_sqm=28)
+    _analysed(conn, "large", _LONG_AD_EDITED, 15000, project_name="The Origin",
+              bedrooms=1, size_sqm=64)
 
     assert storage.dedupe_listings(conn, dry_run=True) == []
 
 
-def test_a_trailing_word_in_the_project_name_still_matches(conn):
-    # One agent writes the estate's full name, the other trims it. The ratio
-    # alone drops to 0.82 on that suffix, below the threshold.
+def test_a_short_ad_never_matches_on_text(conn):
+    # Порог 0.9 на двадцатисловном объявлении допускает одно расхождение, а
+    # самые короткие объявления в базе — это шаблон агентства, у которого
+    # своего только код. Ниже `_TEXT_MATCH_MIN_WORDS` сигнал молчит.
+    _analysed(conn, "card-a", "Vacant house for rent Dao Rung Villa CLS963 "
+              "empty house 3 bedroom 2 bathroom", 28000,
+              project_name="Dao Rung Villa", bedrooms=3, property_type="house")
+    _analysed(conn, "card-b", "Vacant house for rent Dao Rung Villa CLS964 "
+              "empty house 3 bedroom 2 bathroom", 28000,
+              project_name="Dao Rung Villa", bedrooms=3, property_type="house")
+
+    assert storage.dedupe_listings(conn, dry_run=True) == []
+
+
+def test_a_trailing_word_in_the_project_name_still_reaches_the_shortlist(conn):
+    # `_same_project` больше ничего не сливает, но список кандидатов под `d`
+    # держится на нём: один агент пишет полное имя посёлка, другой обрезает.
     _analysed(conn, "long", _AD, 26000, project_name="Pruksa Ville Thalang Hillside",
               bedrooms=3, property_type="house")
     _analysed(conn, "short", _AD_B, 26000, project_name="Pruksa Ville Thalang",
               bedrooms=3, property_type="house")
 
-    collapsed = storage.dedupe_listings(conn, dry_run=True)
-    assert len(collapsed) == 1
-    assert collapsed[0]["reason"] == "facts"
+    result = storage.dedupe_one(conn, "long", dry_run=True)
+    assert (result.canonical, result.removed) == (None, [])
+    assert [c["fb_id"] for c in result.candidates] == ["short"]
+    assert "тот же проект" in result.candidates[0]["why"]
 
 
-def test_one_house_priced_a_thousand_apart_collapses(conn):
-    # Each agent adds his own margin to the same house.
+def test_one_house_priced_a_thousand_apart_reaches_the_shortlist(conn):
+    # Каждый агент добавляет к одному дому свою маржу — допуск живёт дальше,
+    # в оценке кандидатов.
     _analysed(conn, "cheap", _AD, 25000, project_name="Pruksa Ville Thalang",
               bedrooms=3, property_type="house")
     _analysed(conn, "pricey", _AD_B, 26000, project_name="Pruksa Ville Thalang",
               bedrooms=3, property_type="house")
 
-    collapsed = storage.dedupe_listings(conn, dry_run=True)
-    assert len(collapsed) == 1
-    assert collapsed[0]["reason"] == "facts"
+    result = storage.dedupe_one(conn, "cheap", dry_run=True)
+    assert (result.canonical, result.removed) == (None, [])
+    assert "та же цена" in result.candidates[0]["why"]
 
 
-def test_two_condo_units_priced_a_thousand_apart_stay_apart(conn):
-    # The same slack inside a condo project would merge two different units,
-    # so it is not granted there.
+def test_two_condo_units_priced_a_thousand_apart_are_not_the_same_price(conn):
+    # Внутри кондо тот же допуск свёл бы два разных юнита, поэтому там его нет
+    # — и в оценке кандидатов тоже.
     _analysed(conn, "unit-a", _AD, 15000, project_name="The Base Downtown",
               bedrooms=1, property_type="condo")
     _analysed(conn, "unit-b", _AD_B, 16000, project_name="The Base Downtown",
               bedrooms=1, property_type="condo")
 
-    assert storage.dedupe_listings(conn, dry_run=True) == []
-
-
-def test_houses_priced_far_apart_stay_apart(conn):
-    _analysed(conn, "cheap", _AD, 25000, project_name="Pruksa Ville Thalang",
-              bedrooms=3, property_type="house")
-    _analysed(conn, "pricey", _AD_B, 27000, project_name="Pruksa Ville Thalang",
-              bedrooms=3, property_type="house")
-
-    assert storage.dedupe_listings(conn, dry_run=True) == []
+    result = storage.dedupe_one(conn, "unit-a", dry_run=True)
+    assert "та же цена" not in result.candidates[0]["why"]
 
 
 def test_sidebar_noise_never_matches_on_text(conn):
@@ -1572,7 +1611,9 @@ def test_sidebar_noise_never_matches_on_text(conn):
     # would read 100% alike and collapse into one.
     sidebar = (
         "Выбор дня Пхукет 40 км Недавно опубликовано 12 000 ฿ 1 Bed 1 Bath "
-        "Apartment Sale Rent Phuket Property MacBook Air 2015 Phuket Market"
+        "Apartment Sale Rent Phuket Property MacBook Air 2015 Phuket Market "
+        "Транспортные средства Аренда недвижимости Бесплатные предложения "
+        "Игрушки и игры Музыкальные инструменты Обустройство дома Объявления"
     )
     _analysed(conn, "house", sidebar, 28000, data_quality="sidebar_noise",
               project_name="Chaofa Villa", bedrooms=3, property_type="house")
@@ -1584,11 +1625,14 @@ def test_sidebar_noise_never_matches_on_text(conn):
 
 def test_a_readable_ad_still_matches_on_text(conn):
     # The guard is about bad data, not about the text rule itself.
-    _analysed(conn, "a", _AD, 17000, project_name="Phanason Green Place", bedrooms=1)
-    _analysed(conn, "b", _AD + " Call today", 17000,
+    _analysed(conn, "a", _LONG_AD, 17000, project_name="Phanason Green Place",
+              bedrooms=1)
+    _analysed(conn, "b", _LONG_AD_EDITED, 17000,
               project_name="Phanason Green Place", bedrooms=1)
 
-    assert len(storage.dedupe_listings(conn, dry_run=True)) == 1
+    collapsed = storage.dedupe_listings(conn, dry_run=True)
+    assert len(collapsed) == 1
+    assert collapsed[0]["reason"] == "text"
 
 
 def test_an_unrelated_project_sharing_a_word_stays_apart(conn):
@@ -1600,11 +1644,14 @@ def test_an_unrelated_project_sharing_a_word_stays_apart(conn):
               bedrooms=3, property_type="house")
 
     assert storage.dedupe_listings(conn, dry_run=True) == []
+    assert storage.dedupe_one(conn, "a", dry_run=True).candidates == []
 
 
 def test_exact_only_skips_the_near_duplicate_rules(conn):
-    _analysed(conn, "agent-a", _AD, 17000, project_name="Phanason Green Place", bedrooms=1)
-    _analysed(conn, "agent-b", _AD_B, 17000, project_name="Phanason Green Place", bedrooms=1)
+    _analysed(conn, "agent-a", _LONG_AD, 17000,
+              project_name="Phanason Green Place", bedrooms=1)
+    _analysed(conn, "agent-b", _LONG_AD_EDITED, 17000,
+              project_name="Phanason Green Place", bedrooms=1)
 
     assert storage.dedupe_listings(conn, dry_run=True, fuzzy=False) == []
     assert len(storage.dedupe_listings(conn, dry_run=True, fuzzy=True)) == 1
@@ -1613,8 +1660,10 @@ def test_exact_only_skips_the_near_duplicate_rules(conn):
 def test_a_collapsed_listing_cannot_return_on_the_next_scrape(conn):
     # Its text no longer matches anything — that is the point of the fuzzy
     # rules — so only the `duplicates` record keeps it out.
-    _analysed(conn, "keeper", _AD, 17000, project_name="Phanason Green Place", bedrooms=1)
-    _analysed(conn, "merged", _AD_B, 17000, project_name="Panason Green Place", bedrooms=1)
+    _analysed(conn, "keeper", _LONG_AD, 17000,
+              project_name="Phanason Green Place", bedrooms=1)
+    _analysed(conn, "merged", _LONG_AD_EDITED, 17000,
+              project_name="Panason Green Place", bedrooms=1)
     storage.dedupe_listings(conn)
     gone = storage.duplicate_fb_ids(conn).pop()
 
@@ -1626,8 +1675,8 @@ def test_a_collapsed_listing_cannot_return_on_the_next_scrape(conn):
 def test_dedupe_keeps_the_copy_with_the_fullest_ad_text(conn):
     # Neither is decided on or analysed differently, so the longer ad wins:
     # it is the one worth reading.
-    _analysed(conn, "terse", _AD, 17000, project_name="Zcape", bedrooms=1)
-    _analysed(conn, "detailed", _AD_B + " " + _AD_B, 17000,
+    _analysed(conn, "terse", _LONG_AD, 17000, project_name="Zcape", bedrooms=1)
+    _analysed(conn, "detailed", _LONG_AD_EDITED + " " + _LONG_AD_EDITED, 17000,
               project_name="Zcape", bedrooms=1)
 
     collapsed = storage.dedupe_listings(conn, dry_run=True)
