@@ -351,3 +351,51 @@ def scrape_detail(
         }
     finally:
         page.close()
+
+
+def check_listing_alive(context: "BrowserContext", url: str) -> bool | None:
+    """Tri-state liveness check: does not read or write a single field.
+
+    ``scrape_detail`` collapses "FB says this ad is gone" and "the page just
+    didn't load" into the same ``None`` — fine for a scrape, where the
+    caller's fallback is the list-card row either way, but wrong for a
+    liveness check: a timeout is not evidence the listing was pulled, and
+    auto-rejecting on it would take down a live ad because of a slow load.
+    This mirrors ``scrape_detail``'s navigation and only ever returns
+    ``False`` where it does — behind an actual ``_detect_unavailable`` match
+    on the rendered body text. Everything else that isn't a confirmed "still
+    there" comes back ``None``: inconclusive, try again later, never acted on.
+    """
+    page = context.new_page()
+    try:
+        try:
+            page.goto(
+                url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT_MS
+            )
+        except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
+            if _safe_login_redirect(page):
+                raise LoginRequiredError(
+                    "Facebook redirected to login. Run `fb-rent login` and retry."
+                ) from exc
+            return None
+
+        if _detect_login_redirect(page):
+            raise LoginRequiredError(
+                "Facebook redirected to login. Run `fb-rent login` and retry."
+            )
+
+        if _detect_unavailable(page):
+            return False
+
+        try:
+            page.wait_for_selector('div[role="main"]', timeout=CONTENT_TIMEOUT_MS)
+        except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
+            if _detect_login_redirect(page):
+                raise LoginRequiredError(
+                    "Facebook redirected to login. Run `fb-rent login` and retry."
+                ) from exc
+            return False if _detect_unavailable(page) else None
+
+        return False if _detect_unavailable(page) else True
+    finally:
+        page.close()

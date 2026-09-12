@@ -59,7 +59,7 @@ from .extractors import (
     extract_property_type,
     parse_price,
 )
-from .scraper_detail import scrape_detail
+from .scraper_detail import check_listing_alive, scrape_detail
 from .scraper_list import scrape_list
 from .storage import (
     dedupe_listings,
@@ -67,6 +67,7 @@ from .storage import (
     duplicate_fb_ids,
     export_csv,
     export_html,
+    fetch_enriched,
     fetch_pending,
     fetch_pending_buildings,
     fetch_pending_photos,
@@ -2092,6 +2093,125 @@ def _record_decision(
     suffix = f" — {entry['reason']}" if entry.get("reason") else ""
     click.echo(f"{fb_id}: {status}{mark}{suffix}")
     click.echo(f"Saved to {config.DECISIONS_PATH}. Run `fb-rent export` to refresh the table.")
+
+
+@main.command("check-alive")
+@click.option(
+    "--status",
+    "statuses",
+    multiple=True,
+    default=("shortlist", "longlist"),
+    show_default=True,
+    help="Only check listings currently in these tabs (repeatable).",
+)
+@click.option(
+    "--apply",
+    "do_apply",
+    is_flag=True,
+    default=False,
+    help="Reject listings FB confirms are gone (default: report only).",
+)
+@click.option(
+    "--reason",
+    default="снято с публикации",
+    show_default=True,
+    help="Reason recorded on the auto-reject.",
+)
+def check_alive_cmd(statuses: tuple[str, ...], do_apply: bool, reason: str) -> None:
+    """Re-visit shortlist/longlist listings and flag ones FB no longer serves.
+
+    This is a liveness probe, not a re-scrape: it never writes a stored
+    field, only (with ``--apply``) a rejection decision — `scrape --ids`
+    is the wrong tool here because a dead page's re-read can overwrite the
+    description and gallery of a *different* listing. A page that times out
+    or half-renders is left alone: only an actual "content isn't available"
+    match from FB counts as discontinued.
+    """
+    wanted = set(statuses)
+    conn = _open_db()
+    try:
+        rows = [r for r in fetch_enriched(conn) if r["status"] in wanted]
+    finally:
+        conn.close()
+
+    if not rows:
+        click.echo(f"Nothing to check in {', '.join(sorted(wanted))}.")
+        return
+
+    click.echo(f"Checking {len(rows)} listing(s) in {', '.join(sorted(wanted))}...")
+
+    playwright = start_playwright()
+    context = None
+    dead: list[tuple[str, str]] = []
+    inconclusive: list[str] = []
+    try:
+        try:
+            context = launch_persistent(playwright, headless=True)
+        except Exception as exc:  # noqa: BLE001 — surface a friendly error
+            _echo_err(f"Failed to launch browser: {exc}")
+            sys.exit(2)
+
+        if not is_logged_in(context):
+            _echo_err("No active Facebook session. Run `fb-rent login` first.")
+            sys.exit(3)
+
+        for idx, row in enumerate(rows):
+            fb_id = str(row["fb_id"])
+            url = row.get("url") or marketplace_url(fb_id)
+            title = row.get("title") or fb_id
+            if idx:
+                time.sleep(
+                    random.uniform(
+                        config.DETAIL_DELAY_MIN_SEC, config.DETAIL_DELAY_MAX_SEC
+                    )
+                )
+            try:
+                alive = check_listing_alive(context, url)
+            except LoginRequiredError as exc:
+                _echo_err(str(exc))
+                _echo_err(
+                    f"Stopped after {idx} of {len(rows)} — run `fb-rent login` "
+                    "and retry for the rest."
+                )
+                break
+            if alive is False:
+                dead.append((fb_id, title))
+                click.echo(f"  [{idx + 1}/{len(rows)}] gone: {title} ({fb_id})")
+            elif alive is None:
+                inconclusive.append(fb_id)
+                click.echo(f"  [{idx + 1}/{len(rows)}] inconclusive: {title} ({fb_id})")
+            else:
+                click.echo(f"  [{idx + 1}/{len(rows)}] alive: {title} ({fb_id})")
+    finally:
+        if context is not None:
+            context.close()
+        playwright.stop()
+
+    checked = len(dead) + len(inconclusive)
+    click.echo(
+        f"\n{len(dead)} confirmed gone, {len(inconclusive)} inconclusive "
+        f"(left untouched), {len(rows) - checked} still alive."
+    )
+
+    if not dead:
+        return
+
+    if not do_apply:
+        click.echo("Dry run — rerun with --apply to auto-reject these:")
+        for fb_id, title in dead:
+            click.echo(f"  - {fb_id}: {title}")
+        return
+
+    conn = _open_db()
+    try:
+        for fb_id, _title in dead:
+            decisions.save_decision(None, fb_id, "rejected", reason)
+        _sync_decisions(conn)
+    finally:
+        conn.close()
+    click.echo(
+        f"Auto-rejected {len(dead)} listing(s). Run `fb-rent export` to refresh the table."
+    )
 
 
 @main.command("reject")
