@@ -100,6 +100,66 @@ def _detect_unavailable(page: "Page") -> bool:
     return any(pat in body_text for pat in _UNAVAILABLE_PATTERNS)
 
 
+# Measured 2026-09-13: two listings whose `/marketplace/item/<id>/` URL
+# loaded a normal-looking page anyway — no "content isn't available" text —
+# because FB had already bounced the navigation to the category browse page
+# with this marker instead of rendering a removal wall on the item URL
+# itself. `page.url` after `goto` is the *final* URL, so this is a plain
+# substring check, no locale involved.
+_UNAVAILABLE_REDIRECT_MARKER = "unavailable_product="
+
+
+def _detect_redirected_away(page: "Page") -> bool:
+    return _UNAVAILABLE_REDIRECT_MARKER in page.url
+
+
+# The other gap from the same day: a listing the seller marked "rented" /
+# "sold" without deleting it keeps rendering its own page normally, with a
+# short status badge next to the title — none of `_UNAVAILABLE_PATTERNS`
+# fire because the page isn't a removal wall. The wording is locale-bound
+# like everything else FB renders (this account is Russian-language), so
+# match loosely and extend as new locales turn up.
+_MARKED_UNAVAILABLE_BADGES = ("сдано в аренду", "продано", "rented", "sold")
+
+
+def _detect_marked_unavailable(page: "Page") -> bool:
+    """A "rented"/"sold" badge on *this* listing, not on a sidebar card.
+
+    Recommendation cards ("Выбор дня") carry the same badge for someone
+    else's listing and are wrapped in `a[href*="/marketplace/item/"]` —
+    the exact signal `extract_gallery_urls` already uses to tell this
+    listing's own gallery from a suggestion's. A badge outside any such
+    link is this listing's own.
+    """
+    try:
+        for phrase in _MARKED_UNAVAILABLE_BADGES:
+            matches = page.get_by_text(phrase, exact=False)
+            for i in range(matches.count()):
+                try:
+                    inside_item_link = matches.nth(i).evaluate(
+                        "e => { let n = e; while (n) { "
+                        "if (n.tagName === 'A' && (n.getAttribute('href') || '')"
+                        ".includes('/marketplace/item/')) return true; "
+                        "n = n.parentElement; } return false; }"
+                    )
+                except Exception:  # noqa: BLE001 — element may be stale
+                    continue
+                if not inside_item_link:
+                    return True
+    except Exception:  # noqa: BLE001 — page may not be ready
+        return False
+    return False
+
+
+def _is_gone(page: "Page") -> bool:
+    """Every way FB tells us this listing is no longer up, combined."""
+    return (
+        _detect_redirected_away(page)
+        or _detect_unavailable(page)
+        or _detect_marked_unavailable(page)
+    )
+
+
 def _try_expand_description(page: "Page") -> None:
     """Click FB's "See more" button on the description, if present.
 
@@ -316,13 +376,13 @@ def scrape_detail(
                 raise LoginRequiredError(
                     "Facebook redirected to login. Run `fb-rent login` and retry."
                 ) from exc
-            if _detect_unavailable(page):
+            if _is_gone(page):
                 return None
             # Main region never rendered — treat as unavailable rather
             # than crashing the whole scrape run.
             return None
 
-        if _detect_unavailable(page):
+        if _is_gone(page):
             return None
 
         _try_expand_description(page)
@@ -362,9 +422,12 @@ def check_listing_alive(context: "BrowserContext", url: str) -> bool | None:
     liveness check: a timeout is not evidence the listing was pulled, and
     auto-rejecting on it would take down a live ad because of a slow load.
     This mirrors ``scrape_detail``'s navigation and only ever returns
-    ``False`` where it does — behind an actual ``_detect_unavailable`` match
-    on the rendered body text. Everything else that isn't a confirmed "still
-    there" comes back ``None``: inconclusive, try again later, never acted on.
+    ``False`` where ``_is_gone`` fires: a "content isn't available" wall, a
+    redirect to the category page with ``unavailable_product=1`` (the item
+    page can render fine and still bounce there), or a "rented"/"sold" badge
+    on the listing's own page — the seller closed the ad without FB pulling
+    it. Everything else that isn't a confirmed "still there" comes back
+    ``None``: inconclusive, try again later, never acted on.
     """
     page = context.new_page()
     try:
@@ -384,7 +447,7 @@ def check_listing_alive(context: "BrowserContext", url: str) -> bool | None:
                 "Facebook redirected to login. Run `fb-rent login` and retry."
             )
 
-        if _detect_unavailable(page):
+        if _is_gone(page):
             return False
 
         try:
@@ -394,8 +457,8 @@ def check_listing_alive(context: "BrowserContext", url: str) -> bool | None:
                 raise LoginRequiredError(
                     "Facebook redirected to login. Run `fb-rent login` and retry."
                 ) from exc
-            return False if _detect_unavailable(page) else None
+            return False if _is_gone(page) else None
 
-        return False if _detect_unavailable(page) else True
+        return False if _is_gone(page) else True
     finally:
         page.close()

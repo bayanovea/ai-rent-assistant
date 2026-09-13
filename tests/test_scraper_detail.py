@@ -80,10 +80,17 @@ def test_a_broken_page_in_the_login_probe_is_not_a_login_redirect():
 class _LiveFakePage(_FakePage):
     """A page that loads, with the body text driving ``_detect_unavailable``."""
 
-    def __init__(self, body_text: str, main_renders: bool = True):
-        super().__init__()
+    def __init__(
+        self,
+        body_text: str,
+        main_renders: bool = True,
+        url: str = "https://www.facebook.com/marketplace/item/1/",
+        badge_texts: tuple[str, ...] = (),
+    ):
+        super().__init__(url=url)
         self.body_text = body_text
         self.main_renders = main_renders
+        self.badge_texts = badge_texts
 
     def goto(self, url, **kwargs):  # noqa: ARG002 — signature parity
         return None
@@ -102,6 +109,25 @@ class _LiveFakePage(_FakePage):
             first = _First()
 
         return _Locator()
+
+    def get_by_text(self, phrase, exact=False):  # noqa: ARG002
+        page = self
+        matched = [t for t in page.badge_texts if phrase.lower() in t["text"].lower()]
+
+        class _Matches:
+            def count(self):
+                return len(matched)
+
+            def nth(self, i):
+                entry = matched[i]
+
+                class _El:
+                    def evaluate(self, script):  # noqa: ARG002
+                        return entry["inside_item_link"]
+
+                return _El()
+
+        return _Matches()
 
     def wait_for_selector(self, selector, timeout=None):  # noqa: ARG002
         if not self.main_renders:
@@ -137,3 +163,35 @@ def test_check_listing_alive_raises_on_goto_timeout_to_login():
     page = _FakePage(url="https://www.facebook.com/login/?next=%2Fmarketplace")
     with pytest.raises(LoginRequiredError):
         check_listing_alive(_FakeContext(page), "https://example.invalid/item/1/")
+
+
+def test_check_listing_alive_false_when_redirected_to_the_unavailable_marker():
+    """2026-09-13: two real listings loaded fine text-wise but had already
+    been bounced to the category browse page with this query param — no
+    ``_UNAVAILABLE_PATTERNS`` text ever appears on that page."""
+    page = _LiveFakePage(
+        body_text="Marketplace\nАренда недвижимости\n...",
+        url="https://www.facebook.com/marketplace/110729412288885/?unavailable_product=1",
+    )
+    assert check_listing_alive(_FakeContext(page), "https://example.invalid/item/1/") is False
+
+
+def test_check_listing_alive_false_for_a_rented_badge_on_the_listing_itself():
+    """2026-09-13: a listing marked "Сдано в аренду" by the seller renders
+    completely normally otherwise — the badge is the only signal."""
+    page = _LiveFakePage(
+        body_text="normal page",
+        badge_texts=({"text": "Сдано в аренду", "inside_item_link": False},),
+    )
+    assert check_listing_alive(_FakeContext(page), "https://example.invalid/item/1/") is False
+
+
+def test_check_listing_alive_ignores_a_rented_badge_on_a_sidebar_card():
+    """The same badge on a "Выбор дня" recommendation card is about a
+    different listing, wrapped in its own item link — must not flip this
+    listing to gone."""
+    page = _LiveFakePage(
+        body_text="normal page",
+        badge_texts=({"text": "Сдано в аренду", "inside_item_link": True},),
+    )
+    assert check_listing_alive(_FakeContext(page), "https://example.invalid/item/1/") is True
