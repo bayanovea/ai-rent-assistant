@@ -128,6 +128,12 @@ def build_batch(
                 "description": _clean_description(listing, text_lines),
                 "text_lines": text_lines,
                 "source_hash": source,
+                # marketplace / group:<slug> — a group post's text_lines
+                # carries none of the "Описание" markers `description` is
+                # sliced by, so the model needs to know when `description`
+                # is the whole structural extraction rather than a cut of
+                # `text_lines`.
+                "source": listing.get("source"),
             }
         )
 

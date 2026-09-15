@@ -94,6 +94,22 @@ def test_build_batch_carries_registry_and_requirements(conn, registry):
     assert item["source_hash"]
 
 
+def test_build_batch_carries_the_listing_source(conn, registry):
+    _add_listing(conn, "1")
+    _add_listing(
+        conn,
+        "2",
+        url="https://www.facebook.com/groups/phuketrentsale/posts/2/",
+        source="group:phuketrentsale",
+    )
+
+    batch = ai_batch.build_batch(conn, registry, "")
+    by_id = {item["fb_id"]: item for item in batch["items"]}
+
+    assert by_id["1"]["source"] == "marketplace"
+    assert by_id["2"]["source"] == "group:phuketrentsale"
+
+
 def test_build_batch_only_includes_pending(conn, registry):
     _add_listing(conn, "1")
     _add_listing(conn, "2")
