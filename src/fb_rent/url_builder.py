@@ -23,6 +23,21 @@ from fb_rent.config import (
 )
 
 _MARKETPLACE_BASE = "https://www.facebook.com/marketplace"
+_GROUPS_BASE = "https://www.facebook.com/groups"
+
+
+def group_feed_url(group_id: str) -> str:
+    """The group's chronological feed — newest post first, no pagination."""
+    return f"{_GROUPS_BASE}/{group_id}?sorting_setting=CHRONOLOGICAL"
+
+
+def group_post_url(group_id: str, post_id: str) -> str:
+    """The clean, query-free permalink for one post in one group.
+
+    Verified live to survive navigation unchanged and to carry the full
+    post text and gallery — no lightbox or membership wall in the way.
+    """
+    return f"{_GROUPS_BASE}/{group_id}/posts/{post_id}/"
 
 
 def build_marketplace_url(
