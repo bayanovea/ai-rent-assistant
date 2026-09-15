@@ -2045,7 +2045,20 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             )
             item["score"] = rules.score(fields, item.get("district"))
         else:
-            ai_status, ai_reason = "active", None
+            # No AI pass yet, so `fields` is empty — but the scraper's own
+            # heuristics already give `decide` enough to catch the objective
+            # rejects (an absurd price, Patong, an explicit studio) without
+            # waiting for one. `pets` and `size_sqm` only exist once the AI
+            # has read the ad text, so those checks silently no-op here
+            # rather than falsely clearing a listing that just hasn't been
+            # looked at.
+            raw_fields = {
+                "property_type": item.get("property_type"),
+                "bedrooms": item.get("bedrooms"),
+            }
+            ai_status, ai_reason = rules.decide(
+                raw_fields, item.get("price_thb"), None, item.get("district")
+            )
         item["ai_status"] = ai_status
         item["ai_reason"] = ai_reason
 

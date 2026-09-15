@@ -548,6 +548,41 @@ def test_fetch_enriched_marks_unanalysed_listing(conn):
     assert row["status"] == "active"
 
 
+def test_fetch_enriched_rejects_unanalysed_listing_on_price(conn):
+    # No AI pass needed to know 250 000 THB is absurd — the scraper's own
+    # price_thb is already enough, so this must not wait on `analyze`.
+    storage.upsert_listing(conn, _make_listing(price_thb=250_000))
+
+    row = storage.fetch_enriched(conn)[0]
+    assert row["analyzed"] is False
+    assert row["status"] == "rejected"
+    assert row["ai_reason"] == rules.REASON_PRICE
+
+
+def test_fetch_enriched_rejects_unanalysed_listing_in_patong(conn):
+    # FB's own `district` tag is scraped before any AI pass — Patong should
+    # not have to wait for one either.
+    storage.upsert_listing(conn, _make_listing(district="Patong"))
+
+    row = storage.fetch_enriched(conn)[0]
+    assert row["analyzed"] is False
+    assert row["status"] == "rejected"
+    assert row["ai_reason"] == rules.REASON_AREA
+
+
+def test_fetch_enriched_rejects_unanalysed_explicit_studio(conn):
+    # extract_property_type/extract_bedrooms already ran during scrape.
+    storage.upsert_listing(
+        conn, _make_listing(property_type="studio", bedrooms=0)
+    )
+
+    row = storage.fetch_enriched(conn)[0]
+    assert row["analyzed"] is False
+    assert row["status"] == "rejected"
+    assert row["ai_reason"] == rules.REASON_STUDIO
+
+
+
 def test_fetch_enriched_auto_rejects_from_rules(conn):
     storage.upsert_listing(conn, _make_listing())
     storage.upsert_ai_analysis(
