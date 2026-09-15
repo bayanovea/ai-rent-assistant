@@ -77,10 +77,10 @@ can trim the table invisibly.
 **"Кандидаты"** sets three of them at once — the hard part of the letter in
 `config/requirements.md`, which nobody assembles by hand four controls at a
 time: recommendation ∈ {смотреть, спросить}, district rating ≥ 4, price
-≤ 30 000. On the current corpus that is 1122 active rows down to 310. It is a
+≤ 35 000 (the budget's soft ceiling — see `config/requirements.md`). It is a
 preset, not a mode: the filters it sets stay visible and adjustable, and
-dropping the `спросить` chip — the rows where the ad simply never mentioned the
-dog — takes it to 201. Editing any of them turns the button off, because the
+dropping the `спросить` chip narrows further to the rows the ad actually
+recommends. Editing any of them turns the button off, because the
 set on screen is then no longer the preset. One caveat worth knowing: a from/to
 filter excludes empty cells, so rows whose district nobody named fall out of
 the set even though the rules deliberately do not penalise them.

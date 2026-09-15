@@ -33,7 +33,7 @@ regenerate CSV and HTML.
 | `--no-photos`     | off     | Skip downloading listing photos (faster, no photo pass). |
 | `--detail-cap`    | `60`    | Maximum detail pages to open in one run.                 |
 | `--min-price`     | `15000` | Lower bound of the price window, in THB.                 |
-| `--max-price`     | `30000` | Upper bound of the price window, in THB.                 |
+| `--max-price`     | `35000` | Upper bound of the price window, in THB.                 |
 | `--bands`         | `1`     | Split that window into N queries and sweep them all.     |
 | `--category`      | Phuket  | Marketplace category/location id to search.              |
 | `--ids`           | —       | Scrape these `fb_id`s directly, skipping the feed.       |

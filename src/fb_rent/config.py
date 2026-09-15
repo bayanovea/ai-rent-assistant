@@ -24,7 +24,7 @@ REQUIREMENTS_PATH: Path = CONFIG_DIR / "requirements.md"
 
 # Hard budget ceiling: anything above this is auto-rejected by rules.py.
 # The soft target stays DEFAULT_MIN_PRICE..DEFAULT_MAX_PRICE.
-BUDGET_HARD_MAX_THB: int = 35_000
+BUDGET_HARD_MAX_THB: int = 40_000
 
 # Hard floor on living area: anything smaller is auto-rejected by rules.py.
 # An unstated size is not a rejection — only a number below this one is.
@@ -33,7 +33,7 @@ MIN_SIZE_SQM: int = 35
 # Marketplace defaults for the Phuket Property Rentals category.
 DEFAULT_CATEGORY_ID: str = "110729412288885"
 DEFAULT_MIN_PRICE: int = 15_000
-DEFAULT_MAX_PRICE: int = 30_000
+DEFAULT_MAX_PRICE: int = 35_000
 DEFAULT_DAYS_SINCE_LISTED: int = 7
 
 # Scrape run defaults.

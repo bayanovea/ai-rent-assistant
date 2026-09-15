@@ -977,8 +977,8 @@ def test_export_html_photo_fields_reach_the_verdict(conn, tmp_path: Path):
 def test_export_html_prices_coloured_against_budget(conn, tmp_path: Path):
     registry = _registry()
     storage.upsert_listing(conn, _make_listing(fb_id="cheap", price_thb=22000))
-    storage.upsert_listing(conn, _make_listing(fb_id="edge", price_thb=32000))
-    storage.upsert_listing(conn, _make_listing(fb_id="over", price_thb=40000))
+    storage.upsert_listing(conn, _make_listing(fb_id="edge", price_thb=37000))
+    storage.upsert_listing(conn, _make_listing(fb_id="over", price_thb=41000))
 
     out = tmp_path / "rentals.html"
     storage.export_html(conn, out, registry)

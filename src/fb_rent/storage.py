@@ -2593,7 +2593,7 @@ const PRESETS = [
     filters: () => ({
       verdict: { kind: "enum", values: new Set(["смотреть", "спросить"]) },
       area_rating: { kind: "range", min: 4, max: null },
-      price: { kind: "range", min: null, max: 30000 },
+      price: { kind: "range", min: null, max: 35000 },
     }),
   },
   {

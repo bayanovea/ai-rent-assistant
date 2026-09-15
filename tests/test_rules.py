@@ -40,16 +40,16 @@ def test_pets_not_allowed_is_rejected():
 
 
 def test_price_over_hard_budget_is_rejected():
-    status, reason = decide(wrap(pets="allowed"), 35_001)
+    status, reason = decide(wrap(pets="allowed"), 40_001)
     assert (status, reason) == ("rejected", REASON_PRICE)
 
 
 def test_price_at_hard_budget_is_active():
-    assert decide(wrap(pets="allowed"), 35_000) == ("active", None)
+    assert decide(wrap(pets="allowed"), 40_000) == ("active", None)
 
 
 def test_ai_price_is_used_when_listing_has_none():
-    fields = wrap(pets="allowed", price_month_thb=40_000)
+    fields = wrap(pets="allowed", price_month_thb=45_000)
     assert decide(fields, None) == ("rejected", REASON_PRICE)
 
 
@@ -181,9 +181,9 @@ def test_condo_stays_active():
     assert decide(wrap(property_type="condo", bedrooms=1), 25_000) == ("active", None)
 
 
-def test_price_33000_stays_active_but_warns():
-    assert decide(wrap(pets="unclear"), 33_000) == ("active", None)
-    assert cell_class("price_month_thb", 33_000, {"added_in": 1}, 1) == CLASS_WARN
+def test_price_37000_stays_active_but_warns():
+    assert decide(wrap(pets="unclear"), 37_000) == ("active", None)
+    assert cell_class("price_month_thb", 37_000, {"added_in": 1}, 1) == CLASS_WARN
 
 
 def test_sidebar_noise_data_quality_stays_active():
@@ -385,7 +385,7 @@ def test_price_within_budget_is_plain():
 
 
 def test_price_over_hard_budget_is_red():
-    assert cell_class("price_12m_thb", 36_000, {"added_in": 1}, 1) == CLASS_BAD
+    assert cell_class("price_12m_thb", 41_000, {"added_in": 1}, 1) == CLASS_BAD
 
 
 def test_ordinary_field_gets_no_class():
@@ -452,7 +452,7 @@ def test_what_every_survivor_has_earns_nothing():
     assert score(wrap(bedrooms=1)) == score({})
     assert score(wrap(price_month_thb=24_000)) == score({})
     # The stretch above the soft ceiling still costs.
-    assert score(wrap(price_month_thb=33_000)) < score({})
+    assert score(wrap(price_month_thb=37_000)) < score({})
 
 
 def test_amenities_raise_the_score():

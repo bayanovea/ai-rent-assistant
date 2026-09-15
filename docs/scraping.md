@@ -191,7 +191,7 @@ and the selectors in `scraper_list.py` / `scraper_detail.py` need adjusting.
 **Empty `price_thb` / `bedrooms` / `property_type`.**
 The heuristic extractors gave up on that listing; `price_raw` is still there.
 
-**Prices outside 15 000 – 30 000 THB.**
+**Prices outside 15 000 – 35 000 THB.**
 Facebook occasionally leaks results outside its own URL filters. The URL
 builder is doing what it can; filter in the table.
 
