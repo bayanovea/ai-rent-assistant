@@ -42,6 +42,15 @@ DETAIL_REQUEST_CAP: int = 60
 DETAIL_DELAY_MIN_SEC: float = 3.0
 DETAIL_DELAY_MAX_SEC: float = 7.0
 
+# Facebook groups scraped alongside Marketplace, keyed by the slug/id in the
+# group's URL, valued by the short label the export table shows.
+GROUPS: dict[str, str] = {
+    "phuketrentsale": "PhuketRentSale",
+    "Villa.For.Rent.Phuket": "Villa For Rent",
+    "170117323644873": "Phuket Rent",
+}
+GROUP_FEED_MAX_ITEMS: int = 40
+
 # Photo pass budget: how many gallery shots per listing get downloaded, and
 # how much of each one survives the resize. ``None`` means the whole gallery
 # — the pass runs only on listings the user has already kept by hand, so

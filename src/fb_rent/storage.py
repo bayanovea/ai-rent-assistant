@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS listings (
     published_at    TEXT,
     first_seen_at   TEXT NOT NULL,
     last_seen_at    TEXT NOT NULL,
-    raw_json        TEXT
+    raw_json        TEXT,
+    source          TEXT
 );
 """
 
@@ -154,8 +155,27 @@ _CONTENT_KEY_MIN_CHARS = 60
 
 
 def marketplace_url(fb_id: str) -> str:
-    """The canonical listing URL for an id, in the shape the scraper stores."""
+    """The canonical listing URL for an id, in the shape the scraper stores.
+
+    Marketplace-only: a group post's ``fb_id`` is a Facebook post id, not a
+    marketplace item id, and this would build a dead link for one. Every
+    caller only reaches this as a fallback for a missing ``url``, and
+    ``listings.url`` is ``NOT NULL`` — group rows carry their own permalink
+    and never fall through to here. The two ids share Facebook's single
+    global id space, so a marketplace item id and a group post id colliding
+    is not a practical concern.
+    """
     return f"https://www.facebook.com/marketplace/item/{fb_id}/"
+
+
+def source_label(source: str | None) -> str:
+    """Human label for the export's «Источник» column and its filter chips."""
+    if not source or source == "marketplace":
+        return "маркет"
+    if source.startswith("group:"):
+        slug = source.split(":", 1)[1]
+        return config.GROUPS.get(slug, slug)
+    return source
 
 
 def _ad_text(listing: dict[str, Any]) -> str:
@@ -389,6 +409,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if _flatten_duplicate_chains(conn):
         conn.commit()
 
+    have = {row["name"] for row in conn.execute("PRAGMA table_info(listings)")}
+    if "source" not in have:
+        conn.execute("ALTER TABLE listings ADD COLUMN source TEXT")
+        conn.execute(
+            "UPDATE listings SET source = 'marketplace' WHERE source IS NULL"
+        )
+        conn.commit()
+
 
 def init_db(path: Path | str) -> sqlite3.Connection:
     """Create the schema (idempotent) and return an open connection.
@@ -480,11 +508,16 @@ def upsert_listing(
         "description": listing.get("description"),
         "published_at": listing.get("published_at"),
         "raw_json": raw_json,
+        "source": listing.get("source"),
     }
 
     if existing is None:
         fields["first_seen_at"] = ts
         fields["last_seen_at"] = ts
+        # A card that never names its source is a marketplace card — every
+        # caller before this feature existed leaves the key unset.
+        if fields["source"] is None:
+            fields["source"] = "marketplace"
         cols = ", ".join(fields.keys())
         placeholders = ", ".join(f":{k}" for k in fields.keys())
         conn.execute(

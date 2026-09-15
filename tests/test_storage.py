@@ -1773,6 +1773,75 @@ def test_migration_adds_photo_columns_to_an_old_database(tmp_path: Path):
     conn.close()
 
 
+def test_migration_adds_source_column_and_backfills_marketplace(tmp_path: Path):
+    db_path = tmp_path / "rentals.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        """
+        CREATE TABLE listings (
+            fb_id TEXT PRIMARY KEY, url TEXT NOT NULL, title TEXT NOT NULL,
+            price_thb INTEGER, price_raw TEXT, district TEXT,
+            content_key TEXT, bedrooms INTEGER, property_type TEXT,
+            description TEXT, published_at TEXT, first_seen_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL, raw_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO listings (fb_id, url, title, first_seen_at, last_seen_at) "
+        "VALUES ('old-1', 'https://x', 'Old listing', 't', 't')"
+    )
+    conn.commit()
+    conn.close()
+
+    conn = storage.init_db(db_path)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(listings)")}
+    assert "source" in columns
+    row = conn.execute("SELECT source FROM listings WHERE fb_id = 'old-1'").fetchone()
+    assert row["source"] == "marketplace"
+    conn.close()
+
+
+def test_upsert_listing_defaults_source_to_marketplace_on_insert(conn):
+    storage.upsert_listing(conn, _make_listing())
+    row = conn.execute(
+        "SELECT source FROM listings WHERE fb_id = ?", (_make_listing()["fb_id"],)
+    ).fetchone()
+    assert row["source"] == "marketplace"
+
+
+def test_upsert_listing_stores_group_source(conn):
+    listing = _make_listing(fb_id="grp-1", source="group:phuketrentsale")
+    storage.upsert_listing(conn, listing)
+    row = conn.execute(
+        "SELECT source FROM listings WHERE fb_id = 'grp-1'"
+    ).fetchone()
+    assert row["source"] == "group:phuketrentsale"
+
+
+def test_upsert_listing_resighting_without_source_does_not_clobber_it(conn):
+    listing = _make_listing(fb_id="grp-2", source="group:phuketrentsale")
+    storage.upsert_listing(conn, listing)
+
+    # A re-sighting is a bare card: no `source` key at all, same as no title
+    # or description today. It must not fall back to "marketplace".
+    card_only = {
+        "fb_id": "grp-2",
+        "url": "https://www.facebook.com/groups/phuketrentsale/posts/grp-2/",
+        "title": "Cozy 2BR villa in Rawai",
+    }
+    storage.upsert_listing(conn, card_only)
+    row = conn.execute("SELECT source FROM listings WHERE fb_id = 'grp-2'").fetchone()
+    assert row["source"] == "group:phuketrentsale"
+
+
+def test_source_label_for_marketplace_and_groups():
+    assert storage.source_label(None) == "маркет"
+    assert storage.source_label("marketplace") == "маркет"
+    assert storage.source_label("group:phuketrentsale") == "PhuketRentSale"
+    assert storage.source_label("group:unknown-slug") == "unknown-slug"
+
+
 def test_fetch_pending_photos_queues_a_listing_with_photos(conn, photos_home):
     _text_analysed(conn, "with-photos")
     _shoot(photos_home, "with-photos")
