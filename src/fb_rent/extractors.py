@@ -119,6 +119,34 @@ def extract_bedrooms(title: str | None, description: str | None) -> int | None:
     return None
 
 
+PETS_FACET_LINE = "Можно с собаками и кошками"
+# Facebook's own "pets" facet on a rental listing — a fixed line straight
+# under the price, not ad copy. It only ever renders when the poster ticked
+# an allow box, so seeing any of these three settles "allowed" outright; it
+# never appears to say no, so absence proves nothing.
+_PETS_FACET_LINES = frozenset(
+    {
+        "можно с собаками и кошками",
+        "можно с собаками",
+        "можно с кошками",
+    }
+)
+
+
+def extract_pets_facet(text_lines: list[str] | None) -> str | None:
+    """``"allowed"`` when Facebook's own pets facet line is present, else ``None``.
+
+    This is a platform field, not the seller's prose — it sits among ~150
+    lines of chrome and "similar listings" noise in ``text_lines``, which is
+    why the AI pass (reading the same dump) misses or contradicts it on
+    about 1 in 12 listings that carry it. A plain string match doesn't.
+    """
+    for line in text_lines or []:
+        if line.strip().lower() in _PETS_FACET_LINES:
+            return "allowed"
+    return None
+
+
 def extract_property_type(title: str | None, description: str | None) -> str:
     """Classify listing as villa/condo/apartment/house/studio/townhouse.
 
@@ -162,7 +190,9 @@ _DESCRIPTION_END_MARKERS = frozenset(
 _SEE_MORE_MARKERS = frozenset({"ещё", "еще", "see more", "see more…", "ещё…"})
 
 # FB page <title>: "(6) Marketplace — 1 Bed 1 Bath - Apartment | Facebook".
-_TITLE_UNREAD_PREFIX_RE = re.compile(r"^\(\d+\)\s*")
+# The unread badge caps out as "20+" rather than a bare number once past
+# some threshold, hence the optional "+".
+_TITLE_UNREAD_PREFIX_RE = re.compile(r"^\(\d+\+?\)\s*")
 _TITLE_MARKETPLACE_PREFIX_RE = re.compile(
     r"^marketplace\s*[—–\-|:]\s*", re.IGNORECASE
 )
@@ -200,6 +230,102 @@ _PUBLISHED_UNIT_DAYS: tuple[tuple[tuple[str, ...], float], ...] = (
     (("недел", "week"), 7.0),
     (("мес", "month"), 30.0),
 )
+
+# Group posts also carry absolute FB timestamps, which marketplace detail
+# pages never show ("Listed N days ago" is always relative there). Genitive
+# RU month names and EN month names (full or abbreviated), both matched
+# with a `\b` boundary, so "sep" never eats into "sept".
+_RU_MONTHS: dict[str, int] = {
+    "января": 1, "февраля": 2, "марта": 3, "апреля": 4, "мая": 5,
+    "июня": 6, "июля": 7, "августа": 8, "сентября": 9, "октября": 10,
+    "ноября": 11, "декабря": 12,
+}
+_EN_MONTHS: dict[str, int] = {
+    "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
+    "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7,
+    "august": 8, "aug": 8, "september": 9, "sept": 9, "sep": 9,
+    "october": 10, "oct": 10, "november": 11, "nov": 11,
+    "december": 12, "dec": 12,
+}
+
+# "12 сентября в 14:30", "12 сентября 2025".
+_ABSOLUTE_RU_RE = re.compile(
+    r"\b(\d{1,2})\s+(" + "|".join(_RU_MONTHS) + r")\b"
+    r"(?:\s+(\d{4}))?"
+    r"(?:\s*в\s*(\d{1,2}):(\d{2}))?",
+    re.IGNORECASE,
+)
+# "September 12 at 2:30 PM", "September 12, 2025".
+_ABSOLUTE_EN_RE = re.compile(
+    r"\b(" + "|".join(_EN_MONTHS) + r")\.?\s+(\d{1,2})\b"
+    r"(?:,?\s+(\d{4}))?"
+    r"(?:\s*at\s*(\d{1,2}):(\d{2})\s*(am|pm)?)?",
+    re.IGNORECASE,
+)
+
+# Compact feed timestamps with no "назад"/"ago": "5 ч.", "2 дн.", "1 нед.",
+# "5h", "2d". Kept apart from `_PUBLISHED_RE` on purpose — loosening that
+# one would also accept bare units on marketplace pages, where "5 ч."
+# never legitimately appears without "назад".
+_FEED_SHORT_RE = re.compile(
+    r"\b(\d+)\s*(мин|ч|дн|нед|мес|min|h|d|w)\b\.?",
+    re.IGNORECASE,
+)
+_FEED_SHORT_UNIT_DAYS: tuple[tuple[tuple[str, ...], float], ...] = (
+    (("мин", "min"), 1 / 1440),
+    (("ч", "h"), 1 / 24),
+    (("дн", "d"), 1.0),
+    (("нед", "w"), 7.0),
+    (("мес",), 30.0),
+)
+_YESTERDAY_RE = re.compile(r"\bвчера\b[^\d]*(\d{1,2}):(\d{2})", re.IGNORECASE)
+_TODAY_RE = re.compile(r"\bсегодня\b[^\d]*(\d{1,2}):(\d{2})", re.IGNORECASE)
+
+
+def _absolute_to_iso(
+    day: str,
+    month: int,
+    year: str | None,
+    hour: str | None,
+    minute: str | None,
+    meridiem: str | None,
+    moment: datetime,
+) -> str | None:
+    try:
+        day_i = int(day)
+        hour_i = int(hour) if hour else 0
+        minute_i = int(minute) if minute else 0
+        if meridiem:
+            meridiem = meridiem.lower()
+            if meridiem == "pm" and hour_i != 12:
+                hour_i += 12
+            elif meridiem == "am" and hour_i == 12:
+                hour_i = 0
+        year_i = int(year) if year else moment.year
+        published = datetime(year_i, month, day_i, hour_i, minute_i, tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    # No year in the source means "this year" — unless that reads as
+    # tomorrow or later, which only happens when it was actually last year.
+    if not year and published > moment + timedelta(days=1):
+        published = published.replace(year=year_i - 1)
+    return published.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_absolute_published_at(raw: str, moment: datetime) -> str | None:
+    match = _ABSOLUTE_RU_RE.search(raw)
+    if match:
+        day, month_name, year, hour, minute = match.groups()
+        return _absolute_to_iso(
+            day, _RU_MONTHS[month_name.casefold()], year, hour, minute, None, moment
+        )
+    match = _ABSOLUTE_EN_RE.search(raw)
+    if match:
+        month_name, day, year, hour, minute, meridiem = match.groups()
+        return _absolute_to_iso(
+            day, _EN_MONTHS[month_name.casefold()], year, hour, minute, meridiem, moment
+        )
+    return None
 
 
 def description_from_text_lines(text_lines: list[str] | None) -> str | None:
@@ -267,32 +393,120 @@ def clean_fb_title(raw_title: str | None) -> str | None:
 
 
 def parse_published_at(raw: str | None, now: "datetime | None" = None) -> str | None:
-    """Turn a relative FB timestamp into an absolute ISO-8601 UTC string.
+    """Turn an FB timestamp into an absolute ISO-8601 UTC string.
 
-    Understands both locales the scraper meets in practice: English
-    ``"Listed 3 days ago"`` and Russian ``"Опубликовано 12 часов назад"``.
-    ``now`` defaults to the current UTC time; tests pass it explicitly.
-    Returns ``None`` when no relative timestamp is present.
+    Understands the relative forms the scraper meets in practice: English
+    ``"Listed 3 days ago"`` and Russian ``"Опубликовано 12 часов назад"``,
+    and — group posts carry these instead — absolute dates: RU ``"12
+    сентября в 14:30"`` / ``"12 сентября 2025"`` and EN ``"September 12 at
+    2:30 PM"`` / ``"September 12, 2025"``. ``now`` defaults to the current
+    UTC time; tests pass it explicitly. Returns ``None`` when neither form
+    is present.
     """
     if not raw:
-        return None
-
-    match = _PUBLISHED_RE.search(raw)
-    if not match:
-        return None
-
-    count = int(match.group(1)) if match.group(1) else 1
-    stem = match.group(2).casefold()
-    days: float | None = None
-    for prefixes, unit_days in _PUBLISHED_UNIT_DAYS:
-        if stem.startswith(prefixes):
-            days = unit_days
-            break
-    if days is None:
         return None
 
     moment = now or datetime.now(timezone.utc)
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
-    published = moment.astimezone(timezone.utc) - timedelta(days=days * count)
-    return published.strftime("%Y-%m-%dT%H:%M:%SZ")
+    moment = moment.astimezone(timezone.utc)
+
+    match = _PUBLISHED_RE.search(raw)
+    if match:
+        count = int(match.group(1)) if match.group(1) else 1
+        stem = match.group(2).casefold()
+        for prefixes, unit_days in _PUBLISHED_UNIT_DAYS:
+            if stem.startswith(prefixes):
+                published = moment - timedelta(days=unit_days * count)
+                return published.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return None
+
+    return _parse_absolute_published_at(raw, moment)
+
+
+def parse_feed_timestamp(raw: str | None, now: "datetime | None" = None) -> str | None:
+    """Parse a group feed header's compact timestamp.
+
+    Delegates to :func:`parse_published_at` for every form it already
+    covers (relative "N назад"/"ago" and the absolute date forms) and adds
+    only what the feed shows and the detail page never does: bare units
+    with no "назад" ("5 ч.", "2 дн.", "1w") and "вчера/сегодня в HH:MM".
+    Kept separate so scraping the group feed — used only to decide when to
+    stop scrolling — never loosens what a marketplace detail page accepts.
+    """
+    if not raw:
+        return None
+
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    moment = moment.astimezone(timezone.utc)
+
+    delegated = parse_published_at(raw, moment)
+    if delegated:
+        return delegated
+
+    match = _FEED_SHORT_RE.search(raw)
+    if match:
+        count = int(match.group(1))
+        stem = match.group(2).casefold()
+        for prefixes, unit_days in _FEED_SHORT_UNIT_DAYS:
+            if stem in prefixes:
+                published = moment - timedelta(days=unit_days * count)
+                return published.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    match = _YESTERDAY_RE.search(raw)
+    if match:
+        hour, minute = int(match.group(1)), int(match.group(2))
+        day = (moment - timedelta(days=1)).replace(
+            hour=hour, minute=minute, second=0, microsecond=0
+        )
+        return day.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    match = _TODAY_RE.search(raw)
+    if match:
+        hour, minute = int(match.group(1)), int(match.group(2))
+        day = moment.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        return day.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    return None
+
+
+def _truncate_at_word(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    if space > limit * 0.6:
+        cut = cut[:space]
+    return cut.rstrip() + "…"
+
+
+def group_post_title(page_title: str | None, first_body_line: str | None) -> str | None:
+    """Best-effort title for a group post — it has no title field at all.
+
+    The page ``<title>`` reads ``"(N) <group name> | <first line of the
+    post>"``; the group name must not become every row's title, so this
+    keeps only what follows the first ``" | "``. Falls back to the post's
+    own first line, truncated to a readable length, when the page title
+    doesn't split that way. ``listings.title`` is ``NOT NULL`` downstream,
+    so this needs to produce something whenever there is any text at all.
+    """
+    candidate: str | None = None
+    if page_title:
+        cleaned = _TITLE_UNREAD_PREFIX_RE.sub("", page_title.strip()).strip()
+        cleaned = _TITLE_FACEBOOK_SUFFIX_RE.sub("", cleaned).strip()
+        if " | " in cleaned:
+            _, _, tail = cleaned.partition(" | ")
+            tail = tail.strip()
+            if tail and tail.casefold() not in _TITLE_JUNK:
+                candidate = tail
+
+    if not candidate and first_body_line:
+        line = first_body_line.strip()
+        if line:
+            candidate = _truncate_at_word(line, 120)
+
+    if not candidate:
+        return None
+    return candidate

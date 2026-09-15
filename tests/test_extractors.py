@@ -11,6 +11,8 @@ from fb_rent.extractors import (
     description_from_text_lines,
     extract_bedrooms,
     extract_property_type,
+    group_post_title,
+    parse_feed_timestamp,
     parse_price,
     parse_published_at,
 )
@@ -312,11 +314,93 @@ def test_parse_published_at(raw: str, expected: str) -> None:
         "   ",
         "Отправить сообщение",
         "Опубликовано вчера",  # без числа и без «назад» — формат неизвестен
-        "12 марта 2026",
     ],
 )
 def test_parse_published_at_unknown_format(raw: str | None) -> None:
     assert parse_published_at(raw, NOW) is None
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        # RU — группы показывают абсолютную дату, не относительную. NOW —
+        # 2026-08-25, так что 12 сентября без года читается как будущее в
+        # этом году, а значит на самом деле прошлогоднее.
+        ("12 сентября в 14:30", "2025-09-12T14:30:00Z"),
+        ("12 сентября 2025", "2025-09-12T00:00:00Z"),
+        # EN — оба варианта.
+        ("September 12 at 2:30 PM", "2025-09-12T14:30:00Z"),
+        ("September 12, 2025", "2025-09-12T00:00:00Z"),
+    ],
+)
+def test_parse_published_at_absolute_forms(raw: str, expected: str) -> None:
+    assert parse_published_at(raw, NOW) == expected
+
+
+def test_parse_published_at_absolute_without_year_rolls_back_when_future() -> None:
+    # NOW is 2026-08-25. A bare "12 сентября" without a year, read on that
+    # date, is in the future for this year — so it must mean last year.
+    assert parse_published_at("12 сентября", NOW) == "2025-09-12T00:00:00Z"
+
+
+# --- parse_feed_timestamp --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("5 ч.", "2026-08-25T07:00:00Z"),
+        ("2 дн.", "2026-08-23T12:00:00Z"),
+        ("1 нед.", "2026-08-18T12:00:00Z"),
+        ("5h", "2026-08-25T07:00:00Z"),
+        ("2d", "2026-08-23T12:00:00Z"),
+        ("1w", "2026-08-18T12:00:00Z"),
+        ("вчера в 10:11", "2026-08-24T10:11:00Z"),
+        ("сегодня в 09:05", "2026-08-25T09:05:00Z"),
+        # Формы, которые понимает parse_published_at, тоже проходят.
+        ("Опубликовано 3 дня назад", "2026-08-22T12:00:00Z"),
+    ],
+)
+def test_parse_feed_timestamp(raw: str, expected: str) -> None:
+    assert parse_feed_timestamp(raw, NOW) == expected
+
+
+def test_parse_feed_timestamp_unknown_format() -> None:
+    assert parse_feed_timestamp("Отправить сообщение", NOW) is None
+    assert parse_feed_timestamp(None, NOW) is None
+
+
+# --- group_post_title -------------------------------------------------------
+
+
+def test_group_post_title_splits_page_title_after_group_name() -> None:
+    page_title = (
+        "(20+) Phuket Rent and Sale property | 3-bedroom villa in Bang Tao "
+        "available for a yearly contract at 100,000 baht per mo"
+    )
+    assert group_post_title(page_title, "irrelevant") == (
+        "3-bedroom villa in Bang Tao available for a yearly contract at "
+        "100,000 baht per mo"
+    )
+
+
+def test_group_post_title_falls_back_to_first_body_line() -> None:
+    assert group_post_title("Phuket Rent and Sale property", "Nice villa for rent") == (
+        "Nice villa for rent"
+    )
+
+
+def test_group_post_title_truncates_long_first_line() -> None:
+    line = "word " * 40
+    title = group_post_title(None, line)
+    assert title is not None
+    assert len(title) <= 121  # 120 + ellipsis
+    assert title.endswith("…")
+
+
+def test_group_post_title_none_when_nothing_usable() -> None:
+    assert group_post_title(None, None) is None
+    assert group_post_title("Phuket Rent and Sale property", "") is None
 
 
 def test_parse_published_at_reads_real_fixture_line() -> None:
