@@ -119,6 +119,50 @@ different listing entirely. That has happened once and is written up in
 [dedupe.md](dedupe.md#the-trap-a-dead-pages-gallery-belongs-to-someone-else).
 Worth fixing before any mass re-read.
 
+## Facebook groups — a second source, one table
+
+`fb-rent scrape-groups` reads rental posts from `config.GROUPS`
+(`phuketrentsale`, `Villa.For.Rent.Phuket`, `170117323644873` by default) into
+the same `listings` table, tagged `source = "group:<id>"`. Everything
+downstream — AI pass, photo pass, dedupe, decisions, export — treats a group
+row exactly like a marketplace one; the `Источник` column in the export is
+the only place the two are told apart, and it filters like any other chip.
+
+**The feed only discovers post ids — it never reads a post's content.** A
+group's chronological feed (`?sorting_setting=CHRONOLOGICAL`) is
+*virtualized*: scroll past a post and it leaves the DOM entirely, unlike the
+marketplace feed, which keeps every card it has ever rendered. `scrape_group_feed`
+therefore accumulates permalink ids across every scroll step, not by reading
+the DOM once at the end. Content — title, body text, gallery, published date —
+comes from the post's own permalink page, opened the same way a marketplace
+detail page is, and counted against the same shared detail budget.
+
+**A permalink page can render a second, unrelated post above the one the URL
+names** — observed live as a cross-group recommendation. Both sit in their own
+top-level `div[role="article"]`. The one that is *this* post is found by its
+own self-link, an anchor inside it carrying `multi_permalinks=<post_id>` —
+verified across two different groups. Every extraction (body text, gallery,
+"See more" expansion) is scoped to that one article.
+
+**Group-post images carry an empty `alt`.** Marketplace's alt-grouping
+gallery filter (see below) does not apply to them at all — grouping by `""`
+would merge every image on the page into one bucket. The article-scoping
+above is the filter instead, and it is the stronger one: it excludes a
+neighbouring post's images structurally, not by a caption heuristic.
+
+**A post has no title and no relative "N days ago" timestamp.** The title is
+synthesized from the page `<title>` (`"(N) <group name> | <first line of the
+post>"` — only the part after the `|` is kept) or, failing that, the post's
+own first line. The timestamp is FB's compact feed form (`"6 ч."`, `"вчера в
+10:11"`), parsed by `extractors.parse_feed_timestamp` — a marketplace detail
+page never shows this form, only groups do, which is why it is a separate
+function from `parse_published_at` rather than a loosened version of it.
+
+**`scrape --ids` repairs a group row through the group reader, not the
+marketplace one.** A known id looks up its own stored `url`/`source` before
+deciding how to re-fetch it, so naming a group post's id never opens a dead
+`/marketplace/item/<id>/` guess.
+
 ## Extraction is best-effort
 
 The heuristics are expected to drift with Facebook's markup.

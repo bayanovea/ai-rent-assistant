@@ -22,7 +22,7 @@ replace it.
 | # | Step | Who runs it | Reads | Writes |
 |---|------|-------------|-------|--------|
 | — | `fb-rent login` | you, once every 1–4 weeks | — | `data/browser-profile/` |
-| 1 | `fb-rent scrape`, then `fb-rent dedupe` | you / cron | Facebook | `listings`, `photo_hashes`, `duplicates`, `photos/<fb_id>/` |
+| 1 | `fb-rent scrape` (and/or `fb-rent scrape-groups`), then `fb-rent dedupe` | you / cron | Facebook | `listings`, `photo_hashes`, `duplicates`, `photos/<fb_id>/` |
 | 2 | `/analyze` skill | Claude Code (Opus) | `listings.description`, `config/requirements.md`, `config/ai_fields.json` | `ai_analysis.data_json`, auto-rejections |
 | 3 | reading the table | **you** | `data/rentals.html` | `data/decisions.json` |
 | 4 | `fb-rent photos-fetch`, then `/photo-analyze` | you, then Claude Code (Sonnet subagents) | stored gallery URLs, then the photo files | `photos/<fb_id>/`, `ai_analysis.photo_data_json` |
@@ -122,6 +122,7 @@ Every stage is its own command, and most of them can be run in isolation.
 |---|---|---|---|
 | `login` | yes | — | Facebook |
 | `scrape` | yes | a live session | Facebook |
+| `scrape-groups` | yes | a live session | Facebook |
 | `dedupe` | yes, any time | the DB | no |
 | `photo-hash` | yes | stored gallery URLs | the CDN |
 | `/analyze` | yes | rows that have text | **no** |

@@ -58,6 +58,40 @@ Two timeouts can be raised from the environment for a slow night run:
 `FB_RENT_PAGE_LOAD_TIMEOUT_MS` (default 30000) and
 `FB_RENT_CONTENT_TIMEOUT_MS` (default 15000).
 
+## `fb-rent scrape-groups`
+
+Same pipeline as `scrape`, second source: reads rental posts out of
+Facebook groups (`config.GROUPS`) into the same `listings` table, tagged
+`source = "group:<id>"`. No price bands or category — a group has one
+chronological feed, walked by scroll rather than by query.
+
+| Flag              | Default       | Description                                              |
+|-------------------|---------------|------------------------------------------------------------|
+| `--group`         | every group in `config.GROUPS` | Group id/slug to scrape (repeatable). |
+| `--max`           | `40`          | Maximum posts to collect per group.                       |
+| `--days`          | `7`           | Stop scrolling a group's feed once posts read older than this. |
+| `--dry-run`       | off           | Print what would be written without touching the DB.      |
+| `--refresh`       | off           | Re-scrape detail pages for posts already in the DB.        |
+| `--no-photos`     | off           | Skip downloading post photos (faster, no photo pass).     |
+| `--detail-cap`    | `60`          | Maximum detail pages to open in one run.                   |
+| `--ids`           | —             | Scrape these post `fb_id`s directly. Requires one `--group`. |
+
+```sh
+fb-rent scrape-groups --max 5 --detail-cap 2 --dry-run   # smoke check
+fb-rent scrape-groups                                     # every group, regular run
+fb-rent scrape-groups --group phuketrentsale --max 20
+
+# repair path: open one post whatever the DB already holds
+fb-rent scrape-groups --group phuketrentsale --ids 9000000000000003
+```
+
+`scrape --ids` on an id already in the DB also works for a group post — it
+looks up the stored `url`/`source` first, so it never guesses a marketplace
+URL for one. Why the feed has to be scrolled incrementally, how a post's own
+article is told apart from an unrelated one FB renders next to it, and why
+group-post galleries skip the alt-grouping trick entirely, is in
+[scraping.md](scraping.md#facebook-groups--a-second-source-one-table).
+
 ## `fb-rent dedupe`
 
 Merges listings that describe the same flat, using the photo and fact signals

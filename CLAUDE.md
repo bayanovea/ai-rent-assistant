@@ -118,6 +118,27 @@ back to "longest text block" and writes the sidebar over real text, and the
 gallery it returns can belong to another listing entirely — this has happened,
 see `docs/dedupe.md`. Fix the extraction before any mass re-read.
 
+## Groups
+
+**A group permalink can render a second, unrelated post.** FB sometimes puts
+a cross-group recommendation above the post the URL actually names, and both
+sit in their own top-level `div[role="article"]`. `_find_own_article`
+(`scraper_group.py`) tells them apart by a self-link carrying
+`multi_permalinks=<post_id>` inside the right one — every extraction (body,
+gallery, "See more") is scoped to that one article. Read the page unscoped
+and the body, gallery and published-at can all come from the wrong post.
+
+**Group-post images have no `alt`, so the gallery filter is the article
+scope, not alt-grouping.** Marketplace tells its own gallery from a
+suggestion card by grouping images under their shared `alt` text; every
+group-post `img` carries an empty `alt`, so that grouping collapses into one
+useless bucket. `extract_group_gallery_urls` takes every CDN image inside
+the already-correct article instead — dropping the article scope silently
+brings back a neighbouring post's photos, the same class of bug the
+marketplace link test guards against (see the photo pass traps above).
+Do not "fix" this by porting the alt-grouping code over; it has nothing to
+group on here.
+
 ## The table
 
 **A tie at the top is how `rules.score` fails.** Nothing in the code says so,
