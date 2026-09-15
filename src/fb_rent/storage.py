@@ -42,6 +42,7 @@ CSV_COLUMNS: tuple[str, ...] = (
     "description",
     "first_seen_at",
     "last_seen_at",
+    "source",
 )
 
 _SCHEMA = """
@@ -3251,6 +3252,11 @@ _FIXED_COLUMNS: dict[str, dict[str, Any]] = {
     # the flat is likely already gone.
     "published_at": {"label": "Опубликовано", "kind": "text", "src": "fb"},
     "first_seen_at": {"label": "Первый показ", "kind": "text", "src": "fb"},
+    # `source` here is the listing's own origin (marketplace / a group) —
+    # not to be confused with a cell's `"src"` key just below, which says
+    # which pass wrote that one field. Short labels, so the filter panel
+    # renders them as chips for free.
+    "source": {"label": "Источник", "kind": "text", "src": "fb"},
     "score": {"label": "Score", "kind": "score", "src": "ai"},
     # The district on the 1-5 scale the score already uses. It is not a column
     # anyone reads row by row — it exists so "хороший район" is expressible as
@@ -3294,6 +3300,7 @@ _VISIBLE_ORDER: tuple[str, ...] = (
     "bathrooms",
     "size_sqm",
     "published_at",
+    "source",
     "rating",
     "verdict",
     "comment",
@@ -3613,6 +3620,7 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
             "t": str(item.get("published_at") or "")[:10],
             "c": "" if item.get("published_at") else rules.CLASS_NONE,
         },
+        "source": {"t": source_label(item.get("source")), "c": ""},
         "score": {
             "t": _display(score),
             "c": "" if analyzed else rules.CLASS_NONE,

@@ -643,6 +643,48 @@ def test_export_html_colours_pets_and_marks_rejected(conn, tmp_path: Path):
     assert "Качество данных" not in labels
 
 
+def test_export_html_shows_the_source_column_with_labels(conn, tmp_path: Path):
+    storage.upsert_listing(conn, _make_listing(fb_id="market-1"))
+    storage.upsert_listing(
+        conn,
+        _make_listing(
+            fb_id="group-1",
+            url="https://www.facebook.com/groups/phuketrentsale/posts/group-1/",
+            source="group:phuketrentsale",
+        ),
+    )
+
+    out = tmp_path / "rentals.html"
+    registry = ai_schema.load_registry()
+    storage.export_html(conn, out, registry)
+    text = out.read_text(encoding="utf-8")
+
+    columns = _inline_payload(text, "COLUMNS")
+    assert any(c["key"] == "source" and c["label"] == "Источник" for c in columns)
+
+    rows = {r["fb_id"]: r for r in _inline_payload(text, "DATA")}
+    assert rows["market-1"]["cells"]["source"]["t"] == "маркет"
+    assert rows["group-1"]["cells"]["source"]["t"] == "PhuketRentSale"
+
+
+def test_export_csv_includes_the_source_column(conn, tmp_path: Path):
+    storage.upsert_listing(
+        conn,
+        _make_listing(
+            fb_id="group-1",
+            url="https://www.facebook.com/groups/phuketrentsale/posts/group-1/",
+            source="group:phuketrentsale",
+        ),
+    )
+
+    out = tmp_path / "rentals.csv"
+    storage.export_csv(conn, out)
+    text = out.read_text(encoding="utf-8")
+
+    assert "source" in text.splitlines()[0]
+    assert "group:phuketrentsale" in text
+
+
 def test_export_html_marks_user_rejection_as_user(conn, tmp_path: Path):
     storage.upsert_listing(conn, _make_listing(fb_id="mine"))
     conn.execute(
