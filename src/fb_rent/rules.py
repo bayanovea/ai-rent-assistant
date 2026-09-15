@@ -180,9 +180,15 @@ def decide(
 ) -> tuple[str, str | None]:
     """Return ``("active" | "rejected", reason)`` for one listing.
 
-    ``price_thb`` is the listing's own price; it falls back to the AI's
-    ``price_month_thb`` when the scraper never captured one. ``district`` is
-    FB's own location tag, used only when the AI never named an area.
+    ``price_thb`` is the listing's own price, taken from Facebook's card
+    facet. It is compared against the AI's own ``price_month_thb`` and the
+    higher of the two decides the budget check — an agency card routinely
+    headlines a short-term or low-season teaser rate (a 20 000/day short
+    stay, or a discounted low-season month) while the ad text states the
+    real 12-month price several times higher, and a hard ceiling exists to
+    keep those listings out, not to trust whichever number was cheaper.
+    ``district`` is FB's own location tag, used only when the AI never named
+    an area.
     Anything not listed below stays active — condos, missing parking and weak
     internet are all flags for the verdict, not rejections. The same holds for
     a missing ``size_sqm``: silence about the area is never a rejection, and a
@@ -230,9 +236,12 @@ def decide(
     if rating is not None and rating <= _AREA_REJECT_MAX:
         return "rejected", REASON_AREA
 
-    price = price_thb if price_thb is not None else _as_int(
-        value_of(fields, "price_month_thb")
-    )
+    prices = [
+        p
+        for p in (price_thb, _as_int(value_of(fields, "price_month_thb")))
+        if p is not None
+    ]
+    price = max(prices) if prices else None
     if price is not None and price > BUDGET_HARD_MAX_THB:
         return "rejected", REASON_PRICE
 

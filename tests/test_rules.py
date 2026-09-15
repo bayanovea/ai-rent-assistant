@@ -53,6 +53,19 @@ def test_ai_price_is_used_when_listing_has_none():
     assert decide(fields, None) == ("rejected", REASON_PRICE)
 
 
+def test_ai_price_rejects_even_when_the_card_teaser_is_within_budget():
+    # A short-term or low-season teaser on the card ("20 000 THB/day") can
+    # sit well inside budget while the ad's own 12-month rate is not — the
+    # higher of the two must decide, not whichever the card happened to show.
+    fields = wrap(pets="allowed", price_month_thb=450_000)
+    assert decide(fields, 20_000) == ("rejected", REASON_PRICE)
+
+
+def test_card_price_still_rejects_when_it_is_the_higher_one():
+    fields = wrap(pets="allowed", price_month_thb=18_000)
+    assert decide(fields, 250_000) == ("rejected", REASON_PRICE)
+
+
 def test_explicit_studio_type_is_rejected():
     assert decide(wrap(property_type="studio"), 18_000) == ("rejected", REASON_STUDIO)
 
