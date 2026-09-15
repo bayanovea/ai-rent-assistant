@@ -688,6 +688,208 @@ def test_an_id_with_no_listing_behind_it_is_skipped(home, monkeypatch):
     conn.close()
 
 
+# --- scrape-groups --------------------------------------------------------
+
+
+def _group_card(fb_id: str, group_id: str = "phuketrentsale") -> dict:
+    return {
+        "fb_id": fb_id,
+        "url": f"https://www.facebook.com/groups/{group_id}/posts/{fb_id}/",
+        "title": None,
+        "source": f"group:{group_id}",
+    }
+
+
+def _group_detail(url: str) -> dict:
+    post_id = url.rstrip("/").rsplit("/", 1)[-1]
+    return {
+        "url": url,
+        "title": f"Villa {post_id}",
+        "description": f"Пост из группы, объявление {post_id}.",
+        "published_at": None,
+        "price_raw": "22 000 ฿",
+        "raw_json": {"text_lines": [], "gallery_urls": [], "group": "phuketrentsale"},
+    }
+
+
+def _stub_group_feed(monkeypatch, cards_by_group, on_detail):
+    """Browser stack serving scripted group feeds and a group post reader.
+
+    ``cards_by_group`` maps group id to its feed's cards (fixed list or a
+    callable taking the group id, for tests needing per-group behaviour).
+    """
+
+    class _Context:
+        def close(self) -> None:
+            pass
+
+    class _Playwright:
+        def stop(self) -> None:
+            pass
+
+    def _feed(ctx, group_id, max_items, days=None, allow_empty=False):
+        cards = cards_by_group(group_id) if callable(cards_by_group) else cards_by_group[group_id]
+        return list(cards)[:max_items]
+
+    monkeypatch.setattr(cli, "start_playwright", lambda: _Playwright())
+    monkeypatch.setattr(cli, "launch_persistent", lambda pw, headless=True: _Context())
+    monkeypatch.setattr(cli, "is_logged_in", lambda ctx: True)
+    monkeypatch.setattr(cli.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(cli, "scrape_group_feed", _feed)
+    monkeypatch.setattr(cli, "scrape_group_post", lambda ctx, url, gid, pid: on_detail(url))
+
+
+def test_scrape_groups_stores_the_group_source(home, monkeypatch):
+    _stub_group_feed(monkeypatch, {"phuketrentsale": [_group_card("1")]}, _group_detail)
+
+    result = _run(
+        "scrape-groups", "--group", "phuketrentsale", "--max", "1", "--no-photos"
+    )
+
+    assert result.exit_code == 0, result.output
+    conn = storage.init_db(config.DB_PATH)
+    row = conn.execute(
+        "SELECT source, title, description FROM listings WHERE fb_id = '1'"
+    ).fetchone()
+    conn.close()
+    assert row["source"] == "group:phuketrentsale"
+    assert row["title"] == "Villa 1"
+    assert row["description"] == "Пост из группы, объявление 1."
+
+
+def test_scrape_groups_unknown_group_is_refused(home, monkeypatch):
+    _stub_group_feed(monkeypatch, {}, _group_detail)
+
+    result = _run("scrape-groups", "--group", "not-a-real-group", "--no-photos")
+
+    assert result.exit_code == 1
+    assert "Unknown group" in result.output
+
+
+def test_scrape_groups_round_robins_across_groups(home, monkeypatch):
+    """The detail budget is shared: each group contributes in turn, not
+    group after group, mirroring the marketplace price-band sweep."""
+    feeds = {
+        "phuketrentsale": [_group_card("a1"), _group_card("a2")],
+        "Villa.For.Rent.Phuket": [_group_card("b1"), _group_card("b2")],
+    }
+    fetched: list[str] = []
+
+    def on_detail(url: str) -> dict:
+        fetched.append(url.rstrip("/").rsplit("/", 1)[-1])
+        return _group_detail(url)
+
+    _stub_group_feed(monkeypatch, feeds, on_detail)
+
+    result = _run(
+        "scrape-groups",
+        "--group", "phuketrentsale",
+        "--group", "Villa.For.Rent.Phuket",
+        "--max", "2",
+        "--detail-cap", "2",
+        "--no-photos",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert fetched == ["a1", "b1"]
+
+
+def test_scrape_groups_known_post_does_not_spend_the_detail_budget(home, monkeypatch):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(
+        conn,
+        "1",
+        url="https://www.facebook.com/groups/phuketrentsale/posts/1/",
+        source="group:phuketrentsale",
+    )
+    conn.close()
+
+    fetched: list[str] = []
+
+    def on_detail(url: str) -> dict:
+        fetched.append(url.rstrip("/").rsplit("/", 1)[-1])
+        return _group_detail(url)
+
+    _stub_group_feed(
+        monkeypatch,
+        {"phuketrentsale": [_group_card("1"), _group_card("2")]},
+        on_detail,
+    )
+
+    result = _run(
+        "scrape-groups", "--group", "phuketrentsale", "--max", "2", "--no-photos"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert fetched == ["2"]
+
+
+def test_scrape_groups_ids_requires_exactly_one_group(home, monkeypatch):
+    _stub_group_feed(monkeypatch, {}, _group_detail)
+
+    result = _run(
+        "scrape-groups",
+        "--group", "phuketrentsale",
+        "--group", "Villa.For.Rent.Phuket",
+        "--ids", "1",
+        "--no-photos",
+    )
+
+    assert result.exit_code == 1
+    assert "requires exactly one --group" in result.output
+
+
+def test_scrape_groups_ids_builds_the_permalink_and_skips_the_feed(home, monkeypatch):
+    def _no_feed(*args, **kwargs):
+        raise AssertionError("the feed must not be opened for --ids")
+
+    _stub_group_feed(monkeypatch, {}, _group_detail)
+    monkeypatch.setattr(cli, "scrape_group_feed", _no_feed)
+
+    result = _run(
+        "scrape-groups", "--group", "phuketrentsale", "--ids", "99", "--no-photos"
+    )
+
+    assert result.exit_code == 0, result.output
+    conn = storage.init_db(config.DB_PATH)
+    row = conn.execute(
+        "SELECT url, source FROM listings WHERE fb_id = '99'"
+    ).fetchone()
+    conn.close()
+    assert row["url"] == "https://www.facebook.com/groups/phuketrentsale/posts/99/"
+    assert row["source"] == "group:phuketrentsale"
+
+
+def test_scrape_ids_reuses_the_stored_url_and_source_for_a_group_row(home, monkeypatch):
+    """`scrape --ids` on a group post must repair it through the group
+    reader, not open a dead `/marketplace/item/` URL built from the id."""
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(
+        conn,
+        "1",
+        url="https://www.facebook.com/groups/phuketrentsale/posts/1/",
+        source="group:phuketrentsale",
+        description="stale",
+    )
+    conn.close()
+
+    def on_group_detail(ctx, url, group_id, post_id):
+        assert group_id == "phuketrentsale"
+        assert post_id == "1"
+        return _group_detail(url)
+
+    _stub_feed(monkeypatch, [], _detail)
+    monkeypatch.setattr(cli, "scrape_group_post", on_group_detail)
+
+    result = _run("scrape", "--ids", "1", "--no-photos")
+
+    assert result.exit_code == 0, result.output
+    conn = storage.init_db(config.DB_PATH)
+    row = conn.execute("SELECT description FROM listings WHERE fb_id = '1'").fetchone()
+    conn.close()
+    assert row["description"] == "Пост из группы, объявление 1."
+
+
 # --- photos-fetch --------------------------------------------------------
 
 

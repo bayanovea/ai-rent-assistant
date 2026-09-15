@@ -183,7 +183,8 @@ def test_check_listing_alive_false_for_a_rented_badge_on_the_listing_itself():
         body_text="normal page",
         badge_texts=({"text": "Сдано в аренду", "inside_item_link": False},),
     )
-    assert check_listing_alive(_FakeContext(page), "https://example.invalid/item/1/") is False
+    url = "https://www.facebook.com/marketplace/item/1/"
+    assert check_listing_alive(_FakeContext(page), url) is False
 
 
 def test_check_listing_alive_ignores_a_rented_badge_on_a_sidebar_card():
@@ -194,4 +195,19 @@ def test_check_listing_alive_ignores_a_rented_badge_on_a_sidebar_card():
         body_text="normal page",
         badge_texts=({"text": "Сдано в аренду", "inside_item_link": True},),
     )
-    assert check_listing_alive(_FakeContext(page), "https://example.invalid/item/1/") is True
+    url = "https://www.facebook.com/marketplace/item/1/"
+    assert check_listing_alive(_FakeContext(page), url) is True
+
+
+def test_check_listing_alive_ignores_a_rented_comment_on_a_group_post():
+    """A "rented" badge test only makes sense on a marketplace item page —
+    its "not a sidebar card" signal is a marketplace-item anchor, which
+    means nothing on a group post. On a group permalink this must not
+    fire at all, or a comment saying "already rented?" would false-
+    positive a live post as gone."""
+    page = _LiveFakePage(
+        body_text="normal page",
+        badge_texts=({"text": "rented", "inside_item_link": False},),
+    )
+    url = "https://www.facebook.com/groups/phuketrentsale/posts/123/"
+    assert check_listing_alive(_FakeContext(page), url) is True

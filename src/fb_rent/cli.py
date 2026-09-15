@@ -29,6 +29,7 @@ import sqlite3
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from itertools import zip_longest
 from pathlib import Path
 from typing import Any
@@ -60,6 +61,7 @@ from .extractors import (
     parse_price,
 )
 from .scraper_detail import check_listing_alive, scrape_detail
+from .scraper_group import scrape_group_feed, scrape_group_post
 from .scraper_list import scrape_list
 from .storage import (
     dedupe_listings,
@@ -81,7 +83,7 @@ from .storage import (
     sync_buildings_to_db,
     upsert_listing,
 )
-from .url_builder import build_marketplace_url, price_bands
+from .url_builder import build_marketplace_url, group_post_url, price_bands
 
 
 def _echo_err(msg: str) -> None:
@@ -235,6 +237,182 @@ def _fetch_photo_hashes(context: Any, detail: dict[str, Any]) -> list[tuple[int,
     return fingerprint.fetch_fingerprints(context, urls)
 
 
+def _detail_fn(context: Any, card: dict[str, Any]) -> dict[str, Any] | None:
+    """Dispatch a card's detail fetch by its own ``source`` — the one thing
+    that lets a single processing loop and a single ``--ids`` repair path
+    serve both marketplace items and group posts."""
+    source = card.get("source") or "marketplace"
+    if source.startswith("group:"):
+        group_id = source.split(":", 1)[1]
+        return scrape_group_post(context, card["url"], group_id, str(card["fb_id"]))
+    return scrape_detail(context, card["url"])
+
+
+def _process_cards(
+    conn: sqlite3.Connection,
+    context: Any,
+    cards: list[dict[str, Any]],
+    *,
+    detail_fn: Callable[[Any, dict[str, Any]], dict[str, Any] | None] = _detail_fn,
+    detail_cap: int,
+    dry_run: bool,
+    no_photos: bool,
+    seen_ids: set[str],
+    dupe_ids: set[str],
+    require_card_title: bool,
+) -> None:
+    """Walk cards, fetch detail pages within budget, upsert, export.
+
+    Shared by ``scrape`` and ``scrape-groups`` — the only difference
+    between a marketplace sweep and a group sweep is how the cards were
+    collected and what ``detail_fn`` does with a card's URL; everything
+    from here down (budget, jitter, photo hashing, upsert, exports) is
+    identical.
+    """
+    click.echo(f"Collected {len(cards)} list cards.")
+
+    enriched: list[dict[str, Any]] = []
+    skipped_known = 0
+    skipped_dupes = 0
+    details_fetched = 0
+    inserted = 0
+    updated = 0
+    duplicates = 0
+    photo_hashed = 0
+    with click.progressbar(
+        length=len(cards),
+        label="Scraping listings",
+        show_pos=True,
+        show_eta=True,
+        item_show_func=lambda c: str(c.get("fb_id")) if c else "",
+    ) as bar:
+        for idx, card in enumerate(cards):
+            # A targeted/feed card carries no title until its detail page
+            # answers — that is the whole point of naming it.
+            if not card.get("url") or (require_card_title and not card.get("title")):
+                click.echo(
+                    f"  [{idx + 1}/{len(cards)}] skipping card missing url/title: "
+                    f"fb_id={card.get('fb_id')}"
+                )
+                bar.update(1, card)
+                continue
+            if card["fb_id"] in dupe_ids:
+                skipped_dupes += 1
+                bar.update(1, card)
+                continue
+
+            detail: dict[str, Any] | None = None
+            # None means "not asked", which is not the same as "asked
+            # and got nothing": only the second one may erase hashes.
+            hash_entries: list[tuple[int, str, str]] | None = None
+            already_known = card["fb_id"] in seen_ids
+            if already_known:
+                skipped_known += 1
+            elif details_fetched < detail_cap:
+                details_fetched += 1
+                time.sleep(
+                    random.uniform(
+                        config.DETAIL_DELAY_MIN_SEC,
+                        config.DETAIL_DELAY_MAX_SEC,
+                    )
+                )
+                try:
+                    detail = detail_fn(context, card)
+                except LoginRequiredError as exc:
+                    _echo_err(str(exc))
+                    _echo_err(
+                        f"Stopped after {inserted + updated + duplicates} "
+                        "listing(s) — those are already in the DB. Run "
+                        "`fb-rent export` to refresh the exports, then "
+                        "`fb-rent login` and scrape again."
+                    )
+                    sys.exit(3)
+                if detail is None:
+                    click.echo(
+                        f"  [{idx + 1}/{len(cards)}] detail unavailable, "
+                        f"keeping list-card data: {card['url']}"
+                    )
+                elif not dry_run:
+                    # Inside the jitter we already paid for — the
+                    # CDN fetches add ~1–2 s and no extra pause.
+                    hash_entries = _fetch_photo_hashes(context, detail)
+                    if not no_photos:
+                        _download_photos(context, detail, card["fb_id"])
+            item = _enrich(_merge_listing(card, detail))
+            if not item.get("title"):
+                if card["fb_id"] not in seen_ids:
+                    # Reachable through --ids or a feed card whose detail
+                    # page is gone or not a listing at all. `title` is
+                    # NOT NULL and there is nothing to insert.
+                    click.echo(
+                        f"  [{idx + 1}/{len(cards)}] no listing behind "
+                        f"{card['fb_id']} — skipped."
+                    )
+                    bar.update(1, card)
+                    continue
+                # A known id re-sighted as a bare card (detail fetch
+                # skipped): still worth an upsert to refresh
+                # `last_seen_at` — `upsert_listing` drops the missing
+                # title on update rather than clobbering the stored one.
+            if dry_run:
+                enriched.append(item)
+            else:
+                # Written one at a time on purpose: a wide run walks
+                # detail pages for the better part of an hour, and a
+                # checkpoint or an expired session near the end used
+                # to throw away everything scraped before it.
+                result = upsert_listing(conn, item)
+                if result == "inserted":
+                    inserted += 1
+                elif result == "duplicate":
+                    duplicates += 1
+                else:
+                    updated += 1
+                if hash_entries is not None and result != "duplicate":
+                    save_photo_hashes(conn, item["fb_id"], hash_entries)
+                    if hash_entries:
+                        photo_hashed += 1
+            bar.update(1, card)
+
+    if skipped_known:
+        click.echo(
+            f"Skipped detail fetch for {skipped_known} listing(s) already in DB."
+        )
+    if skipped_dupes:
+        click.echo(
+            f"Skipped {skipped_dupes} known repost(s) of listings already in DB."
+        )
+
+    if dry_run:
+        click.echo("Dry-run: skipping DB writes and CSV export.")
+        for item in enriched:
+            click.echo(
+                f"  - {item.get('fb_id')} | "
+                f"{item.get('price_thb')} THB | "
+                f"{item.get('title')!r}"
+            )
+        click.echo(f"Would have processed {len(enriched)} listings.")
+        return
+
+    if detail_cap and details_fetched >= detail_cap:
+        click.echo(
+            f"Detail budget spent ({detail_cap} pages) — the rest kept "
+            "list-card data only. Raise it with --detail-cap."
+        )
+
+    _sync_decisions(conn)
+    _sync_buildings(conn)
+    csv_path = export_csv(conn, config.CSV_PATH)
+    html_path = export_html(conn, config.HTML_PATH)
+
+    click.echo(
+        f"Done. inserted: {inserted}, updated: {updated}, "
+        f"duplicates: {duplicates + skipped_dupes}, "
+        f"skipped_known: {skipped_known}, photo hashes: {photo_hashed}, "
+        f"csv: {csv_path}, html: {html_path}"
+    )
+
+
 @main.command("scrape")
 @click.option(
     "--max",
@@ -384,10 +562,30 @@ def scrape_cmd(
                 sys.exit(3)
 
             if targeted:
-                cards = [
-                    {"fb_id": fb_id, "url": marketplace_url(fb_id), "title": None}
-                    for fb_id in dict.fromkeys(ids)
-                ]
+                cards = []
+                for fb_id in dict.fromkeys(ids):
+                    # An id already in the DB carries its own url/source —
+                    # rebuilding a marketplace url for it would open the
+                    # wrong page entirely for a group post. Only a brand
+                    # new id falls back to the marketplace guess, which is
+                    # what `scrape --ids` has always been for.
+                    row = conn.execute(
+                        "SELECT url, source FROM listings WHERE fb_id = ?",
+                        (fb_id,),
+                    ).fetchone()
+                    if row is not None:
+                        cards.append(
+                            {
+                                "fb_id": fb_id,
+                                "url": row["url"],
+                                "title": None,
+                                "source": row["source"],
+                            }
+                        )
+                    else:
+                        cards.append(
+                            {"fb_id": fb_id, "url": marketplace_url(fb_id), "title": None}
+                        )
                 click.echo(f"Targeting {len(cards)} listing(s) by id.")
             else:
                 try:
@@ -408,148 +606,214 @@ def scrape_cmd(
                     )
                     sys.exit(3)
 
-            click.echo(f"Collected {len(cards)} list cards.")
-
             # The cap counts detail pages actually opened, not positions in
             # the feed: known listings and reposts fill the first screens
             # once the DB has grown, and an index-based cap would spend the
             # whole budget on them before reaching a single new listing.
             detail_cap = 0 if skip_details else detail_cap_opt
 
-            enriched: list[dict[str, Any]] = []
-            skipped_known = 0
-            skipped_dupes = 0
-            details_fetched = 0
-            inserted = 0
-            updated = 0
-            duplicates = 0
-            photo_hashed = 0
-            with click.progressbar(
-                length=len(cards),
-                label="Scraping listings",
-                show_pos=True,
-                show_eta=True,
-                item_show_func=lambda c: str(c.get("fb_id")) if c else "",
-            ) as bar:
-                for idx, card in enumerate(cards):
-                    # A targeted id carries no title until its detail page
-                    # answers — that is the whole point of naming it.
-                    if not card.get("url") or (not targeted and not card.get("title")):
-                        click.echo(
-                            f"  [{idx + 1}/{len(cards)}] skipping card missing url/title: "
-                            f"fb_id={card.get('fb_id')}"
-                        )
-                        bar.update(1, card)
-                        continue
-                    if card["fb_id"] in dupe_ids:
-                        skipped_dupes += 1
-                        bar.update(1, card)
-                        continue
+            _process_cards(
+                conn,
+                context,
+                cards,
+                detail_cap=detail_cap,
+                dry_run=dry_run,
+                no_photos=no_photos,
+                seen_ids=seen_ids,
+                dupe_ids=dupe_ids,
+                require_card_title=not targeted,
+            )
+        finally:
+            try:
+                if context is not None:
+                    context.close()
+            finally:
+                playwright.stop()
+    finally:
+        conn.close()
 
-                    detail: dict[str, Any] | None = None
-                    # None means "not asked", which is not the same as "asked
-                    # and got nothing": only the second one may erase hashes.
-                    hash_entries: list[tuple[int, str, str]] | None = None
-                    already_known = card["fb_id"] in seen_ids
-                    if already_known:
-                        skipped_known += 1
-                    elif details_fetched < detail_cap:
-                        details_fetched += 1
-                        time.sleep(
-                            random.uniform(
-                                config.DETAIL_DELAY_MIN_SEC,
-                                config.DETAIL_DELAY_MAX_SEC,
-                            )
-                        )
-                        try:
-                            detail = scrape_detail(context, card["url"])
-                        except LoginRequiredError as exc:
-                            _echo_err(str(exc))
-                            _echo_err(
-                                f"Stopped after {inserted + updated + duplicates} "
-                                "listing(s) — those are already in the DB. Run "
-                                "`fb-rent export` to refresh the exports, then "
-                                "`fb-rent login` and scrape again."
-                            )
-                            sys.exit(3)
-                        if detail is None:
-                            click.echo(
-                                f"  [{idx + 1}/{len(cards)}] detail unavailable, "
-                                f"keeping list-card data: {card['url']}"
-                            )
-                        elif not dry_run:
-                            # Inside the jitter we already paid for — the
-                            # CDN fetches add ~1–2 s and no extra pause.
-                            hash_entries = _fetch_photo_hashes(context, detail)
-                            if not no_photos:
-                                _download_photos(context, detail, card["fb_id"])
-                    item = _enrich(_merge_listing(card, detail))
-                    if not item.get("title"):
-                        # Only reachable through --ids: the page is gone, or
-                        # served something that is not a listing. `title` is
-                        # NOT NULL and a row without one says nothing anyway.
-                        click.echo(
-                            f"  [{idx + 1}/{len(cards)}] no listing behind "
-                            f"{card['fb_id']} — skipped."
-                        )
-                        bar.update(1, card)
-                        continue
-                    if dry_run:
-                        enriched.append(item)
-                    else:
-                        # Written one at a time on purpose: a wide run walks
-                        # detail pages for the better part of an hour, and a
-                        # checkpoint or an expired session near the end used
-                        # to throw away everything scraped before it.
-                        result = upsert_listing(conn, item)
-                        if result == "inserted":
-                            inserted += 1
-                        elif result == "duplicate":
-                            duplicates += 1
-                        else:
-                            updated += 1
-                        if hash_entries is not None and result != "duplicate":
-                            save_photo_hashes(conn, item["fb_id"], hash_entries)
-                            if hash_entries:
-                                photo_hashed += 1
-                    bar.update(1, card)
 
-            if skipped_known:
-                click.echo(
-                    f"Skipped detail fetch for {skipped_known} listing(s) already in DB."
-                )
-            if skipped_dupes:
-                click.echo(
-                    f"Skipped {skipped_dupes} known repost(s) of listings already in DB."
-                )
+def _collect_group_cards(
+    context: Any,
+    group_ids: list[str],
+    *,
+    max_items: int,
+    days: int,
+) -> list[dict[str, Any]]:
+    """Walk each group's feed once and return the cards, round-robin merged.
 
-            if dry_run:
-                click.echo("Dry-run: skipping DB writes and CSV export.")
-                for item in enriched:
-                    click.echo(
-                        f"  - {item.get('fb_id')} | "
-                        f"{item.get('price_thb')} THB | "
-                        f"{item.get('title')!r}"
-                    )
-                click.echo(f"Would have processed {len(enriched)} listings.")
-                return
+    Mirrors ``_collect_cards``: the detail budget is shared across every
+    group in the run, so cards are interleaved rather than taken group
+    after group — otherwise the whole budget would go to the first group
+    before a second one is even read.
+    """
+    sweeping = len(group_ids) > 1
+    collected: list[list[dict[str, Any]]] = []
+    for number, group_id in enumerate(group_ids, start=1):
+        label = config.GROUPS.get(group_id, group_id)
+        click.echo(f"[{number}/{len(group_ids)}] {label} ({group_id})")
+        group_cards = scrape_group_feed(
+            context, group_id, max_items=max_items, days=days, allow_empty=sweeping
+        )
+        if sweeping:
+            click.echo(f"    {len(group_cards)} posts.")
+        collected.append(group_cards)
 
-            if detail_cap and details_fetched >= detail_cap:
-                click.echo(
-                    f"Detail budget spent ({detail_cap} pages) — the rest kept "
-                    "list-card data only. Raise it with --detail-cap."
-                )
+    cards_by_id: dict[str, dict[str, Any]] = {}
+    for row in zip_longest(*collected):
+        for card in row:
+            if card is not None:
+                cards_by_id.setdefault(card["fb_id"], card)
+    return list(cards_by_id.values())
 
-            _sync_decisions(conn)
-            _sync_buildings(conn)
-            csv_path = export_csv(conn, config.CSV_PATH)
-            html_path = export_html(conn, config.HTML_PATH)
 
+@main.command("scrape-groups")
+@click.option(
+    "--group",
+    "group_ids",
+    multiple=True,
+    help="Group id/slug to scrape (repeatable). Default: every group in "
+    "config.GROUPS.",
+)
+@click.option(
+    "--max",
+    "max_items",
+    type=int,
+    default=config.GROUP_FEED_MAX_ITEMS,
+    show_default=True,
+    help="Maximum posts to collect per group.",
+)
+@click.option(
+    "--days",
+    "days",
+    type=int,
+    default=config.DEFAULT_DAYS_SINCE_LISTED,
+    show_default=True,
+    help="Stop scrolling a group's feed once posts read older than this.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Print what would be scraped/written without touching the DB.",
+)
+@click.option(
+    "--refresh",
+    is_flag=True,
+    default=False,
+    help="Re-scrape detail pages for posts already in the DB.",
+)
+@click.option(
+    "--no-photos",
+    "no_photos",
+    is_flag=True,
+    default=False,
+    help="Skip downloading post photos (faster runs, no photo pass).",
+)
+@click.option(
+    "--detail-cap",
+    "detail_cap_opt",
+    type=int,
+    default=config.DETAIL_REQUEST_CAP,
+    show_default=True,
+    help="Maximum detail pages to open in one run.",
+)
+@click.option(
+    "--ids",
+    "ids",
+    multiple=True,
+    help="Scrape these post fb_ids directly, skipping the feed (repeatable). "
+    "Requires a single --group.",
+)
+def scrape_groups_cmd(
+    group_ids: tuple[str, ...],
+    max_items: int,
+    days: int,
+    dry_run: bool,
+    refresh: bool,
+    no_photos: bool,
+    detail_cap_opt: int,
+    ids: tuple[str, ...],
+) -> None:
+    """Scrape Facebook group posts and upsert results into the local SQLite DB."""
+    groups = list(group_ids) or list(config.GROUPS)
+    unknown = [g for g in groups if g not in config.GROUPS]
+    if unknown:
+        _echo_err(f"Unknown group(s): {', '.join(unknown)}. Known: {', '.join(config.GROUPS)}")
+        sys.exit(1)
+
+    targeted = bool(ids)
+    if targeted and len(groups) != 1:
+        _echo_err("--ids requires exactly one --group to build permalinks from.")
+        sys.exit(1)
+
+    click.echo(
+        f"Options: groups={groups} max={max_items} days={days} "
+        f"dry_run={dry_run} refresh={refresh} no_photos={no_photos} "
+        f"detail_cap={detail_cap_opt}"
+    )
+
+    config.ensure_home()
+    conn = init_db(config.DB_PATH)
+    try:
+        seen_ids = set() if (refresh or targeted) else known_fb_ids(conn)
+        dupe_ids = set() if targeted else duplicate_fb_ids(conn)
+        if seen_ids and not refresh:
             click.echo(
-                f"Done. inserted: {inserted}, updated: {updated}, "
-                f"duplicates: {duplicates + skipped_dupes}, "
-                f"skipped_known: {skipped_known}, photo hashes: {photo_hashed}, "
-                f"csv: {csv_path}, html: {html_path}"
+                f"Known listings in DB: {len(seen_ids)} "
+                "(details will be skipped for these; use --refresh to override)."
+            )
+
+        playwright = start_playwright()
+        context = None
+        try:
+            try:
+                context = launch_persistent(playwright, headless=True)
+            except Exception as exc:  # noqa: BLE001 — surface a friendly error
+                _echo_err(f"Failed to launch browser: {exc}")
+                sys.exit(2)
+
+            if not is_logged_in(context):
+                _echo_err("No active Facebook session. Run `fb-rent login` first.")
+                sys.exit(3)
+
+            if targeted:
+                group_id = groups[0]
+                cards = [
+                    {
+                        "fb_id": fb_id,
+                        "url": group_post_url(group_id, fb_id),
+                        "title": None,
+                        "source": f"group:{group_id}",
+                    }
+                    for fb_id in dict.fromkeys(ids)
+                ]
+                click.echo(f"Targeting {len(cards)} post(s) by id.")
+            else:
+                try:
+                    cards = _collect_group_cards(
+                        context, groups, max_items=max_items, days=days
+                    )
+                except LoginRequiredError as exc:
+                    _echo_err(str(exc))
+                    sys.exit(3)
+                if not cards:
+                    _echo_err(
+                        "Every group came back empty — the session has likely "
+                        "expired. Run `fb-rent login` and retry."
+                    )
+                    sys.exit(3)
+
+            _process_cards(
+                conn,
+                context,
+                cards,
+                detail_cap=detail_cap_opt,
+                dry_run=dry_run,
+                no_photos=no_photos,
+                seen_ids=seen_ids,
+                dupe_ids=dupe_ids,
+                require_card_title=False,
             )
         finally:
             try:

@@ -151,12 +151,20 @@ def _detect_marked_unavailable(page: "Page") -> bool:
     return False
 
 
-def _is_gone(page: "Page") -> bool:
-    """Every way FB tells us this listing is no longer up, combined."""
+def _is_gone(page: "Page", url: str = "") -> bool:
+    """Every way FB tells us this listing is no longer up, combined.
+
+    ``_detect_marked_unavailable`` only makes sense on a marketplace item
+    page — its own signal for "not a sidebar card" is a marketplace-item
+    anchor, which means nothing on a group post. ``check_listing_alive``
+    also runs against group permalinks now, where a comment saying
+    "already rented?" would otherwise false-positive; gate it on the URL
+    shape rather than teach it a second, unrelated signal.
+    """
     return (
         _detect_redirected_away(page)
         or _detect_unavailable(page)
-        or _detect_marked_unavailable(page)
+        or ("/marketplace/item/" in url and _detect_marked_unavailable(page))
     )
 
 
@@ -376,13 +384,13 @@ def scrape_detail(
                 raise LoginRequiredError(
                     "Facebook redirected to login. Run `fb-rent login` and retry."
                 ) from exc
-            if _is_gone(page):
+            if _is_gone(page, url):
                 return None
             # Main region never rendered — treat as unavailable rather
             # than crashing the whole scrape run.
             return None
 
-        if _is_gone(page):
+        if _is_gone(page, url):
             return None
 
         _try_expand_description(page)
@@ -447,7 +455,7 @@ def check_listing_alive(context: "BrowserContext", url: str) -> bool | None:
                 "Facebook redirected to login. Run `fb-rent login` and retry."
             )
 
-        if _is_gone(page):
+        if _is_gone(page, url):
             return False
 
         try:
@@ -457,8 +465,8 @@ def check_listing_alive(context: "BrowserContext", url: str) -> bool | None:
                 raise LoginRequiredError(
                     "Facebook redirected to login. Run `fb-rent login` and retry."
                 ) from exc
-            return False if _is_gone(page) else None
+            return False if _is_gone(page, url) else None
 
-        return False if _is_gone(page) else True
+        return False if _is_gone(page, url) else True
     finally:
         page.close()
