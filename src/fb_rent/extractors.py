@@ -14,10 +14,11 @@ from datetime import datetime, timedelta, timezone
 
 # Currency tokens we accept as "this string is a THB price". FB shows a mix
 # of "THB", "฿", "Bt", "baht", or nothing at all when the marketplace UI
-# already labels the column. We treat unlabelled numbers as THB too since
-# the whole search is scoped to Phuket rentals in THB.
+# already labels the column. "бат" is the Cyrillic spelling group posts use.
+# We treat unlabelled numbers as THB too since the whole search is scoped to
+# Phuket rentals in THB.
 _CURRENCY_RE = re.compile(
-    r"(?:฿|thb|bt\.?|baht)",
+    r"(?:฿|thb|bt\.?|baht|бат)",
     re.IGNORECASE,
 )
 
@@ -55,6 +56,13 @@ def parse_price(raw: str | None) -> int | None:
     anything without a recognisable number. A trailing ``k``/``K`` is
     treated as ×1000. Non-THB currencies (USD/EUR/₽/etc.) are rejected —
     we do not do FX conversion.
+
+    A marketplace ``price_raw`` is a short, price-only string, so its first
+    number is the price. A group post's is a whole sentence — "Вилла с 3
+    спальнями ... по 100 000 бат в месяц" — where the first number is the
+    bedroom count, not the price. When a currency token is present, the
+    number closest to it wins; only an untagged string (a bare "25000") falls
+    back to the first number in it.
     """
     if not raw:
         return None
@@ -66,9 +74,18 @@ def parse_price(raw: str | None) -> int | None:
     if re.search(r"[$€£₽¥]|\busd\b|\beur\b|\bgbp\b|\brub\b", text, re.IGNORECASE):
         return None
 
-    match = _NUMBER_RE.search(text)
-    if not match:
+    numbers = list(_NUMBER_RE.finditer(text))
+    if not numbers:
         return None
+
+    currencies = list(_CURRENCY_RE.finditer(text))
+    if currencies:
+        match = min(
+            numbers,
+            key=lambda m: min(abs(m.start() - c.start()) for c in currencies),
+        )
+    else:
+        match = numbers[0]
 
     number = match.group(1)
     # Reject decimal-looking values like "25.5" or "12,5" (a separator

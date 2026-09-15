@@ -40,6 +40,27 @@ def test_parse_price_valid(raw: str, expected: int) -> None:
 
 
 @pytest.mark.parametrize(
+    "raw,expected",
+    [
+        # A group post's price_raw is a whole sentence, not a price-only
+        # string — an unrelated number ahead of the currency token must not
+        # win. Real bug: this parsed to 3 (the bedroom count).
+        (
+            "Вилла с 3 спальнями в Банг Тао доступна для ежегодного "
+            "контракта по 100 000 бат в месяц",
+            100_000,
+        ),
+        # Same shape in English: "1-year" precedes the actual price.
+        ("• 1-year contract: 30,000 THB/month", 30_000),
+    ],
+)
+def test_parse_price_picks_number_nearest_currency_token(
+    raw: str, expected: int
+) -> None:
+    assert parse_price(raw) == expected
+
+
+@pytest.mark.parametrize(
     "raw",
     [
         None,
