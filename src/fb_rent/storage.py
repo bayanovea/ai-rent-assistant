@@ -28,7 +28,7 @@ from pathlib import Path
 from collections.abc import Callable, Iterable
 from typing import Any, NamedTuple
 
-from . import ai_schema, buildings, config, extractors, photos, rules
+from . import ai_schema, buildings, config, decisions, extractors, photos, rules
 
 
 CSV_COLUMNS: tuple[str, ...] = (
@@ -92,11 +92,15 @@ CREATE TABLE IF NOT EXISTS duplicates (
 
 _DECISIONS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS decisions (
-    fb_id      TEXT PRIMARY KEY,
-    status     TEXT NOT NULL,
-    reason     TEXT,
-    rating     REAL,
-    decided_at TEXT NOT NULL
+    fb_id       TEXT PRIMARY KEY,
+    status      TEXT NOT NULL,
+    reason      TEXT,
+    rating      REAL,
+    decided_at  TEXT NOT NULL,
+    stage       TEXT,
+    stage_fb_id TEXT,
+    stage_at    TEXT,
+    stage_note  TEXT
 );
 """
 
@@ -393,6 +397,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # The mirror is rebuilt from decisions.json on every sync, so the
         # column starts empty and fills itself on the next `export`.
         conn.execute("ALTER TABLE decisions ADD COLUMN rating REAL")
+
+    have = {row["name"] for row in conn.execute("PRAGMA table_info(decisions)")}
+    if "stage" not in have:
+        # Same story: rebuilt from decisions.json on every sync.
+        for column in ("stage", "stage_fb_id", "stage_at", "stage_note"):
+            conn.execute(f"ALTER TABLE decisions ADD COLUMN {column} TEXT")
 
     have = {row["name"] for row in conn.execute("PRAGMA table_info(listings)")}
     if "content_key" not in have:
@@ -2003,7 +2013,8 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                a.photo_data_json, a.photo_comment, a.photo_model,
                a.photo_schema_version, a.photos_analyzed_at, a.photos_hash,
                d.status AS user_status, d.reason AS user_reason,
-               d.rating AS user_rating, d.decided_at
+               d.rating AS user_rating, d.decided_at,
+               d.stage, d.stage_fb_id, d.stage_at, d.stage_note
         FROM listings AS l
         LEFT JOIN ai_analysis AS a ON a.fb_id = l.fb_id
         LEFT JOIN decisions AS d ON d.fb_id = l.fb_id
@@ -2182,6 +2193,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .sw.bar-rej { border-left: 3px solid #d93025; }
   .sw.bar-short { border-left: 3px solid #f9ab00; }
   .sw.bar-long { border-left: 3px solid #4285f4; }
+  .sw.bar-inprog { border-left: 3px solid #34a853; }
   /* Клавиши — сеткой «клавиша → что делает»: колонка кнопок читается
      взглядом, перечисление через запятую приходилось разбирать. */
   .kk { display: grid; grid-template-columns: max-content 1fr; gap: 5px 14px; align-items: baseline; font-size: 11px; color: #6a7488; }
@@ -2253,6 +2265,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
   tr.row-rejected td:first-child { border-left: 3px solid #d93025; opacity: 1; text-decoration: none; }
   tr.row-shortlist td:first-child { border-left: 3px solid #f9ab00; }
   tr.row-longlist td:first-child { border-left: 3px solid #4285f4; }
+  tr.row-in_progress td:first-child { border-left: 3px solid #34a853; }
   .empty { padding: 1rem; color: #888; }
 </style>
 </head>
@@ -2260,6 +2273,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
 <div class="top">
   <div class="bar">
     <button class="tab" data-tab="active"></button>
+    <button class="tab" data-tab="in_progress"></button>
     <button class="tab" data-tab="shortlist"></button>
     <button class="tab" data-tab="longlist"></button>
     <button class="tab" data-tab="rejected"></button>
@@ -2322,6 +2336,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
         </ul>
         <div class="pop-h">Строка</div>
         <ul class="lg">
+          <li><span class="sw bar-inprog"></span><span>в работе — написали, договорились о просмотре, или уже посмотрели и ждёт сравнения</span></li>
           <li><span class="sw bar-short"></span><span>в Shortlist</span></li>
           <li><span class="sw bar-long"></span><span>в Longlist</span></li>
           <li><span class="sw bar-rej"></span><span>отклонено — правилами или вами; строка зачёркнута</span></li>
@@ -2362,10 +2377,11 @@ const DATA = __DATA_JSON__;
 // когда файл пересобрался — значит блок команд уже прогнали.
 const GENERATED_AT = "__GENERATED_AT__";
 
-// Active — что ещё не разобрано, остальные три — что уже посмотрели.
+// Active — что ещё не разобрано, «В работе» — то, что уже в переписке или
+// на просмотре, остальные — что уже посмотрели и разложили.
 const TAB_LABELS = {
-  active: "Разобрать", shortlist: "Shortlist", longlist: "Longlist",
-  rejected: "Rejected", all: "All"
+  active: "Разобрать", in_progress: "В работе", shortlist: "Shortlist",
+  longlist: "Longlist", rejected: "Rejected", all: "All"
 };
 const CLIPPED_KINDS = { verdict: 1, comment: 1, field: 1, text: 1, reason: 1 };
 const TYPE_ICONS = {
@@ -2440,8 +2456,19 @@ function haystack(row) {
   return row._hay;
 }
 
+/* A stage (written / viewing_scheduled / viewed) moves a row into «В
+   работе» instead of wherever its status would otherwise put it — so it is
+   not sitting in Shortlist next to candidates nobody has contacted yet.
+   `status` itself is untouched (decisions.save_stage never writes it): a
+   rejected row stays out of «В работе» even with a stage still on it, the
+   same way it is already out of Shortlist/Longlist. */
+function effectiveTab(row) {
+  if (row.stage && row.status !== "rejected") return "in_progress";
+  return row.status;
+}
+
 function inTab(row, tab) {
-  return tab === "all" ? true : row.status === tab;
+  return tab === "all" ? true : effectiveTab(row) === tab;
 }
 
 /* 0 → red, 50 → amber, 100 → green, in the same muted register as the
@@ -2565,9 +2592,11 @@ function tdHTML(row, col) {
 
 function rowHTML(row) {
   const cls = [];
+  const et = effectiveTab(row);
   if (row.status === "rejected") cls.push("row-rejected");
-  else if (row.status === "shortlist") cls.push("row-shortlist");
-  else if (row.status === "longlist") cls.push("row-longlist");
+  else if (et === "in_progress") cls.push("row-in_progress");
+  else if (et === "shortlist") cls.push("row-shortlist");
+  else if (et === "longlist") cls.push("row-longlist");
   if (row.fb_id === cursorId) cls.push("cursor");
   return '<tr class="' + cls.join(" ") + '" data-row="' + esc(row.fb_id) + '">'
     + visibleColumns().map(c => tdHTML(row, c)).join("") + '</tr>';
@@ -3295,6 +3324,26 @@ _FIXED_COLUMNS: dict[str, dict[str, Any]] = {
         "label": "Причина", "kind": "reason", "src": "sys",
         "tabs": ["rejected", "all"],
     },
+    # The post-shortlist pipeline (decisions.save_stage), set from the CLI —
+    # there is no keyboard shortcut for it, only display. Scoped to «В
+    # работе» / All the same way `decided_by` / `reason` are scoped to their
+    # tabs: elsewhere every row's cell would be empty by construction.
+    "stage": {
+        "label": "Этап", "kind": "text", "src": "sys",
+        "tabs": ["in_progress", "all"],
+    },
+    "stage_fb_id": {
+        "label": "По объявлению", "kind": "text", "src": "sys",
+        "tabs": ["in_progress", "all"],
+    },
+    "stage_at": {
+        "label": "Просмотр", "kind": "text", "src": "sys",
+        "tabs": ["in_progress", "all"],
+    },
+    "stage_note": {
+        "label": "Заметка", "kind": "comment", "src": "sys",
+        "tabs": ["in_progress", "all"],
+    },
 }
 
 # The default view, in reading order. Everything countable comes first, so a
@@ -3304,6 +3353,10 @@ _FIXED_COLUMNS: dict[str, dict[str, Any]] = {
 # tabs where they are empty by construction.
 _VISIBLE_ORDER: tuple[str, ...] = (
     "fb_id",
+    "stage",
+    "stage_fb_id",
+    "stage_at",
+    "stage_note",
     "score",
     "pets",
     "price",
@@ -3594,6 +3647,10 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
     decided_by = item.get("decided_by")
     reason = item.get("reason")
     rating = item.get("rating")
+    # Independent of status (see decisions.save_stage): a shortlisted row
+    # keeps its stage even if it is later rejected, so the tab is derived in
+    # JS from (stage, status) rather than dropped here.
+    stage = item.get("stage")
     first_seen = item.get("first_seen_at") or ""
     score = item.get("score")
 
@@ -3659,6 +3716,10 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
             "t": reason or "",
             "c": rules.CLASS_BAD if status == "rejected" and reason else "",
         },
+        "stage": {"t": decisions.STAGE_LABELS.get(stage or "", ""), "c": ""},
+        "stage_fb_id": {"t": item.get("stage_fb_id") or "", "c": ""},
+        "stage_at": {"t": item.get("stage_at") or "", "c": ""},
+        "stage_note": {"t": item.get("stage_note") or "", "c": ""},
     }
     if price_ev:
         cells["price"]["ev"] = price_ev
@@ -3697,6 +3758,7 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
         "fb_id": item.get("fb_id"),
         "url": item.get("url"),
         "status": status,
+        "stage": stage,
         "decided_by": decided_by,
         "analyzed": analyzed,
         "cells": cells,
@@ -3751,10 +3813,13 @@ def export_html(
     Every listing is rendered with every registry field, joined with its AI
     analysis and the user's own verdict: cells are coloured by
     :func:`rules.cell_class`, rejected rows are struck through and carry the
-    reason and the `Кто решил` column, and the Разобрать / Shortlist /
-    Longlist / Rejected / All tabs filter the set — the first holds what has
-    not been looked at, the other three what has. Data is embedded inline, so the file opens straight
-    from disk with no server and no network.
+    reason and the `Кто решил` column, and the Разобрать / В работе /
+    Shortlist / Longlist / Rejected / All tabs filter the set — the first
+    holds what has not been looked at, «В работе» holds whatever carries a
+    stage from :func:`decisions.save_stage` (contacted, viewing scheduled, or
+    viewed and awaiting comparison) and is not rejected, the rest hold
+    everything else that has been looked at. Data is embedded inline, so the
+    file opens straight from disk with no server and no network.
     """
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)

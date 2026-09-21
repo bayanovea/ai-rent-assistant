@@ -334,3 +334,32 @@ No mark ever leaves a listing in the active set, and that is the point: the
 Разобрать tab is the queue of what has not been looked at, so a row still on
 it is a row still waiting for you. Nothing has to be sorted or filtered to
 see what is left.
+
+## After the shortlist: contact, viewing, comparison
+
+A second, independent set of commands tracks what happens once you start
+acting on a candidate — contacted the landlord, agreed on a viewing, viewed
+it and not yet decided. This is a **stage**, not a status: it rides alongside
+`shortlist`/`longlist`/whatever the listing's status is, and rejecting the
+listing later does not erase it. A row carrying a stage moves to the «В
+работе» tab instead of sitting in Shortlist among candidates nobody has
+contacted yet — unless it is rejected, in which case it drops out of «В
+работе» the same way a rejected row already drops out of every other tab but
+Rejected.
+
+```sh
+fb-rent contact 1234567890 --note "написал в вотсапе"
+fb-rent schedule-viewing 1234567890 "2026-09-25 14:00" --note "встречает партнёр"
+fb-rent mark-viewed 1234567890 --note "тесновато, но фото не врали"
+fb-rent clear-stage 1234567890       # back to nothing — a mistake, or done comparing
+fb-rent export                       # refresh the table
+```
+
+Dedupe can fold several Facebook postings into one row, and the stage is
+about one specific ad — the one you actually messaged — not the row in the
+abstract. `--posting <fb_id>` names it; it must be the row's own `fb_id` or
+one of the postings already merged into it (the same ids the table's ID cell
+lists). Omitted, it defaults to whatever a previous stage on this row already
+recorded, and only falls back to the row's own id if nothing was recorded
+yet — so `schedule-viewing` and `mark-viewed` do not need `--posting`
+repeated once `contact` set it once.

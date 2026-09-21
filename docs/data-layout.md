@@ -37,7 +37,7 @@ merging it away in `dedupe`, purges its directory.
 
 One self-contained file: no server, no CDN, no internet. Click a header to
 sort, type in the search box to filter across every column, switch sets with
-the Разобрать / Shortlist / Longlist / Rejected / All tabs.
+the Разобрать / В работе / Shortlist / Longlist / Rejected / All tabs.
 
 **The header is two rows and nothing else.** Where you are — the tabs, with
 their counts, and the build stamp in the corner — and how you narrow it down —
@@ -60,6 +60,17 @@ Rejected. Nothing rated stays behind, which is what makes "what is left to do"
 a tab rather than a filter you have to remember to set. `active` survives as a
 status only for `unreject`, which puts an auto-rejected listing back into that
 queue.
+
+A fifth tab, **В работе**, sits alongside these four but is not one of them:
+it is not driven by `status` at all. `fb-rent contact` / `schedule-viewing` /
+`mark-viewed` (see [cli.md](cli.md#after-the-shortlist-contact-viewing-comparison))
+record a *stage* — written, viewing scheduled, viewed and awaiting comparison
+— independently of the listing's status, so a row can be `shortlist` and
+`written` at once. A row carrying a stage shows in «В работе» instead of
+Shortlist/Longlist, which is what keeps it from being lost among candidates
+nobody has contacted yet; rejecting it later drops it back out of «В работе»
+the same way a reject already drops a row out of every tab but Rejected,
+without touching the recorded stage.
 
 Both sorting and filtering take more than one column at a time. Shift-clicking
 a second header appends it as a tie-breaker instead of replacing the current
@@ -239,7 +250,12 @@ The tables that carry the work:
 - `duplicates` and `photo_hashes` — the dedupe machinery, see
   [dedupe.md](dedupe.md).
 - `decisions` — a mirror of `decisions.json`, refreshed on every `export`. The
-  JSON file is the original; this table exists so the exporter can join.
+  JSON file is the original; this table exists so the exporter can join. Next
+  to `status`/`reason`/`rating` it also carries `stage`/`stage_fb_id`/
+  `stage_at`/`stage_note` — the post-shortlist pipeline, written by
+  `fb-rent contact` / `schedule-viewing` / `mark-viewed` and independent of
+  `status` (see the «В работе» tab above and
+  [cli.md](cli.md#after-the-shortlist-contact-viewing-comparison)).
 - `buildings` — a mirror of `buildings.json`, refreshed on every `export` and
   every `scrape`, for the same reason. One row per condo: the pets `policy`,
   the `status` (`proposed` changes nothing, only `confirmed` can reject), the

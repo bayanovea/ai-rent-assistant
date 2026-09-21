@@ -223,6 +223,140 @@ def test_decisions_file_is_group_readable(home):
     assert config.DECISIONS_PATH.stat().st_mode & 0o077 == 0o044
 
 
+# --- stage (contact / schedule-viewing / mark-viewed / clear-stage) -------
+
+
+def test_contact_defaults_the_posting_to_the_row_itself(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    conn.close()
+
+    result = _run("contact", "1")
+
+    assert result.exit_code == 0
+    entry = json.loads(config.DECISIONS_PATH.read_text(encoding="utf-8"))["1"]
+    assert entry["stage"] == "written"
+    assert entry["stage_fb_id"] == "1"
+
+
+def test_contact_accepts_a_merged_posting(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    _add_listing(conn, "2")
+    conn.execute(
+        "INSERT INTO duplicates (fb_id, canonical_fb_id, content_key, url, noticed_at) "
+        "VALUES ('2', '1', 'x', 'https://example.com/2', '2026-08-01T00:00:00Z')"
+    )
+    conn.commit()
+    conn.close()
+
+    result = _run("contact", "1", "--posting", "2")
+
+    assert result.exit_code == 0
+    entry = json.loads(config.DECISIONS_PATH.read_text(encoding="utf-8"))["1"]
+    assert entry["stage_fb_id"] == "2"
+
+
+def test_contact_refuses_a_posting_outside_the_group(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    _add_listing(conn, "2")
+    conn.close()
+
+    result = _run("contact", "1", "--posting", "2")
+
+    assert result.exit_code != 0
+    assert "not one of" in result.output
+    assert not config.DECISIONS_PATH.exists()
+
+
+def test_contact_refuses_an_unknown_posting(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    conn.close()
+
+    result = _run("contact", "1", "--posting", "999")
+
+    assert result.exit_code != 0
+    assert "no such listing" in result.output
+
+
+def test_schedule_viewing_inherits_the_posting_contact_recorded(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    _add_listing(conn, "2")
+    conn.execute(
+        "INSERT INTO duplicates (fb_id, canonical_fb_id, content_key, url, noticed_at) "
+        "VALUES ('2', '1', 'x', 'https://example.com/2', '2026-08-01T00:00:00Z')"
+    )
+    conn.commit()
+    conn.close()
+
+    assert _run("contact", "1", "--posting", "2").exit_code == 0
+    result = _run("schedule-viewing", "1", "2026-09-25 14:00")
+
+    assert result.exit_code == 0
+    entry = json.loads(config.DECISIONS_PATH.read_text(encoding="utf-8"))["1"]
+    assert entry["stage"] == "viewing_scheduled"
+    assert entry["stage_fb_id"] == "2"
+    assert entry["stage_at"] == "2026-09-25 14:00"
+
+
+def test_mark_viewed_keeps_status_and_stage_survives_reject(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    conn.close()
+
+    assert _run("shortlist", "1", "--reason", "хороший район").exit_code == 0
+    assert _run("mark-viewed", "1", "--note", "тесновато").exit_code == 0
+    assert _run("reject", "1", "--reason", "соседи с собаками").exit_code == 0
+
+    entry = json.loads(config.DECISIONS_PATH.read_text(encoding="utf-8"))["1"]
+    assert entry["status"] == "rejected"
+    assert entry["stage"] == "viewed"
+    assert entry["stage_note"] == "тесновато"
+
+
+def test_clear_stage_leaves_status_alone(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    conn.close()
+
+    assert _run("shortlist", "1").exit_code == 0
+    assert _run("contact", "1").exit_code == 0
+    result = _run("clear-stage", "1")
+
+    assert result.exit_code == 0
+    entry = json.loads(config.DECISIONS_PATH.read_text(encoding="utf-8"))["1"]
+    assert entry["status"] == "shortlist"
+    assert "stage" not in entry
+
+
+def test_clear_stage_without_a_decision_is_an_error(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    conn.close()
+
+    result = _run("clear-stage", "1")
+
+    assert result.exit_code != 0
+    assert "no decision recorded" in result.output
+
+
+def test_in_progress_row_reaches_the_export(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    conn.close()
+
+    assert _run("shortlist", "1").exit_code == 0
+    assert _run("contact", "1").exit_code == 0
+    result = _run("export")
+
+    assert result.exit_code == 0
+    html = config.HTML_PATH.read_text(encoding="utf-8")
+    assert '"stage": "written"' in html
+
+
 # --- title merge ----------------------------------------------------------
 
 

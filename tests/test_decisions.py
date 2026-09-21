@@ -235,3 +235,130 @@ def test_an_unrated_listing_shows_an_empty_cell(path: Path):
     assert cells["rating"]["t"] == ""
     assert cells["rating"]["n"] is None
     conn.close()
+
+
+# --- the post-shortlist stage --------------------------------------------
+
+
+def test_save_stage_creates_an_active_entry_when_none_exists(path: Path):
+    entry = dec.save_stage(path, "123", "written", posting_fb_id="123")
+
+    assert entry["status"] == "active"
+    assert entry["stage"] == "written"
+    assert entry["stage_fb_id"] == "123"
+    loaded = dec.load_decisions(path)["123"]
+    assert loaded["stage"] == "written"
+
+
+def test_save_stage_keeps_the_existing_status(path: Path):
+    dec.save_decision(path, "123", "shortlist", "поехать смотреть")
+    dec.save_stage(path, "123", "written", posting_fb_id="123")
+
+    entry = dec.load_decisions(path)["123"]
+    assert entry["status"] == "shortlist"
+    assert entry["reason"] == "поехать смотреть"
+    assert entry["stage"] == "written"
+
+
+def test_save_decision_never_touches_an_existing_stage(path: Path):
+    dec.save_stage(path, "123", "viewing_scheduled", posting_fb_id="123", viewing_at="2026-09-25 14:00")
+    dec.save_decision(path, "123", "rejected", "поменяли планы")
+
+    entry = dec.load_decisions(path)["123"]
+    assert entry["status"] == "rejected"
+    assert entry["stage"] == "viewing_scheduled"
+    assert entry["stage_at"] == "2026-09-25 14:00"
+
+
+def test_save_stage_overwrites_a_previous_stage(path: Path):
+    dec.save_stage(path, "123", "written", posting_fb_id="123")
+    dec.save_stage(path, "123", "viewed", posting_fb_id="123", note="снова заняли под ремонт")
+
+    entry = dec.load_decisions(path)["123"]
+    assert entry["stage"] == "viewed"
+    assert entry["stage_note"] == "снова заняли под ремонт"
+
+
+def test_invalid_stage_rejected(path: Path):
+    with pytest.raises(ValueError, match="unknown stage"):
+        dec.save_stage(path, "123", "maybe")
+    assert not path.exists()
+
+
+def test_clear_stage_drops_it_but_keeps_status(path: Path):
+    dec.save_decision(path, "123", "shortlist")
+    dec.save_stage(path, "123", "written", posting_fb_id="123")
+
+    entry = dec.clear_stage(path, "123")
+
+    assert entry["status"] == "shortlist"
+    assert "stage" not in entry
+    assert "stage_fb_id" not in entry
+    loaded = dec.load_decisions(path)["123"]
+    assert "stage" not in loaded
+
+
+def test_clear_stage_on_unknown_listing_is_a_noop(path: Path):
+    assert dec.clear_stage(path, "does-not-exist") is None
+
+
+def test_clear_stage_without_a_stage_is_a_noop(path: Path):
+    dec.save_decision(path, "123", "shortlist")
+    entry = dec.clear_stage(path, "123")
+    assert entry["status"] == "shortlist"
+    assert "stage" not in entry
+
+
+def test_sync_to_db_carries_the_stage(path: Path):
+    conn = storage.init_db(":memory:")
+    dec.save_stage(
+        path, "123", "viewing_scheduled",
+        posting_fb_id="999", viewing_at="2026-09-25 14:00", note="со стороны улицы",
+    )
+
+    dec.sync_to_db(conn, path=path)
+
+    row = dict(conn.execute("SELECT * FROM decisions WHERE fb_id = '123'").fetchone())
+    assert row["stage"] == "viewing_scheduled"
+    assert row["stage_fb_id"] == "999"
+    assert row["stage_at"] == "2026-09-25 14:00"
+    assert row["stage_note"] == "со стороны улицы"
+    conn.close()
+
+
+def test_sync_to_db_rejects_invalid_stage(path: Path):
+    conn = storage.init_db(":memory:")
+    with pytest.raises(ValueError, match="unknown stage"):
+        dec.sync_to_db(conn, {"123": {"status": "active", "stage": "maybe"}})
+    conn.close()
+
+
+def test_stage_reaches_the_html_row(path: Path):
+    conn = storage.init_db(":memory:")
+    conn.execute(
+        """
+        INSERT INTO listings (fb_id, url, title, first_seen_at, last_seen_at)
+        VALUES ('123', 'https://example.com/123', 'Villa', '2026-08-01T00:00:00Z',
+                '2026-08-01T00:00:00Z')
+        """
+    )
+    conn.commit()
+
+    dec.save_stage(
+        path, "123", "viewing_scheduled",
+        posting_fb_id="123", viewing_at="2026-09-25 14:00", note="встречает партнёр",
+    )
+    dec.sync_to_db(conn, path=path)
+
+    row = storage.fetch_enriched(conn)[0]
+    assert row["stage"] == "viewing_scheduled"
+
+    registry = storage.ai_schema.load_registry()
+    html_row = storage.html_row(row, registry)
+    assert html_row["stage"] == "viewing_scheduled"
+    cells = html_row["cells"]
+    assert cells["stage"]["t"] == "Договорились о просмотре"
+    assert cells["stage_fb_id"]["t"] == "123"
+    assert cells["stage_at"]["t"] == "2026-09-25 14:00"
+    assert cells["stage_note"]["t"] == "встречает партнёр"
+    conn.close()

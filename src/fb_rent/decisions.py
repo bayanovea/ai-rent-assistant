@@ -21,6 +21,15 @@ The four statuses are the four drawers the table shows as tabs: ``active`` is
 what still has to be looked at, ``longlist`` the middle variants worth keeping
 to hand, ``shortlist`` the best, ``rejected`` what is out.
 
+An entry may also carry a ``stage`` — what happened after the listing was
+shortlisted: contacted the landlord, agreed on a viewing, or viewed and not
+yet compared against the others. It is independent of ``status`` on purpose
+(see :func:`save_stage`) and adds four more keys when present: ``stage``,
+``stage_fb_id`` (which of the postings merged into this row the stage is
+actually about — dedupe can fold several ads into one row, and the stage
+belongs to one specific ad), ``stage_at`` (the viewing's date/time, only for
+``viewing_scheduled``) and ``stage_note``.
+
 Writes go through a temp file plus ``os.replace``, so an interrupted run
 leaves the previous decisions intact rather than a truncated file.
 """
@@ -45,6 +54,19 @@ from . import config
 VALID_STATUSES: frozenset[str] = frozenset(
     {"rejected", "active", "longlist", "shortlist"}
 )
+
+# The post-shortlist pipeline: contacted the landlord/agent, agreed on a
+# viewing, or viewed and waiting to be compared against the others before a
+# final call. Deliberately not folded into ``status`` — see :func:`save_stage`.
+VALID_STAGES: frozenset[str] = frozenset(
+    {"written", "viewing_scheduled", "viewed"}
+)
+
+STAGE_LABELS: dict[str, str] = {
+    "written": "Написал",
+    "viewing_scheduled": "Договорились о просмотре",
+    "viewed": "Просмотрено, ждёт сравнения",
+}
 
 # The user's own 1-5 mark, and the two thresholds that turn it into a status.
 # Deliberately blunt: a listing worth 4.5 goes straight to the shortlist, one
@@ -107,6 +129,10 @@ def save_decision(
 ) -> dict[str, Any]:
     """Record one decision, overwriting any previous verdict for ``fb_id``.
 
+    Leaves a ``stage`` already recorded by :func:`save_stage` alone — status
+    and stage track different things (see the module docstring), so
+    rejecting a listing you already wrote to must not erase that history.
+
     Returns the stored entry. Raises :class:`ValueError` for an unknown
     ``status`` or a ``rating`` outside 1-5.
     """
@@ -122,12 +148,92 @@ def save_decision(
 
     target = _path(path)
     decisions = load_decisions(target)
+    previous = decisions.get(str(fb_id)) or {}
     entry = {
-        "status": status,
-        "reason": reason,
-        "rating": rating,
-        "decided_at": now or _now_iso(),
+        key: previous[key]
+        for key in ("stage", "stage_fb_id", "stage_at", "stage_note", "stage_updated_at")
+        if key in previous
     }
+    entry.update(
+        {
+            "status": status,
+            "reason": reason,
+            "rating": rating,
+            "decided_at": now or _now_iso(),
+        }
+    )
+    decisions[str(fb_id)] = entry
+    _write_atomic(target, decisions)
+    return entry
+
+
+def save_stage(
+    path: Path | str | None,
+    fb_id: str,
+    stage: str,
+    *,
+    posting_fb_id: str | None = None,
+    viewing_at: str | None = None,
+    note: str | None = None,
+    now: str | None = None,
+) -> dict[str, Any]:
+    """Record the post-shortlist stage for a listing, alongside its status.
+
+    A listing worth writing to has usually been shortlisted already, but the
+    stage does not require it: an entry with no prior decision is created
+    with ``status="active"`` rather than refused, since rejecting or
+    shortlisting later must not lose the stage already recorded. The reverse
+    also holds — :func:`save_decision` never touches these keys, so rejecting
+    a listing you already wrote to keeps that history rather than erasing it.
+
+    ``posting_fb_id`` is the one specific ad, among however many dedupe has
+    merged into this row, that the stage is actually about. This module has
+    no DB access, so it cannot check that id against the row's known
+    postings — the caller (the CLI) must have already resolved and validated
+    it before this is called.
+    """
+    if stage not in VALID_STAGES:
+        raise ValueError(
+            f"unknown stage {stage!r} (known: {', '.join(sorted(VALID_STAGES))})"
+        )
+
+    target = _path(path)
+    decisions = load_decisions(target)
+    entry = dict(
+        decisions.get(str(fb_id))
+        or {
+            "status": "active",
+            "reason": None,
+            "rating": None,
+            "decided_at": now or _now_iso(),
+        }
+    )
+    entry["stage"] = stage
+    entry["stage_fb_id"] = posting_fb_id
+    entry["stage_at"] = viewing_at
+    entry["stage_note"] = note
+    entry["stage_updated_at"] = now or _now_iso()
+    decisions[str(fb_id)] = entry
+    _write_atomic(target, decisions)
+    return entry
+
+
+def clear_stage(
+    path: Path | str | None, fb_id: str, *, now: str | None = None
+) -> dict[str, Any] | None:
+    """Drop the stage from a listing's entry, leaving its status untouched.
+
+    Returns the entry (unchanged if there was no stage to clear), or ``None``
+    if the listing has no decision at all.
+    """
+    target = _path(path)
+    decisions = load_decisions(target)
+    entry = decisions.get(str(fb_id))
+    if entry is None or "stage" not in entry:
+        return entry
+    entry = dict(entry)
+    for key in ("stage", "stage_fb_id", "stage_at", "stage_note", "stage_updated_at"):
+        entry.pop(key, None)
     decisions[str(fb_id)] = entry
     _write_atomic(target, decisions)
     return entry
@@ -171,6 +277,9 @@ def sync_to_db(
         status = entry.get("status")
         if status not in VALID_STATUSES:
             raise ValueError(f"listing {fb_id}: unknown decision status {status!r}")
+        stage = entry.get("stage")
+        if stage is not None and stage not in VALID_STAGES:
+            raise ValueError(f"listing {fb_id}: unknown stage {stage!r}")
         rows.append(
             (
                 str(fb_id),
@@ -178,13 +287,19 @@ def sync_to_db(
                 entry.get("reason"),
                 entry.get("rating"),
                 entry.get("decided_at") or _now_iso(),
+                stage,
+                entry.get("stage_fb_id"),
+                entry.get("stage_at"),
+                entry.get("stage_note"),
             )
         )
 
     conn.execute("DELETE FROM decisions")
     conn.executemany(
-        "INSERT INTO decisions (fb_id, status, reason, rating, decided_at) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO decisions "
+        "(fb_id, status, reason, rating, decided_at, "
+        " stage, stage_fb_id, stage_at, stage_note) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
     conn.commit()

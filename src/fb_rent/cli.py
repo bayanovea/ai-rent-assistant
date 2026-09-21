@@ -67,6 +67,7 @@ from .storage import (
     dedupe_listings,
     dedupe_one,
     duplicate_fb_ids,
+    duplicates_by_canonical,
     export_csv,
     export_html,
     fetch_enriched,
@@ -2515,6 +2516,139 @@ def rate_cmd(fb_id: str, rating: float, reason: str | None) -> None:
     """
     status = decisions.status_for_rating(rating)
     _record_decision(fb_id, status, reason, rating)
+
+
+def _resolve_posting(
+    conn: sqlite3.Connection, fb_id: str, posting_fb_id: str | None
+) -> str:
+    """Which specific ad a stage is about, validated against this row's group.
+
+    Defaults to whatever a previous stage already recorded for ``fb_id`` (so
+    ``schedule-viewing`` and ``mark-viewed`` do not need ``--posting``
+    repeated once ``contact`` set it), and beyond that to ``fb_id`` itself.
+    An explicit ``--posting`` must be ``fb_id`` or one of the postings
+    ``fb-rent dedupe`` has already merged into it — the same ids the table's
+    ID cell lists — so a typo cannot silently point the stage at some other
+    listing entirely.
+    """
+    target = posting_fb_id
+    if not target:
+        existing = decisions.load_decisions(None).get(str(fb_id)) or {}
+        target = existing.get("stage_fb_id") or fb_id
+
+    if not conn.execute(
+        "SELECT 1 FROM listings WHERE fb_id = ?", (target,)
+    ).fetchone():
+        raise click.ClickException(f"{target}: no such listing")
+
+    if target != fb_id:
+        known = {d["fb_id"] for d in duplicates_by_canonical(conn).get(fb_id, [])}
+        if target not in known:
+            where = f" ({', '.join(sorted(known))})" if known else " — dedupe has not merged anything into this row"
+            raise click.ClickException(
+                f"{target} is not one of {fb_id}'s known postings{where}. "
+                "Check the ID cell, or omit --posting to use the row itself."
+            )
+    return target
+
+
+def _record_stage(
+    fb_id: str,
+    stage: str,
+    *,
+    posting_fb_id: str | None,
+    viewing_at: str | None,
+    note: str | None,
+) -> None:
+    """Write one stage to the JSON file and mirror it into the DB."""
+    conn = _open_db()
+    try:
+        target = _resolve_posting(conn, fb_id, posting_fb_id)
+        try:
+            decisions.save_stage(
+                None,
+                fb_id,
+                stage,
+                posting_fb_id=target,
+                viewing_at=viewing_at,
+                note=note,
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        _sync_decisions(conn)
+    finally:
+        conn.close()
+
+    label = decisions.STAGE_LABELS[stage]
+    when = f" — {viewing_at}" if viewing_at else ""
+    note_suffix = f" ({note})" if note else ""
+    click.echo(f"{fb_id}: {label}, объявление {target}{when}{note_suffix}")
+    click.echo(f"Saved to {config.DECISIONS_PATH}. Run `fb-rent export` to refresh the table.")
+
+
+@main.command("contact")
+@click.argument("fb_id")
+@click.option(
+    "--posting",
+    "posting_fb_id",
+    default=None,
+    help="Which merged posting you actually wrote to (default: fb_id itself).",
+)
+@click.option("--note", default=None, help="A note to keep with the stage.")
+def contact_cmd(fb_id: str, posting_fb_id: str | None, note: str | None) -> None:
+    """Record that you wrote to the landlord/agent about this listing.
+
+    Independent of status/shortlist: rejecting the listing later does not
+    erase this. Moves the row to the «В работе» tab.
+    """
+    _record_stage(fb_id, "written", posting_fb_id=posting_fb_id, viewing_at=None, note=note)
+
+
+@main.command("schedule-viewing")
+@click.argument("fb_id")
+@click.argument("at")
+@click.option(
+    "--posting",
+    "posting_fb_id",
+    default=None,
+    help="Which merged posting the viewing is about (default: whatever `contact` recorded, or fb_id itself).",
+)
+@click.option("--note", default=None, help="A note to keep with the stage.")
+def schedule_viewing_cmd(
+    fb_id: str, at: str, posting_fb_id: str | None, note: str | None
+) -> None:
+    """Record that a viewing is set up, and when (free text, e.g. "2026-09-25 14:00")."""
+    _record_stage(fb_id, "viewing_scheduled", posting_fb_id=posting_fb_id, viewing_at=at, note=note)
+
+
+@main.command("mark-viewed")
+@click.argument("fb_id")
+@click.option(
+    "--posting",
+    "posting_fb_id",
+    default=None,
+    help="Which merged posting was viewed (default: whatever the prior stage recorded, or fb_id itself).",
+)
+@click.option("--note", default=None, help="A note to keep with the stage.")
+def mark_viewed_cmd(fb_id: str, posting_fb_id: str | None, note: str | None) -> None:
+    """Record that the viewing happened; not rejected, waiting to be compared."""
+    _record_stage(fb_id, "viewed", posting_fb_id=posting_fb_id, viewing_at=None, note=note)
+
+
+@main.command("clear-stage")
+@click.argument("fb_id")
+def clear_stage_cmd(fb_id: str) -> None:
+    """Drop the written/viewing/viewed stage, leaving status untouched."""
+    conn = _open_db()
+    try:
+        entry = decisions.clear_stage(None, fb_id)
+        if entry is None:
+            raise click.ClickException(f"{fb_id}: no decision recorded for it")
+        _sync_decisions(conn)
+    finally:
+        conn.close()
+    click.echo(f"{fb_id}: stage cleared")
+    click.echo(f"Saved to {config.DECISIONS_PATH}. Run `fb-rent export` to refresh the table.")
 
 
 if __name__ == "__main__":
