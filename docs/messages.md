@@ -6,7 +6,9 @@ undoing, and the open gaps. See [pipeline.md](pipeline.md) for where this
 pass sits in the flow and `CLAUDE.md` for the invariants a change must not
 break.
 
-Last checked against the live account: **22 September 2026**.
+Last checked against the live account: **22 September 2026** (Phase 0 recon
+and Phase 1 implementation, same day — `messages.py`, `messenger.py`,
+`storage.py` conversations tables, `fb-rent messages sync`).
 
 ## What the pass is for
 
@@ -158,6 +160,55 @@ supervised send. Resolve this in Phase 2's first live run: click the
 button, capture where it lands, and if it's a popout rather than a
 navigation, this note needs the popout's composer selector before
 `send_first_message` can be written against it.
+
+## What Phase 1 implementation found that Phase 0 recon missed
+
+Three things only surfaced once `messages sync` ran repeatedly against the
+live account, all fixed in `messenger.py`:
+
+**The folder click is racy against an async chip render.** The
+"Marketplace" chip is filled in by an inbox-summary fetch that runs after
+`domcontentloaded` — clicking immediately after `goto` sometimes hit a
+0-match locator that still somehow resolved (Playwright's `.click()`
+auto-waits and re-queries), landing on the wrong same-text element instead
+(see below) or on nothing at all. The fix: scope the search to
+`[aria-label="Перечень переписок"]` (the thread-list panel's own
+aria-label — "list of conversations") *and* explicitly
+`chip.wait_for(state="visible")` before clicking, rather than a blind
+`wait_for_timeout`.
+
+**Without that scope, "Marketplace" can resolve to the wrong element.**
+The same literal text also labels the Marketplace category on the
+item-card of whatever conversation happens to already be open (visible in
+the very first screenshot: "Marketplace" appears above the price, inside
+the open thread's right-hand panel). An unscoped
+`page.get_by_text("Marketplace", exact=True).first` picked that up on one
+run and the click just re-opened some unrelated thread instead of
+switching folders — the DOM order between the chip and this label is not
+stable.
+
+**Both the thread list and the message list inside a thread are
+virtualized.** Only a handful of thread rows render at a time — scrolling
+(`page.mouse.wheel`) is needed to load the rest, same shape as
+`scraper_list.py`'s marketplace-feed scroll. Worse: a single thread's
+*message history* is also virtualized — a thread with 18 real messages
+rendered only the newest 4 on load. `_scroll_thread_history` scrolls the
+message pane's own scroll container (found by walking up from the first
+message element to the first ancestor whose `scrollHeight` exceeds its
+`clientHeight`) to the top repeatedly until the rendered count stops
+growing. Skipping this silently truncates a thread to its tail and can
+make an answered conversation look unanswered — exactly the kind of bug a
+human reading the real Messenger UI would never make, because scrolling up
+is instinctive there.
+
+**One inbound message is Facebook's own text, not the seller's**:
+"Meta может использовать технологии, чтобы проверять сообщения в
+Marketplace. Это помогает выявлять и сокращать случаи мошенничества и
+обмана." — an automated fraud-notice that appears verbatim as an inbound
+message on threads Marketplace's safety system flags. `messenger.py`
+filters it out by exact text match (`_META_SAFETY_NOTICE`) alongside the
+"Вы создали этот чат." system row, so it never reaches `reply_hash` or a
+classification batch as if the seller had written it.
 
 ## Decisions locked from this recon
 
