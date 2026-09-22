@@ -2927,3 +2927,311 @@ def test_migrate_repoints_reposts_left_behind_by_an_older_dedupe(conn):
     assert {row["fb_id"] for row in grouped["keeper"]} == {"gone", "orphan"}
     # Idempotent: a second pass has nothing left to move.
     assert storage._flatten_duplicate_chains(conn) == 0
+
+
+# --- conversations -----------------------------------------------------------
+
+
+def _messages(*pairs):
+    """``[("out", "hi"), ("in", "hello")]`` -> the dict shape save_conversation wants."""
+    return [{"direction": d, "text": t, "sent_at": None} for d, t in pairs]
+
+
+def test_save_conversation_round_trip(conn):
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id="123",
+        posting_fb_id="123",
+        peer_name="Seller",
+        messages=_messages(("out", "Hello!"), ("in", "Hi")),
+        state="replied",
+        needs_action=False,
+        needs_action_reason=None,
+        reply_hash="abc123",
+    )
+
+    row = conn.execute(
+        "SELECT * FROM conversations WHERE thread_id = ?", ("t1",)
+    ).fetchone()
+    assert row["fb_id"] == "123"
+    assert row["state"] == "replied"
+    assert row["needs_action"] == 0
+    assert row["last_direction"] == "in"
+    assert row["last_snippet"] == "Hi"
+
+    msgs = storage.conversation_messages(conn, "t1")
+    assert [m["text"] for m in msgs] == ["Hello!", "Hi"]
+    assert [m["direction"] for m in msgs] == ["out", "in"]
+
+
+def test_save_conversation_full_replaces_messages(conn):
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id="123",
+        posting_fb_id="123",
+        peer_name="X",
+        messages=_messages(("out", "one"), ("in", "two")),
+        state="replied",
+        needs_action=False,
+        needs_action_reason=None,
+        reply_hash="h1",
+    )
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id="123",
+        posting_fb_id="123",
+        peer_name="X",
+        messages=_messages(("out", "one")),
+        state="contacted",
+        needs_action=False,
+        needs_action_reason=None,
+        reply_hash=None,
+    )
+    msgs = storage.conversation_messages(conn, "t1")
+    assert [m["text"] for m in msgs] == ["one"]
+
+
+def test_save_conversation_preserves_classification_state(conn):
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id="123",
+        posting_fb_id="123",
+        peer_name="X",
+        messages=_messages(("out", "hi"), ("in", "sure, dogs ok")),
+        state="pets_declined",
+        needs_action=True,
+        needs_action_reason="pets_declined",
+        reply_hash="h1",
+    )
+    storage.apply_conversation_classification(
+        conn, "t1", "h1", {"pets_answer": "not_allowed"}
+    )
+    row = conn.execute(
+        "SELECT classified_hash FROM conversations WHERE thread_id = ?", ("t1",)
+    ).fetchone()
+    assert row["classified_hash"] == "h1"
+
+    # A re-sync with the same reply_hash must not clobber the classification.
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id="123",
+        posting_fb_id="123",
+        peer_name="X",
+        messages=_messages(("out", "hi"), ("in", "sure, dogs ok")),
+        state="pets_declined",
+        needs_action=True,
+        needs_action_reason="pets_declined",
+        reply_hash="h1",
+    )
+    row = conn.execute(
+        "SELECT classified_hash FROM conversations WHERE thread_id = ?", ("t1",)
+    ).fetchone()
+    assert row["classified_hash"] == "h1"
+
+
+def test_save_conversation_preserves_first_seen_at(conn):
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id="123",
+        posting_fb_id="123",
+        peer_name="X",
+        messages=_messages(("out", "hi")),
+        state="contacted",
+        needs_action=False,
+        needs_action_reason=None,
+        reply_hash=None,
+        now="2026-09-20T10:00:00Z",
+    )
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id="123",
+        posting_fb_id="123",
+        peer_name="X",
+        messages=_messages(("out", "hi"), ("in", "hey")),
+        state="replied",
+        needs_action=False,
+        needs_action_reason=None,
+        reply_hash="h1",
+        now="2026-09-22T10:00:00Z",
+    )
+    row = conn.execute(
+        "SELECT first_seen_at, updated_at FROM conversations WHERE thread_id = ?",
+        ("t1",),
+    ).fetchone()
+    assert row["first_seen_at"] == "2026-09-20T10:00:00Z"
+    assert row["updated_at"] == "2026-09-22T10:00:00Z"
+
+
+def test_conversations_by_fb_id_picks_most_recent(conn):
+    storage.save_conversation(
+        conn,
+        thread_id="old",
+        fb_id="123",
+        posting_fb_id="123",
+        peer_name="A",
+        messages=_messages(("out", "hi")),
+        state="contacted",
+        needs_action=False,
+        needs_action_reason=None,
+        reply_hash=None,
+        now="2026-09-20T10:00:00Z",
+    )
+    storage.save_conversation(
+        conn,
+        thread_id="new",
+        fb_id="123",
+        posting_fb_id="123",
+        peer_name="B",
+        messages=_messages(("out", "hi")),
+        state="contacted",
+        needs_action=False,
+        needs_action_reason=None,
+        reply_hash=None,
+        now="2026-09-22T10:00:00Z",
+    )
+    by_fb_id = storage.conversations_by_fb_id(conn)
+    assert by_fb_id["123"]["thread_id"] == "new"
+
+
+def test_conversations_by_fb_id_excludes_unmatched(conn):
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id=None,
+        posting_fb_id=None,
+        peer_name="A",
+        messages=_messages(("out", "hi")),
+        state="contacted",
+        needs_action=True,
+        needs_action_reason="no_listing_match",
+        reply_hash=None,
+    )
+    assert storage.conversations_by_fb_id(conn) == {}
+
+
+def test_conversations_needing_classification(conn):
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id="1",
+        posting_fb_id="1",
+        peer_name="A",
+        messages=_messages(("out", "hi"), ("in", "yes dogs fine")),
+        state="replied",
+        needs_action=False,
+        needs_action_reason=None,
+        reply_hash="h1",
+    )
+    storage.save_conversation(
+        conn,
+        thread_id="t2",
+        fb_id="2",
+        posting_fb_id="2",
+        peer_name="B",
+        messages=_messages(("out", "hi")),
+        state="contacted",
+        needs_action=False,
+        needs_action_reason=None,
+        reply_hash=None,
+    )
+    pending = storage.conversations_needing_classification(conn)
+    assert [p["thread_id"] for p in pending] == ["t1"]
+
+
+def test_apply_conversation_classification_rejects_stale_hash(conn):
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id="1",
+        posting_fb_id="1",
+        peer_name="A",
+        messages=_messages(("out", "hi"), ("in", "yes")),
+        state="replied",
+        needs_action=False,
+        needs_action_reason=None,
+        reply_hash="h1",
+    )
+    ok = storage.apply_conversation_classification(
+        conn, "t1", "stale-hash", {"pets_answer": "allowed"}
+    )
+    assert ok is False
+    row = conn.execute(
+        "SELECT state FROM conversations WHERE thread_id = ?", ("t1",)
+    ).fetchone()
+    assert row["state"] == "replied"
+
+
+def test_apply_conversation_classification_updates_state(conn):
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id="1",
+        posting_fb_id="1",
+        peer_name="A",
+        messages=_messages(("out", "hi"), ("in", "saturday at 2pm works")),
+        state="replied",
+        needs_action=False,
+        needs_action_reason=None,
+        reply_hash="h1",
+    )
+    ok = storage.apply_conversation_classification(
+        conn,
+        "t1",
+        "h1",
+        {"viewing_proposed": True, "proposed_times": ["Saturday 2pm"]},
+    )
+    assert ok is True
+    row = conn.execute(
+        "SELECT state, needs_action, needs_action_reason, proposed_slots_json "
+        "FROM conversations WHERE thread_id = ?",
+        ("t1",),
+    ).fetchone()
+    assert row["state"] == "viewing_proposed"
+    assert row["needs_action"] == 1
+    assert row["needs_action_reason"] == "viewing_time"
+    assert json.loads(row["proposed_slots_json"]) == ["Saturday 2pm"]
+
+
+def test_needs_action_conversations(conn):
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id="1",
+        posting_fb_id="1",
+        peer_name="A",
+        messages=_messages(("out", "hi")),
+        state="contacted",
+        needs_action=False,
+        needs_action_reason=None,
+        reply_hash=None,
+    )
+    storage.save_conversation(
+        conn,
+        thread_id="t2",
+        fb_id="2",
+        posting_fb_id="2",
+        peer_name="B",
+        messages=_messages(("out", "hi"), ("in", "no pets allowed here")),
+        state="pets_declined",
+        needs_action=True,
+        needs_action_reason="pets_declined",
+        reply_hash="h2",
+    )
+    flagged = storage.needs_action_conversations(conn)
+    assert [f["thread_id"] for f in flagged] == ["t2"]
+
+
+def test_init_db_creates_conversations_tables(conn):
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(conversations)")}
+    assert {"thread_id", "fb_id", "state", "needs_action"} <= have
+    have_msgs = {
+        r["name"] for r in conn.execute("PRAGMA table_info(conversation_messages)")
+    }
+    assert {"thread_id", "position", "direction", "text"} <= have_msgs

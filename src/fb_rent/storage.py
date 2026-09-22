@@ -131,6 +131,43 @@ CREATE TABLE IF NOT EXISTS photo_hashes (
 );
 """
 
+# Messenger conversations, re-scraped from Messenger each sync (see
+# CLAUDE.md "Messenger" — the send log in messages_sent.json is the
+# irreversible half; this table is the re-fetchable half and a full-replace
+# on every sync, same doctrine as duplicates/ai_analysis).
+_CONVERSATIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS conversations (
+    thread_id           TEXT PRIMARY KEY,
+    fb_id                TEXT,
+    posting_fb_id         TEXT,
+    peer_name            TEXT,
+    state                TEXT NOT NULL,
+    needs_action         INTEGER NOT NULL DEFAULT 0,
+    needs_action_reason  TEXT,
+    reply_hash           TEXT,
+    classified_hash      TEXT,
+    proposed_slots_json  TEXT,
+    agreed_time          TEXT,
+    last_message_at      TEXT,
+    last_direction       TEXT,
+    last_snippet         TEXT,
+    first_seen_at        TEXT NOT NULL,
+    updated_at           TEXT NOT NULL
+);
+"""
+
+_CONVERSATION_MESSAGES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    thread_id  TEXT NOT NULL,
+    position   INTEGER NOT NULL,
+    direction  TEXT NOT NULL,
+    sent_at    TEXT,
+    text       TEXT NOT NULL,
+    scraped_at TEXT NOT NULL,
+    PRIMARY KEY (thread_id, position)
+);
+"""
+
 _INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_last_seen ON listings(last_seen_at DESC);",
     "CREATE INDEX IF NOT EXISTS idx_price ON listings(price_thb);",
@@ -138,6 +175,7 @@ _INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_dup_canonical ON duplicates(canonical_fb_id);",
     "CREATE INDEX IF NOT EXISTS idx_photo_md5 ON photo_hashes(md5);",
     "CREATE INDEX IF NOT EXISTS idx_photo_dhash ON photo_hashes(dhash);",
+    "CREATE INDEX IF NOT EXISTS idx_convo_fb_id ON conversations(fb_id);",
 )
 
 
@@ -446,6 +484,8 @@ def init_db(path: Path | str) -> sqlite3.Connection:
     conn.execute(_DECISIONS_SCHEMA)
     conn.execute(_PHOTO_HASHES_SCHEMA)
     conn.execute(_BUILDINGS_SCHEMA)
+    conn.execute(_CONVERSATIONS_SCHEMA)
+    conn.execute(_CONVERSATION_MESSAGES_SCHEMA)
     _migrate(conn)
     for stmt in _INDEXES:
         conn.execute(stmt)
@@ -1265,6 +1305,234 @@ def listings_missing_photo_hashes(
         LEFT JOIN photo_hashes AS p ON p.fb_id = l.fb_id
         WHERE p.fb_id IS NULL AND l.raw_json IS NOT NULL
         ORDER BY l.last_seen_at ASC
+        """
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def save_conversation(
+    conn: sqlite3.Connection,
+    *,
+    thread_id: str,
+    fb_id: str | None,
+    posting_fb_id: str | None,
+    peer_name: str | None,
+    messages: list[dict[str, Any]],
+    state: str,
+    needs_action: bool,
+    needs_action_reason: str | None,
+    reply_hash: str | None,
+    now: str | None = None,
+) -> None:
+    """Full-replace one thread's messages and refresh its summary row.
+
+    Re-fetchable data, same doctrine as ``photo_hashes``: the thread's
+    previous message rows are dropped and rewritten from what was just
+    scraped. ``classified_hash``, ``proposed_slots_json`` and
+    ``agreed_time`` are the classification pass's own state — a sync must
+    never touch them, only ``messages.classify_apply`` (via
+    :func:`apply_conversation_classification`) advances those.
+    """
+    ts = now or _now_iso()
+    existing = conn.execute(
+        """
+        SELECT classified_hash, proposed_slots_json, agreed_time, first_seen_at
+        FROM conversations WHERE thread_id = ?
+        """,
+        (thread_id,),
+    ).fetchone()
+    classified_hash = existing["classified_hash"] if existing else None
+    proposed_slots_json = existing["proposed_slots_json"] if existing else None
+    agreed_time = existing["agreed_time"] if existing else None
+    first_seen_at = existing["first_seen_at"] if existing else ts
+
+    last_message = messages[-1] if messages else None
+    last_direction = last_message["direction"] if last_message else None
+    last_snippet = (last_message["text"] or "")[:200] if last_message else None
+    last_message_at = last_message.get("sent_at") if last_message else None
+
+    conn.execute(
+        """
+        INSERT INTO conversations (
+            thread_id, fb_id, posting_fb_id, peer_name, state, needs_action,
+            needs_action_reason, reply_hash, classified_hash,
+            proposed_slots_json, agreed_time, last_message_at, last_direction,
+            last_snippet, first_seen_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(thread_id) DO UPDATE SET
+            fb_id = excluded.fb_id,
+            posting_fb_id = excluded.posting_fb_id,
+            peer_name = excluded.peer_name,
+            state = excluded.state,
+            needs_action = excluded.needs_action,
+            needs_action_reason = excluded.needs_action_reason,
+            reply_hash = excluded.reply_hash,
+            last_message_at = excluded.last_message_at,
+            last_direction = excluded.last_direction,
+            last_snippet = excluded.last_snippet,
+            updated_at = excluded.updated_at
+        """,
+        (
+            thread_id,
+            fb_id,
+            posting_fb_id,
+            peer_name,
+            state,
+            int(bool(needs_action)),
+            needs_action_reason,
+            reply_hash,
+            classified_hash,
+            proposed_slots_json,
+            agreed_time,
+            last_message_at,
+            last_direction,
+            last_snippet,
+            first_seen_at,
+            ts,
+        ),
+    )
+
+    conn.execute("DELETE FROM conversation_messages WHERE thread_id = ?", (thread_id,))
+    if messages:
+        conn.executemany(
+            """
+            INSERT INTO conversation_messages
+                (thread_id, position, direction, sent_at, text, scraped_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (thread_id, i, m["direction"], m.get("sent_at"), m.get("text") or "", ts)
+                for i, m in enumerate(messages)
+            ],
+        )
+    conn.commit()
+
+
+def conversation_messages(
+    conn: sqlite3.Connection, thread_id: str
+) -> list[dict[str, Any]]:
+    """Return one thread's messages in stored (= chronological) order."""
+    rows = conn.execute(
+        """
+        SELECT direction, sent_at, text
+        FROM conversation_messages
+        WHERE thread_id = ?
+        ORDER BY position ASC
+        """,
+        (thread_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def conversations_by_fb_id(
+    conn: sqlite3.Connection,
+) -> dict[str, dict[str, Any]]:
+    """Return the most-recently-updated conversation per ``fb_id``.
+
+    A listing can in principle have more than one thread (a repost the
+    seller re-listed, each with its own conversation); the export shows one
+    row per listing, so only the freshest thread surfaces there. Rows with
+    no ``fb_id`` match (``no_listing_match``) are excluded — nothing to key
+    them by.
+    """
+    rows = conn.execute(
+        """
+        SELECT * FROM conversations
+        WHERE fb_id IS NOT NULL
+        ORDER BY updated_at ASC
+        """
+    ).fetchall()
+    by_fb_id: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        by_fb_id[str(row["fb_id"])] = dict(row)
+    return by_fb_id
+
+
+def conversations_needing_classification(
+    conn: sqlite3.Connection, *, limit: int | None = None
+) -> list[dict[str, Any]]:
+    """Threads with a new, unclassified inbound reply.
+
+    ``reply_hash`` (set on every sync) differs from ``classified_hash`` (set
+    only by :func:`apply_conversation_classification`) exactly when there is
+    something new to read — a thread with no inbound message at all has
+    ``reply_hash IS NULL`` and never matches.
+    """
+    query = """
+        SELECT * FROM conversations
+        WHERE reply_hash IS NOT NULL
+          AND (classified_hash IS NULL OR classified_hash != reply_hash)
+        ORDER BY updated_at ASC
+    """
+    if limit is not None:
+        query += " LIMIT ?"
+        rows = conn.execute(query, (limit,)).fetchall()
+    else:
+        rows = conn.execute(query).fetchall()
+    return [dict(row) for row in rows]
+
+
+def apply_conversation_classification(
+    conn: sqlite3.Connection,
+    thread_id: str,
+    reply_hash: str,
+    facts: dict[str, Any],
+    *,
+    now: str | None = None,
+) -> bool:
+    """Map classification facts onto one conversation, via ``messages.derive_state``.
+
+    Returns ``False`` without writing anything if ``reply_hash`` no longer
+    matches the row's current one — the same staleness guard
+    ``ai_batch.apply_results`` uses on ``source_hash``, because the thread
+    may have picked up a newer reply since the classification batch was
+    written.
+    """
+    from . import messages as messages_module  # avoid a top-level cycle
+
+    row = conn.execute(
+        "SELECT reply_hash, proposed_slots_json FROM conversations WHERE thread_id = ?",
+        (thread_id,),
+    ).fetchone()
+    if row is None or row["reply_hash"] != reply_hash:
+        return False
+
+    state, needs_action, reason = messages_module.derive_state(
+        has_outbound=True, has_inbound=True, facts=facts
+    )
+    proposed_slots = facts.get("proposed_times")
+    proposed_slots_json = (
+        json.dumps(proposed_slots, ensure_ascii=False) if proposed_slots else None
+    )
+
+    conn.execute(
+        """
+        UPDATE conversations
+        SET state = ?, needs_action = ?, needs_action_reason = ?,
+            classified_hash = ?, proposed_slots_json = ?, updated_at = ?
+        WHERE thread_id = ?
+        """,
+        (
+            state,
+            int(bool(needs_action)),
+            reason,
+            reply_hash,
+            proposed_slots_json,
+            now or _now_iso(),
+            thread_id,
+        ),
+    )
+    conn.commit()
+    return True
+
+
+def needs_action_conversations(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Every conversation currently flagged as needing the user's attention."""
+    rows = conn.execute(
+        """
+        SELECT * FROM conversations
+        WHERE needs_action = 1
+        ORDER BY updated_at DESC
         """
     ).fetchall()
     return [dict(row) for row in rows]
