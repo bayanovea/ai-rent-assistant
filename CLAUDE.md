@@ -362,6 +362,17 @@ not lower `--cap` to duck under a guessed number: the real limit is
 unmeasured beyond "at least 10", and the only reliable signal is the
 dialog itself.
 
+**A second `--profile` is for a second real person, never for automatic
+failover.** `config.browser_profile_dir(name)` exists because the user's
+second person in the household also house-hunts and wanted to message from her own account — two
+real people, not one person's sockpuppets. `MessagingLimitReachedError`
+on one profile must never trigger code that reaches for another profile
+on its own; that turns "a genuine second person" into exactly the
+automated evade-the-limit machinery Meta's terms prohibit regardless of
+whose name is on the account. Which profile messages which listing is a
+human decision made through `--ids`/`--status` each call — see
+`docs/messages.md` "Two accounts".
+
 ## Subagent fan-out
 
 The photo pass reads images in subagents, one per listing

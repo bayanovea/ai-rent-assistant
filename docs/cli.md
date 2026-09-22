@@ -374,8 +374,8 @@ skill for the orchestration (classifying replies, translating a
 free-text selection into flags). Four subcommands:
 
 ```sh
-fb-rent messages sync [--since 2026-09-20] [--limit N]
-fb-rent messages send [--status shortlist]... [--district TEXT] [--ids ID]... [--cap 10] [--apply] [--yes]
+fb-rent messages sync [--since 2026-09-20] [--limit N] [--profile NAME]
+fb-rent messages send [--status shortlist]... [--district TEXT] [--ids ID]... [--cap 10] [--apply] [--yes] [--profile NAME]
 fb-rent messages status
 fb-rent messages classify-batch [--limit N]
 fb-rent messages classify-apply <result.json> [--dry-run]
@@ -405,3 +405,16 @@ writes back **facts only** (never `state`/`needs_action` — `messages.py`'s
 `derive_state` is the one place those get decided), and `classify-apply`
 applies it, skipping any thread whose `reply_hash` moved on since the batch
 was written.
+
+### A second, real account
+
+`--profile NAME` (on `login`, `sync` and `send`) points the persistent
+browser context at its own directory —
+`config.browser_profile_dir(name)`, e.g. `data/browser-profile-partner` —
+instead of the default account's. `fb-rent login --profile partner` opens a
+headed window for that person to sign into *their own* Facebook account
+once; every later `--profile partner` call reuses those cookies headlessly,
+exactly like the default profile does. This exists for a genuine second
+person (see `docs/messages.md` "Two accounts") — it is not a queue with
+automatic failover, and nothing decides which account messages which
+listing except the `--ids`/`--status` you pass by hand each time.

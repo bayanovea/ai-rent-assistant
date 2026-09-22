@@ -15,6 +15,8 @@ from playwright.sync_api import sync_playwright
 from .config import BROWSER_PROFILE_DIR, ensure_home
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from playwright.sync_api import BrowserContext, Playwright
 
 
@@ -43,12 +45,21 @@ def start_playwright() -> "Playwright":
     return sync_playwright().start()
 
 
-def launch_persistent(playwright: "Playwright", headless: bool) -> "BrowserContext":
-    """Launch a persistent Chromium context under ``BROWSER_PROFILE_DIR``."""
+def launch_persistent(
+    playwright: "Playwright", headless: bool, profile_dir: "Path | None" = None
+) -> "BrowserContext":
+    """Launch a persistent Chromium context under a profile directory.
+
+    Defaults to ``BROWSER_PROFILE_DIR`` (the original single-account
+    profile) when ``profile_dir`` is not given — every existing caller is
+    unaffected. Pass ``config.browser_profile_dir(name)`` for a second,
+    independent account's own cookies/localStorage.
+    """
     ensure_home()
-    BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    target = profile_dir if profile_dir is not None else BROWSER_PROFILE_DIR
+    target.mkdir(parents=True, exist_ok=True)
     return playwright.chromium.launch_persistent_context(
-        user_data_dir=str(BROWSER_PROFILE_DIR),
+        user_data_dir=str(target),
         headless=headless,
         user_agent=USER_AGENT,
         viewport=VIEWPORT,

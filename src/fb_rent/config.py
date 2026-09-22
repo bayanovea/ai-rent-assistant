@@ -99,6 +99,23 @@ CSV_PATH: Path = FB_RENT_HOME / "rentals.csv"
 HTML_PATH: Path = FB_RENT_HOME / "rentals.html"
 BROWSER_PROFILE_DIR: Path = FB_RENT_HOME / "browser-profile"
 AI_DIR: Path = FB_RENT_HOME / "ai"
+
+
+def browser_profile_dir(profile: str | None) -> Path:
+    """Return the persistent-context directory for a named FB account.
+
+    ``None`` (or ``"default"``) is the original single-account profile at
+    ``BROWSER_PROFILE_DIR`` — every existing login stays exactly where it
+    is. A second, real, independently-consenting account (see
+    ``docs/messages.md`` "Two accounts") gets its own directory and never
+    touches the first one's cookies; nothing here decides *which* account
+    messages which listing — that stays a human choice made through the
+    CLI's ``--profile`` flag each time, not something this function or any
+    caller picks automatically.
+    """
+    if not profile or profile == "default":
+        return BROWSER_PROFILE_DIR
+    return FB_RENT_HOME / f"browser-profile-{profile}"
 PHOTOS_DIR: Path = FB_RENT_HOME / "photos"
 DECISIONS_PATH: Path = FB_RENT_HOME / "decisions.json"
 # Researched pets policy per building — like decisions.json, a file no

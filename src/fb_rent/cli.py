@@ -153,15 +153,27 @@ def main() -> None:
 
 
 @main.command("login")
-def login_cmd() -> None:
+@click.option(
+    "--profile",
+    default=None,
+    help=(
+        "Name a second account's own browser profile (its own cookies, "
+        "never mixed with the default one) — e.g. --profile partner for a "
+        "partner's independent Facebook login. Omit for the main account."
+    ),
+)
+def login_cmd(profile: str | None) -> None:
     """Open a browser window and wait for a manual Facebook login."""
+    profile_dir = config.browser_profile_dir(profile)
     click.echo("Opening Facebook login in a browser window...")
     click.echo("Sign in (including 2FA if enabled), then leave the tab open.")
+    if profile:
+        click.echo(f"Profile: {profile} ({profile_dir})")
     playwright = start_playwright()
     context = None
     try:
         try:
-            context = launch_persistent(playwright, headless=False)
+            context = launch_persistent(playwright, headless=False, profile_dir=profile_dir)
         except Exception as exc:  # noqa: BLE001 — surface a friendly error
             _echo_err(f"Failed to launch browser: {exc}")
             sys.exit(2)
@@ -2684,6 +2696,15 @@ def messages_group() -> None:
     """Messenger outreach: sync conversations, send first contact, check status."""
 
 
+_PROFILE_HELP = (
+    "Use a second account's own browser profile (own cookies, never mixed "
+    "with the default one) — e.g. --profile partner. Omit for the main "
+    "account. Which account messages which listing is always your own "
+    "call, made through --ids/--status each time; nothing here picks it "
+    "automatically."
+)
+
+
 @messages_group.command("sync")
 @click.option(
     "--since",
@@ -2693,7 +2714,8 @@ def messages_group() -> None:
 @click.option(
     "--limit", default=None, type=int, help="Stop after this many threads."
 )
-def messages_sync_cmd(since: str | None, limit: int | None) -> None:
+@click.option("--profile", default=None, help=_PROFILE_HELP)
+def messages_sync_cmd(since: str | None, limit: int | None, profile: str | None) -> None:
     """Pull Marketplace Messenger threads into the DB.
 
     Never opens a thread whose relative age in the thread list cannot be
@@ -2703,6 +2725,7 @@ def messages_sync_cmd(since: str | None, limit: int | None) -> None:
     ``needs_action`` here; that is ``messages classify-apply``'s call.
     """
     cutoff = since or config.MESSAGES_SINCE
+    profile_dir = config.browser_profile_dir(profile)
 
     playwright = start_playwright()
     context = None
@@ -2712,13 +2735,14 @@ def messages_sync_cmd(since: str | None, limit: int | None) -> None:
     unmatched = 0
     try:
         try:
-            context = launch_persistent(playwright, headless=True)
+            context = launch_persistent(playwright, headless=True, profile_dir=profile_dir)
         except Exception as exc:  # noqa: BLE001 — surface a friendly error
             _echo_err(f"Failed to launch browser: {exc}")
             sys.exit(2)
 
         if not is_logged_in(context):
-            _echo_err("No active Facebook session. Run `fb-rent login` first.")
+            login_hint = f"fb-rent login --profile {profile}" if profile else "fb-rent login"
+            _echo_err(f"No active Facebook session. Run `{login_hint}` first.")
             sys.exit(3)
 
         conn = _open_db()
@@ -2876,6 +2900,7 @@ def _selection_rows(
 @click.option(
     "--yes", "skip_confirm", is_flag=True, default=False, help="Skip the batch confirmation prompt."
 )
+@click.option("--profile", default=None, help=_PROFILE_HELP)
 def messages_send_cmd(
     statuses: tuple[str, ...],
     district: str | None,
@@ -2883,6 +2908,7 @@ def messages_send_cmd(
     cap: int,
     do_apply: bool,
     skip_confirm: bool,
+    profile: str | None,
 ) -> None:
     """Send the first-contact message to a selection of listings.
 
@@ -2892,6 +2918,7 @@ def messages_send_cmd(
     ``written``+, or a prior entry in the send log, or an existing outbound
     message in a synced conversation) is skipped, not re-sent.
     """
+    profile_dir = config.browser_profile_dir(profile)
     conn = _open_db()
     try:
         rows = _selection_rows(conn, statuses=statuses, district=district, ids=ids)
@@ -2939,8 +2966,9 @@ def messages_send_cmd(
         click.echo("\nDry run — rerun with --apply to send these.")
         return
 
+    account_label = f" as --profile {profile}" if profile else ""
     if not skip_confirm and not click.confirm(
-        f"\nSend these {len(drafts)} message(s) now?"
+        f"\nSend these {len(drafts)} message(s) now{account_label}?"
     ):
         click.echo("Cancelled.")
         return
@@ -2951,13 +2979,14 @@ def messages_send_cmd(
     failed: list[str] = []
     try:
         try:
-            context = launch_persistent(playwright, headless=True)
+            context = launch_persistent(playwright, headless=True, profile_dir=profile_dir)
         except Exception as exc:  # noqa: BLE001 — surface a friendly error
             _echo_err(f"Failed to launch browser: {exc}")
             sys.exit(2)
 
         if not is_logged_in(context):
-            _echo_err("No active Facebook session. Run `fb-rent login` first.")
+            login_hint = f"fb-rent login --profile {profile}" if profile else "fb-rent login"
+            _echo_err(f"No active Facebook session. Run `{login_hint}` first.")
             sys.exit(3)
 
         for idx, (row, text) in enumerate(drafts):

@@ -262,6 +262,35 @@ could depend on account age, history, or simply vary. Treat the error as
 the only reliable signal; do not pre-emptively cap `--cap` at 10 to "avoid"
 it.
 
+## Two accounts
+
+Hitting the daily send limit above, the user asked to message from a
+second Facebook account — their partner's, a genuine second person also
+house-hunting, not a fake/duplicate account meant to look like more people
+than there are. That distinction matters: Meta's terms prohibit exactly
+the latter (multiple accounts operated by one person to evade
+enforcement), not two real people each using their own login.
+
+What got built: `config.browser_profile_dir(name)` resolves a named
+account to its own persistent-context directory
+(`data/browser-profile-<name>`, e.g. `browser-profile-partner`), completely
+separate cookies/localStorage from the default profile — `login`, `messages
+sync` and `messages send` all take `--profile NAME`. The second person in the household runs
+`fb-rent login --profile partner` once, headed, to sign into her own account,
+exactly like the primary `fb-rent login` flow.
+
+**What deliberately was not built: automatic failover between accounts on
+a rate limit.** A tool that catches `MessagingLimitReachedError` on
+account A and silently keeps going through account B's login would be
+automated evasion of Facebook's anti-spam control, regardless of whether
+both accounts are real — the automation is the part their policy
+prohibits, not the account's authenticity. Which account messages which
+listing stays a decision made through `--ids`/`--status` on the command
+line every time, by the person running it — the same shape as the
+existing draft-and-confirm flow, just now optionally pointed at a second
+profile. If both accounts hit the limit in the same session, that is the
+day's actual ceiling; the answer is to wait, not to add a third profile.
+
 ## Decisions locked from this recon
 
 - **Cutoff dating works** off the Marketplace folder row's relative

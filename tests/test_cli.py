@@ -1880,7 +1880,11 @@ def _stub_browser(monkeypatch, *, logged_in=True):
             pass
 
     monkeypatch.setattr(cli, "start_playwright", lambda: _Playwright())
-    monkeypatch.setattr(cli, "launch_persistent", lambda pw, headless=True: _Context())
+    monkeypatch.setattr(
+        cli,
+        "launch_persistent",
+        lambda pw, headless=True, profile_dir=None: _Context(),
+    )
     monkeypatch.setattr(cli, "is_logged_in", lambda ctx: logged_in)
     monkeypatch.setattr(cli.time, "sleep", lambda _s: None)
 
@@ -2212,3 +2216,112 @@ def test_messages_send_stops_on_daily_limit(home, monkeypatch):
     assert "daily cap" in result.output
     log = messages_module.load_send_log()
     assert len(log) == 1
+
+
+# --- multi-account (--profile) plumbing ----------------------------------
+
+
+def test_browser_profile_dir_default(home):
+    assert config.browser_profile_dir(None) == config.BROWSER_PROFILE_DIR
+    assert config.browser_profile_dir("default") == config.BROWSER_PROFILE_DIR
+
+
+def test_browser_profile_dir_named(home):
+    partner_dir = config.browser_profile_dir("partner")
+    assert partner_dir != config.BROWSER_PROFILE_DIR
+    assert partner_dir.name == "browser-profile-partner"
+    assert partner_dir.parent == config.FB_RENT_HOME
+
+
+def test_messages_sync_uses_named_profile(home, monkeypatch):
+    captured = {}
+
+    class _Context:
+        def close(self) -> None:
+            pass
+
+    class _Playwright:
+        def stop(self) -> None:
+            pass
+
+    def _launch(pw, headless=True, profile_dir=None):
+        captured["profile_dir"] = profile_dir
+        return _Context()
+
+    monkeypatch.setattr(cli, "start_playwright", lambda: _Playwright())
+    monkeypatch.setattr(cli, "launch_persistent", _launch)
+    monkeypatch.setattr(cli, "is_logged_in", lambda ctx: True)
+    monkeypatch.setattr(cli.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(cli, "list_marketplace_threads", lambda ctx, **kw: [])
+
+    result = _run("messages", "sync", "--profile", "partner")
+
+    assert result.exit_code == 0, result.output
+    assert captured["profile_dir"] == config.browser_profile_dir("partner")
+    assert captured["profile_dir"] != config.BROWSER_PROFILE_DIR
+
+
+def test_messages_send_uses_named_profile(home, monkeypatch):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    decisions.save_decision(None, "900", "shortlist")
+    decisions.sync_to_db(conn)
+    conn.close()
+
+    captured = {}
+
+    class _Context:
+        def close(self) -> None:
+            pass
+
+    class _Playwright:
+        def stop(self) -> None:
+            pass
+
+    def _launch(pw, headless=True, profile_dir=None):
+        captured["profile_dir"] = profile_dir
+        return _Context()
+
+    monkeypatch.setattr(cli, "start_playwright", lambda: _Playwright())
+    monkeypatch.setattr(cli, "launch_persistent", _launch)
+    monkeypatch.setattr(cli, "is_logged_in", lambda ctx: True)
+    monkeypatch.setattr(cli.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(cli, "send_first_message", lambda ctx, url, text: True)
+
+    result = _run("messages", "send", "--apply", "--yes", "--profile", "partner")
+
+    assert result.exit_code == 0, result.output
+    assert captured["profile_dir"] == config.browser_profile_dir("partner")
+
+
+def test_messages_send_default_profile_unchanged(home, monkeypatch):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    decisions.save_decision(None, "900", "shortlist")
+    decisions.sync_to_db(conn)
+    conn.close()
+
+    captured = {}
+
+    class _Context:
+        def close(self) -> None:
+            pass
+
+    class _Playwright:
+        def stop(self) -> None:
+            pass
+
+    def _launch(pw, headless=True, profile_dir=None):
+        captured["profile_dir"] = profile_dir
+        return _Context()
+
+    monkeypatch.setattr(cli, "start_playwright", lambda: _Playwright())
+    monkeypatch.setattr(cli, "launch_persistent", _launch)
+    monkeypatch.setattr(cli, "is_logged_in", lambda ctx: True)
+    monkeypatch.setattr(cli.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(cli, "send_first_message", lambda ctx, url, text: True)
+
+    result = _run("messages", "send", "--apply", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert captured["profile_dir"] == config.BROWSER_PROFILE_DIR
