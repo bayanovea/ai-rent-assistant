@@ -239,6 +239,17 @@ change of weights would never reach rows analysed earlier, and re-running the
 AI for the sake of a district weight is pointless. The `ai_analysis.score`
 column is written by both passes and remains only a trace of the last run.
 
+**The district scale lives in two places, like the verdict vocabulary and
+the pets wording.** `rules._RATED_AREAS` is what `district_rating` actually
+scores against; `config/requirements.md`'s district table is prose pasted
+into every AI batch, and it is the only reason the AI's own `area` field ever
+names a district specific enough to match an alias, rather than folding it
+into whatever broader area it sits inside (a Boat Lagoon ad reads "Koh Kaew"
+otherwise — that broader name has no alias of its own on purpose, see
+`_RATED_AREAS`). Add a tier or carve a name out of a broader one in `rules.py`
+alone and new analyses keep writing the old, broader name forever; the code
+change sits unused until the prose says otherwise too.
+
 ## Pets policy per building
 
 **A `proposed` building is inert, and that is the whole safety property.**

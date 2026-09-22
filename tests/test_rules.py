@@ -312,6 +312,17 @@ def test_facebook_spellings_are_recognised():
     assert district_rating("Bangtao, Cherngtalay") == 5.0
 
 
+def test_boat_lagoon_is_rated_like_kathu_and_bang_tao():
+    # Carved out of the 3.5-tier Koh Kaew bucket on purpose — see rules.py
+    # and config/requirements.md's district table.
+    assert district_rating("Boat Lagoon, Thalang") == 5.0
+    assert district_rating("BoatLagoon") == 5.0
+    assert district_rating("Боат Лагун, Тхаланг") == 5.0
+    assert district_rating("Боатлагун") == 5.0
+    # Generic Koh Kaew, with no Boat Lagoon named, keeps the broader rating.
+    assert district_rating("Koh Kaew, Thalang") == 3.5
+
+
 def test_a_district_nobody_named_is_unrated():
     assert district_rating("Changwat Phuket, Phuket, Thailand") is None
     assert district_rating("рядом с объездной и IKEA") is None

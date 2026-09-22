@@ -83,18 +83,27 @@ def is_empty(value: Any) -> bool:
 
 
 # Districts of Phuket on the user's own 1-5 scale. The numbers are personal,
-# not geographic: 5 is Kathu and Bang Tao, 4 is a quiet
-# place to actually live with a dog, 3.5 is "fine but touristy or far from
-# everything", 3 is indifferent, 1 auto-rejects. Beach proximity is already
-# baked into these numbers — it is a nice-to-have, never a criterion of its
-# own, so there is no separate distance-to-the-sea bonus anywhere.
+# not geographic: 5 is Kathu, Bang Tao and Boat Lagoon,
+# 4 is a quiet place to actually live with a dog, 3.5 is "fine but touristy or
+# far from everything", 3 is indifferent, 1 auto-rejects. Beach proximity is
+# already baked into these numbers — it is a nice-to-have, never a criterion
+# of its own, so there is no separate distance-to-the-sea bonus anywhere.
+#
+# Boat Lagoon is carved out of the 3.5-tier Koh Kaew/Thalang bucket on
+# purpose, the same way Cherngtalay's Laguna/Surin/Boat Avenue/Layan are
+# carved out at 4.5: it is a named marina enclave the AI's own `area` field
+# otherwise folds into the broader "Koh Kaew", which has no alias of its own
+# here to match against — see `config/requirements.md`'s district table,
+# which is what tells the AI to write "Boat Lagoon" rather than "Koh Kaew"
+# when an ad names it.
 #
 # Aliases are matched whole-word against a space-normalised string, which is
 # why every spelling FB and the AI actually produce is listed separately
 # (`Ka Rorn` is FB's Karon, `Ban Ket Ho` is a village inside Kathu).
 _RATED_AREAS: tuple[tuple[float, tuple[str, ...]], ...] = (
     (5.0, ("kathu", "ket ho", "ketho", "loch palm", "lochpalm", "bang tao",
-           "bangtao", "кату", "катху", "банг тао", "бангтао")),
+           "bangtao", "boat lagoon", "boatlagoon", "кату", "катху",
+           "банг тао", "бангтао", "боат лагун", "боатлагун")),
     (4.5, ("cherngtalay", "cherng talay", "choeng thale", "choengthale",
            "laguna", "surin", "boat avenue", "boatavenue", "layan")),
     (4.0, ("rawai", "nai harn", "naiharn", "nai yang", "naiyang", "nai thon",
