@@ -461,20 +461,18 @@ def send_in_thread(context: "BrowserContext", thread_id: str, text: str) -> bool
         page.close()
 
 
+_SEND_BUTTON_TEXT = "Отправить сообщение"
+
+
 def send_first_message(context: "BrowserContext", listing_url: str, text: str) -> bool:
     """Open a listing's detail page and send the first message to its seller.
 
-    The detail page's "Отправить сообщение" button is the only entry point
-    for a thread that does not exist yet — Messenger has no URL that opens
-    a fresh thread by listing id. Confirm-not-yet-live: which exact affordance
-    the button leads to (inline popout vs. a navigation into
-    ``/messages/t/<new-id>/``) was not exercised during Phase 0 recon to
-    avoid opening a compose box against a real seller outside a supervised
-    send — see docs/messages.md. This function assumes it lands in the same
-    thread composer as :func:`send_in_thread` navigates to directly; the
-    first live call (``messages send --ids <one> --cap 1 --apply``) is
-    where that assumption gets checked, and this docstring updated with
-    what actually happened.
+    Measured live 2026-09-22 (see docs/messages.md): the detail page's
+    "Отправить сообщение" button opens a **modal dialog**
+    (`div[role="dialog"]`) with its own plain `<textarea>` — not the
+    thread page's `contenteditable` composer `send_in_thread` uses. The
+    dialog's own send button starts `aria-disabled="true"` and only
+    enables once the textarea has text.
     """
     page = context.new_page()
     try:
@@ -482,35 +480,45 @@ def send_first_message(context: "BrowserContext", listing_url: str, text: str) -
         _guard_page(page)
 
         try:
-            send_button = page.get_by_text("Отправить сообщение", exact=False).first
-            if send_button.count() == 0:
-                send_button = page.get_by_text("Send message", exact=False).first
-            send_button.click(timeout=CONTENT_TIMEOUT_MS)
+            open_button = page.get_by_text(_SEND_BUTTON_TEXT, exact=False).first
+            if open_button.count() == 0:
+                open_button = page.get_by_text("Send message", exact=False).first
+            open_button.click(timeout=CONTENT_TIMEOUT_MS)
         except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError et al.
             raise RuntimeError(
                 f"Could not find/click the message button on {listing_url}"
             ) from exc
 
-        page.wait_for_timeout(1_500)
+        dialog = page.locator('div[role="dialog"]')
+        try:
+            dialog.wait_for(state="visible", timeout=CONTENT_TIMEOUT_MS)
+        except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
+            raise RuntimeError(
+                f"First-contact dialog did not open on {listing_url}"
+            ) from exc
         _guard_page(page)
 
-        box = page.locator('div[role="textbox"][contenteditable="true"]').first
+        box = dialog.locator("textarea").first
         box.click(timeout=CONTENT_TIMEOUT_MS)
+        box.fill("")  # drop any prefilled suggestion ("Ещё продаётся?")
         box.type(text, delay=20)
-        page.keyboard.press("Enter")
-        page.wait_for_timeout(2_000)
 
         try:
-            raw_arias = page.eval_on_selector_all(
-                'div[data-scope="messages_table"]',
-                "els => els.map(e => e.getAttribute('aria-label'))",
-            )
-        except Exception:  # noqa: BLE001 — DOM may be transient
+            send_button = dialog.locator(
+                f'div[aria-label="{_SEND_BUTTON_TEXT}"][role="button"]'
+            ).first
+            send_button.click(timeout=CONTENT_TIMEOUT_MS)
+        except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError et al.
+            raise RuntimeError(
+                f"Could not click the dialog's send button on {listing_url}"
+            ) from exc
+
+        # The dialog closes on a successful send; an error (rate limit,
+        # blocked seller) leaves it open with the typed text still inside.
+        try:
+            dialog.wait_for(state="hidden", timeout=CONTENT_TIMEOUT_MS)
+            return True
+        except Exception:  # noqa: BLE001 — Playwright's TimeoutError
             return False
-        for aria in raw_arias:
-            parsed = _parse_message_aria(aria or "")
-            if parsed and parsed["direction"] == "out" and parsed["text"] == text:
-                return True
-        return False
     finally:
         page.close()

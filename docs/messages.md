@@ -148,18 +148,46 @@ the message landed.
 
 ## First-contact composer (marketplace item detail page)
 
-`https://www.facebook.com/marketplace/item/<fb_id>/` — for a listing that
-**already has** an open thread, the page shows "Отправить сообщение" as a
-button (top-right icon + a lower CTA), not an inline composer; no
-`div[role="textbox"]` is present on the page itself (measured: 0 matches).
-Clicking it should either open a popout composer on the same page or
-navigate into `/messages/t/<new-or-existing-thread-id>/` — **not yet
-confirmed live**, to avoid opening a compose box (and the "typing..."
-indicator it can trigger for the seller) against a real listing outside a
-supervised send. Resolve this in Phase 2's first live run: click the
-button, capture where it lands, and if it's a popout rather than a
-navigation, this note needs the popout's composer selector before
-`send_first_message` can be written against it.
+**Confirmed live 2026-09-22** with the first real send (fb_id
+`9000000000000011`, delivered and verified in the actual thread).
+`https://www.facebook.com/marketplace/item/<fb_id>/` — clicking "Отправить
+сообщение" (top-right icon or the lower CTA) opens a **modal dialog**, not
+the thread page's composer:
+
+```
+div[role="dialog"]                         — the modal itself
+  textarea                                 — plain textarea, no aria-label/placeholder attribute
+                                              (only one is inside the dialog; two more stray
+                                              <textarea> elements exist elsewhere on the page —
+                                              scope to the dialog or the wrong one gets typed into)
+  div[aria-label="Отправить сообщение"][role="button"]
+                                            — starts aria-disabled="true", the attribute is
+                                              removed entirely once the textarea has text
+```
+
+No `Enter`-to-send here — this is a plain `<textarea>`, and the dialog's
+own send button must be clicked. The dialog closes on a successful send;
+that closing (`state="hidden"`) is what `send_first_message` polls for as
+its success signal — confirmed correct on the live run, no separate
+"message appeared" check was needed or possible from this page.
+
+**Gap found on the live run: a freshly created thread carries no
+`/marketplace/item/` link at all**, not even after a couple of minutes —
+only "Вы создали этот чат." and a link to the seller's Marketplace
+*profile* (`/marketplace/profile/<id>/`), no item link. `read_thread`
+therefore returns `listing_fb_id: None` for a thread this fresh, and
+`messages sync` files it under `no_listing_match` even though `messages
+send` knows perfectly well which listing it was for (it composed the
+message from that row). This does not lose anything load-bearing — the
+`written` stage and the send-log entry are recorded straight from `messages
+send` itself, keyed by the fb_id it already had, never by a re-derived
+match — but the conversation's own row stays unmatched until a later
+`messages sync` catches the item-card link once Facebook backfills it
+(timing unmeasured — plausibly after the seller's first reply). Not fixed
+in iteration 1; if it turns out Facebook never backfills the link,
+`messages sync` needs a second matching path (e.g. the send log's
+`fb_id` cross-referenced against a same-peer, no-listing thread created
+right after a logged send).
 
 ## What Phase 1 implementation found that Phase 0 recon missed
 
