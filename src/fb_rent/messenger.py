@@ -158,6 +158,30 @@ def _guard_page(page: "Page") -> None:
         )
 
 
+def _click_resilient(locator: Any, timeout_ms: int) -> None:
+    """Click, falling back to a native DOM click if a real overlay blocks it.
+
+    Measured live 2026-09-22 on the marketplace item page's "Отправить
+    сообщение" button: a lazy-load placeholder layer
+    (``data-visualcompletion="ignore"``) can sit over the button and stay
+    there — one measured instance was 2286px tall, not a fleeting
+    fade-in — so Playwright's actionability check never clears and the
+    ordinary click times out. ``force=True`` alone does not fix this: it
+    skips the interception check but still drives Playwright's synthetic
+    mouse-event pipeline, which this button's handler did not respond to
+    in testing. ``element.click()`` run in the page — a genuine DOM
+    method call, not a simulated mouse event — reached the same handler
+    reliably. Reserved as a fallback, not the default: it skips
+    Playwright's visibility/enabled checks entirely, so it is only worth
+    the risk once the safer path has already had its full timeout to
+    succeed on its own.
+    """
+    try:
+        locator.click(timeout=timeout_ms)
+    except Exception:  # noqa: BLE001 — Playwright's TimeoutError et al.
+        locator.evaluate("el => el.click()")
+
+
 def _open_marketplace_folder(page: "Page") -> None:
     # The chip is rendered by an async inbox-summary fetch, not present at
     # domcontentloaded — clicking too early can hit a 0-match locator that
@@ -501,7 +525,7 @@ def send_first_message(context: "BrowserContext", listing_url: str, text: str) -
             open_button = page.get_by_text(_SEND_BUTTON_TEXT, exact=False).first
             if open_button.count() == 0:
                 open_button = page.get_by_text("Send message", exact=False).first
-            open_button.click(timeout=CONTENT_TIMEOUT_MS)
+            _click_resilient(open_button, CONTENT_TIMEOUT_MS)
         except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError et al.
             raise RuntimeError(
                 f"Could not find/click the message button on {listing_url}"
@@ -531,7 +555,7 @@ def send_first_message(context: "BrowserContext", listing_url: str, text: str) -
             send_button = dialog.locator(
                 f'div[aria-label="{_SEND_BUTTON_TEXT}"][role="button"]'
             ).first
-            send_button.click(timeout=CONTENT_TIMEOUT_MS)
+            _click_resilient(send_button, CONTENT_TIMEOUT_MS)
         except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError et al.
             raise RuntimeError(
                 f"Could not click the dialog's send button on {listing_url}"

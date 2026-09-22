@@ -262,6 +262,32 @@ could depend on account age, history, or simply vary. Treat the error as
 the only reliable signal; do not pre-emptively cap `--cap` at 10 to "avoid"
 it.
 
+## The "Could not click the message button" failures weren't the daily limit
+
+Debugged live 2026-09-22 after a batch send reported three items FAILED
+with `Could not find/click the message button` while others in the same
+run hit `MessagingLimitReachedError` cleanly — these were two unrelated
+causes, easy to conflate since both surface as "the send didn't happen."
+
+`document.elementFromPoint` at the button's actual on-screen coordinates
+(after a proper `scroll_into_view_if_needed`, not the page's initial
+scroll position) returned a `data-visualcompletion="ignore"` div — a
+lazy-load placeholder layer measured at **2286px tall** on one listing, not
+a fleeting fade-in. Playwright's ordinary `.click()` never clears its
+actionability check against that, and `force=True` alone did not help
+either: it skips the interception check but still drives Playwright's
+simulated mouse-event pipeline, which this particular button's handler
+did not respond to in testing — the dialog never opened even though
+`force=True` reported success. What worked reliably: `element.click()`
+run as a real DOM method inside the page (`locator.evaluate("el =>
+el.click()")`) — a genuine method call, not a simulated pointer event,
+so it reaches React's delegated listener regardless of what is stacked
+visually on top. `messenger._click_resilient` tries the ordinary click
+first and only falls back to this once that has had its own full
+timeout — the fallback skips every safety check Playwright's own click
+provides, so it is worth the ~15s of wasted waiting to prefer the safe
+path when it works.
+
 ## Two accounts
 
 Hitting the daily send limit above, the user asked to message from a
