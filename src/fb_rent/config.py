@@ -76,6 +76,14 @@ PHOTO_MATCH_MIN: int = 2
 # of the complex, so it leaves the index before any matching happens.
 PHOTO_HASH_COMMON_MAX: int = 4
 
+# Messenger outreach: chats older than this date are never opened, let alone
+# synced or replied to (see docs/messages.md). Sending is riskier than
+# browsing a detail page, so its jitter is slower than DETAIL_DELAY_*.
+MESSAGES_SINCE: str = "2026-09-20"
+MESSAGES_SEND_CAP: int = 10
+MESSAGE_SEND_DELAY_MIN_SEC: float = 20.0
+MESSAGE_SEND_DELAY_MAX_SEC: float = 45.0
+
 
 def _home() -> Path:
     """Return the fb-rent home directory, honouring ``FB_RENT_HOME`` env var."""
@@ -96,6 +104,12 @@ DECISIONS_PATH: Path = FB_RENT_HOME / "decisions.json"
 # Researched pets policy per building — like decisions.json, a file no
 # init_db can wipe, mirrored into a table only so fetch_enriched can JOIN.
 BUILDINGS_PATH: Path = FB_RENT_HOME / "buildings.json"
+# Log of every message this tool has actually sent — like decisions.json,
+# irreversible and outside init_db's reach. A send cannot be re-scraped back
+# if the DB is wiped between sending and the next sync, so this plus the
+# `written` stage in decisions.json are the two things standing between a
+# re-run and a duplicate message to a real person.
+MESSAGES_SENT_PATH: Path = FB_RENT_HOME / "messages_sent.json"
 
 
 def ensure_home() -> Path:
