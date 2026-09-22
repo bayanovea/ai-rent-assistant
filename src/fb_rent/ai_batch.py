@@ -24,7 +24,7 @@ from sqlite3 import Connection
 from typing import Any
 
 from . import ai_schema, config, photos, rules, storage
-from .extractors import description_from_text_lines
+from .extractors import PETS_FACET_LINE, description_from_text_lines, extract_pets_facet
 
 
 class BatchError(ValueError):
@@ -330,8 +330,9 @@ def apply_results(
             continue
 
         listing = dict(row)
+        text_lines = storage.text_lines_of(listing.get("raw_json"))
         current_hash = ai_schema.source_hash(
-            {**listing, "text_lines": storage.text_lines_of(listing.get("raw_json"))}
+            {**listing, "text_lines": text_lines}
         )
         reported_hash = entry.get("source_hash")
         if reported_hash and reported_hash != current_hash:
@@ -339,6 +340,21 @@ def apply_results(
                 f"{fb_id}: source_hash changed since the batch was built — "
                 "accepted, but the listing stays pending"
             )
+
+        # Facebook's own pets facet outranks the model's read of the same
+        # noisy text_lines dump — see extract_pets_facet. It only ever
+        # asserts "allowed", so it overrides anything but an existing
+        # "allowed" (never downgrades, never invents "not_allowed").
+        facet = extract_pets_facet(text_lines)
+        if facet and rules.value_of(fields, "pets") != "allowed":
+            fields = {
+                **fields,
+                "pets": {
+                    "v": facet,
+                    "conf": "high",
+                    "ev": PETS_FACET_LINE,
+                },
+            }
 
         data_quality = entry.get("data_quality")
         status, reason = rules.decide(
