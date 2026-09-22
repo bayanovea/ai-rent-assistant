@@ -59,6 +59,19 @@ cannot act until you confirm them by hand: research writes `proposed`, and a
 `proposed` building changes nothing anywhere. Details and the four policy
 values are in [pets-policy.md](pets-policy.md).
 
+The **messages pass** (`/messages`) is the only one that writes to the real
+world instead of just reading it — it sends actual messages to actual
+landlords over Facebook Messenger. `messages sync` pulls the Marketplace
+folder into `conversations`/`conversation_messages`, never opening a thread
+older than the cutoff date (see `CLAUDE.md`); `messages send` composes the
+first-contact message (viewing + pets, only asked if not already known
+allowed) for a selection you describe in words and sends it only after you
+confirm the whole batch of drafts. A conversation carries no score weight —
+see [pets-policy.md](pets-policy.md)'s note on the building policy for why a
+row's ranking must never depend on how a side channel is going. Details,
+including the Messenger DOM quirks and the E2E-encryption PIN dialog, are in
+[messages.md](messages.md).
+
 ## Who decides what
 
 Extraction is the AI's job. The *decision* is not, and the final word is not
@@ -129,6 +142,7 @@ Every stage is its own command, and most of them can be run in isolation.
 | `photos-fetch` | no | the text pass has run | the CDN |
 | `/photo-analyze` | no | photos on disk | no |
 | `/pets-policy` | yes | rows with a `project_name`, i.e. the text pass | the open web |
+| `/messages` (sync/send) | yes | a live session, a listing to point at | Facebook Messenger |
 | `export` | yes, any time | the DB | no |
 
 Only three couplings are real:
@@ -151,8 +165,9 @@ before the stage did.
 `/analyze` never contacts Facebook, so it can run alongside a scrape — that is
 how the night of 26 August went, 592 detail pages and the text pass at once.
 
-What cannot overlap is two `scrape` runs: there is one browser profile and the
-persistent context holds it.
+What cannot overlap is two runs that both hold the browser profile — `scrape`,
+`scrape-groups`, `check-alive` and `messages sync`/`messages send` all use the
+same persistent context, so only one of them at a time.
 
 ### Order that saves work
 

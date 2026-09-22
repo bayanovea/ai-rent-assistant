@@ -357,9 +357,51 @@ fb-rent export                       # refresh the table
 
 Dedupe can fold several Facebook postings into one row, and the stage is
 about one specific ad — the one you actually messaged — not the row in the
-abstract. `--posting <fb_id>` names it; it must be the row's own `fb_id` or
-one of the postings already merged into it (the same ids the table's ID cell
-lists). Omitted, it defaults to whatever a previous stage on this row already
-recorded, and only falls back to the row's own id if nothing was recorded
-yet — so `schedule-viewing` and `mark-viewed` do not need `--posting`
-repeated once `contact` set it once.
+abstract. `--posting <fb_id>` names it (comma-separated for more than one);
+it must be the row's own `fb_id` or one of the postings already merged into
+it (the same ids the table's ID cell lists). Omitted, it defaults to
+whatever a previous stage on this row already recorded, and only falls back
+to the row's own id if nothing was recorded yet — so `schedule-viewing` and
+`mark-viewed` do not need `--posting` repeated once `contact` set it once.
+
+## `fb-rent messages`
+
+Automates the first half of "contact the landlord": syncing the real
+Messenger conversation and sending the opening message, instead of you
+typing `fb-rent contact` by hand after messaging manually. See
+[messages.md](messages.md) for what was measured live and the `/messages`
+skill for the orchestration (classifying replies, translating a
+free-text selection into flags). Four subcommands:
+
+```sh
+fb-rent messages sync [--since 2026-09-20] [--limit N]
+fb-rent messages send [--status shortlist]... [--district TEXT] [--ids ID]... [--cap 10] [--apply] [--yes]
+fb-rent messages status
+fb-rent messages classify-batch [--limit N]
+fb-rent messages classify-apply <result.json> [--dry-run]
+```
+
+`sync` pulls the Marketplace folder into the `conversations` /
+`conversation_messages` tables — re-fetchable data, wiped and rewritten per
+thread on every run, same as `photo_hashes`. It never opens a thread it
+cannot positively date on or after the cutoff, unless that thread is
+already known from a previous sync (see `CLAUDE.md`).
+
+`send` is dry-run by default: it prints every draft (composed by
+`messages.compose_first_message` — the pets question only if not already
+known `allowed`) and sends nothing until `--apply`, which asks for one
+confirmation covering the whole batch (`--yes` skips it, for the skill's
+own use once the user has already confirmed). A successful send records
+the `written` stage exactly the way `fb-rent contact` would — «В работе»
+and the `--posting` semantics above apply unchanged — plus an entry in
+`data/messages_sent.json`, a send log kept for the same reason
+`decisions.json` is a file and not only a DB row: a send cannot be
+re-scraped back if the DB is wiped between sending and the next sync.
+
+`classify-batch` / `classify-apply` follow the same batch contract as
+`ai-batch` / `ai-apply` (see [pipeline.md](pipeline.md#the-batch-contract)):
+the CLI writes a batch of unclassified replies, the skill reads it and
+writes back **facts only** (never `state`/`needs_action` — `messages.py`'s
+`derive_state` is the one place those get decided), and `classify-apply`
+applies it, skipping any thread whose `reply_hash` moved on since the batch
+was written.

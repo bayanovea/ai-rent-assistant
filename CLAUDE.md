@@ -299,6 +299,58 @@ creates the table — it does not fill it — so the file is synced back in
 DB exports with every confirmed policy silently inactive until the next
 `buildings set`.
 
+## Messenger
+
+**A thread without a positive date is never opened, full stop.** `messages
+sync` checks a thread's relative age against the cutoff *before* calling
+`read_thread` — a thread whose age text does not parse, or parses to before
+2026-09-20, is skipped unless it is already a row in `conversations` (i.e.
+already ours from a previous sync). Widening this to "open it and check the
+messages' own timestamps instead" defeats the whole point: the cutoff exists
+so the tool never reads or replies to a chat that predates it, and opening
+first to decide is the same as not having a cutoff.
+
+**The E2E-encryption PIN dialog is a human-only step, never a code path.**
+The first time the shared browser profile visits any `/messages/` URL,
+Facebook asks for the Messenger secret-conversation PIN; dismissing it
+wrong (`"Не восстанавливать сообщения"`) permanently drops that profile's
+access to the encrypted history. `messenger.py` raises
+`MessengerPinRequiredError` the moment it detects this dialog and every
+caller lets it propagate up to a message telling the user to run a headed
+session — nothing in this codebase may click through it. See
+`docs/messages.md` for what the dialog looks like and why one headed pass
+fixes it for every later headless run.
+
+**The send log is JSON for the same reason `decisions.json` is.**
+`messages_sent.json` (`config.MESSAGES_SENT_PATH`) is outside `init_db`'s
+reach on purpose: a send is the one truly irreversible action in this
+project, and if the DB were the only record of it, wiping the DB between a
+send and the next sync would send the same first-contact message twice.
+The stage `written` in `decisions.json` is the second, independent guard —
+either one surviving is enough to stop a re-send.
+
+**Both the thread list and a thread's own message history are
+virtualized.** Scrolling the thread list loads more rows (like the
+marketplace feed in `scraper_list.py`); scrolling a thread's message pane
+to the top loads older messages. Skipping the second scroll does not error
+— it just silently truncates `read_thread`'s result to the newest few
+messages, which can make an answered conversation `derive_state` into
+`contacted` (unanswered) because the reply never entered the returned list.
+`_scroll_thread_history` in `messenger.py` is not optional cleanup.
+
+**A conversation carries no score weight, in either direction — the same
+rule as the building's pets policy** (see "Pets policy per building" above,
+and the tie-at-100 trap under "The table"). `rules.score` never reads
+`conversations`; the export's «Диалог» / «Ждёт меня» columns are
+`fetch_enriched` joining in read-only display fields, not scoring input.
+
+**Only an outright ad `pets: allowed` skips the pets question in the first
+message** — `messages.pets_already_allowed` uses the exact guard
+`rules.decide` does for the building policy: `unclear` (what most ads
+carry) still asks, and a merely `proposed` building policy does not count,
+only a `confirmed` one. Widening either check silently stops asking a
+question the landlord has not actually answered yet.
+
 ## Subagent fan-out
 
 The photo pass reads images in subagents, one per listing
