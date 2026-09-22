@@ -62,7 +62,8 @@ MESSAGE_PETS_KNOWN: str = (
 )
 MESSAGE_PETS_UNKNOWN: str = (
     MESSAGE_PETS_KNOWN
-    + " Also, can we live there with a dog? It is a small, quiet small dog."
+    + " Also, can we live there with a dog? It is a small, well-mannered "
+    "small dog (this breed has no dog smell and does not shed hair)."
 )
 
 
