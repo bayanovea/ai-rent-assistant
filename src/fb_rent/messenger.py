@@ -489,7 +489,13 @@ def send_first_message(context: "BrowserContext", listing_url: str, text: str) -
                 f"Could not find/click the message button on {listing_url}"
             ) from exc
 
-        dialog = page.locator('div[role="dialog"]')
+        # `div[role="dialog"]` alone is ambiguous: a persistent "Messenger"
+        # chat-widget dialog can already be in the DOM from earlier in the
+        # session, alongside a transient "Загрузка…" (loading) dialog —
+        # measured live 2026-09-22, a bare locator hit Playwright's strict
+        # mode with 2-3 matches. The compose dialog is the one with the
+        # textarea in it.
+        dialog = page.locator('div[role="dialog"]:has(textarea)')
         try:
             dialog.wait_for(state="visible", timeout=CONTENT_TIMEOUT_MS)
         except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
