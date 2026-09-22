@@ -351,6 +351,17 @@ carry) still asks, and a merely `proposed` building policy does not count,
 only a `confirmed` one. Widening either check silently stops asking a
 question the landlord has not actually answered yet.
 
+**Facebook caps first-contact sends per day, and the code must stop, not
+push through it.** Measured 2026-09-22: after roughly ten sends in one
+run, the compose dialog started opening "You've reached the messaging
+limit ... You can continue tomorrow." instead of delivering the message.
+`messenger.py` detects this and raises `MessagingLimitReachedError`,
+which `messages send` treats like a login failure — stop the whole batch,
+report the count, let the user resume later. Do not retry through it, do
+not lower `--cap` to duck under a guessed number: the real limit is
+unmeasured beyond "at least 10", and the only reliable signal is the
+dialog itself.
+
 ## Subagent fan-out
 
 The photo pass reads images in subagents, one per listing

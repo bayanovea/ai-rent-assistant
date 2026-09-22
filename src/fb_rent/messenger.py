@@ -38,6 +38,20 @@ class MessengerPinRequiredError(RuntimeError):
     """
 
 
+class MessagingLimitReachedError(RuntimeError):
+    """Facebook's own daily cap on new-conversation messages.
+
+    Measured live 2026-09-22: after roughly ten first-contact sends in one
+    session, the compose dialog's send button opens a second dialog —
+    "You've reached the messaging limit ... You can continue tomorrow." —
+    instead of delivering the message. This is server-side and has nothing
+    to do with our jitter or selectors; retrying the remaining drafts only
+    burns a full timeout on each one for nothing. The exact daily count
+    this account gets is unmeasured beyond "at least 10, capped well before
+    27" — do not hardcode a number anywhere as if it were known.
+    """
+
+
 def _timeout_ms(name: str, default: int) -> int:
     raw = os.environ.get(name)
     if not raw:
@@ -105,6 +119,10 @@ _SYSTEM_TEXTS = {_CHAT_CREATED_TEXT, _META_SAFETY_NOTICE}
 _COMPOSER_ARIA_RE = re.compile(r"^Написать в (?P<rest>.+)$")
 
 _PIN_DIALOG_MARKERS = ("Введите PIN-код", "Enter your PIN")
+
+# Measured live 2026-09-22, English regardless of the account's Russian UI
+# locale — the daily first-contact cap (see MessagingLimitReachedError).
+_MESSAGING_LIMIT_MARKER = "reached the messaging limit"
 
 
 def _detect_login_redirect(page: "Page") -> bool:
@@ -519,12 +537,18 @@ def send_first_message(context: "BrowserContext", listing_url: str, text: str) -
                 f"Could not click the dialog's send button on {listing_url}"
             ) from exc
 
-        # The dialog closes on a successful send; an error (rate limit,
-        # blocked seller) leaves it open with the typed text still inside.
+        # The dialog closes on a successful send; a rejection (daily limit,
+        # blocked seller) opens a *second* dialog on top instead, leaving
+        # the compose one and its typed text right where they were.
         try:
             dialog.wait_for(state="hidden", timeout=CONTENT_TIMEOUT_MS)
             return True
         except Exception:  # noqa: BLE001 — Playwright's TimeoutError
+            if page.get_by_text(_MESSAGING_LIMIT_MARKER, exact=False).count() > 0:
+                raise MessagingLimitReachedError(
+                    "Facebook: daily messaging limit reached — "
+                    '"You can continue tomorrow."'
+                )
             return False
     finally:
         page.close()

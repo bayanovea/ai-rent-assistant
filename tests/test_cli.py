@@ -2181,3 +2181,34 @@ def test_messages_send_apply_continues_after_one_failure(home, monkeypatch):
     assert "stage" not in entry_900
     entry_901 = decisions.load_decisions(None)["901"]
     assert entry_901["stage"] == "written"
+
+
+def test_messages_send_stops_on_daily_limit(home, monkeypatch):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    _add_listing(conn, "901")
+    decisions.save_decision(None, "900", "shortlist")
+    decisions.save_decision(None, "901", "shortlist")
+    decisions.sync_to_db(conn)
+    conn.close()
+
+    _stub_browser(monkeypatch)
+    from fb_rent.messenger import MessagingLimitReachedError
+
+    calls = []
+
+    def _send_first_message(ctx, url, text):
+        calls.append(url)
+        if len(calls) == 1:
+            return True
+        raise MessagingLimitReachedError("Facebook: daily messaging limit reached")
+
+    monkeypatch.setattr(cli, "send_first_message", _send_first_message)
+
+    result = _run("messages", "send", "--apply", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 2
+    assert "daily cap" in result.output
+    log = messages_module.load_send_log()
+    assert len(log) == 1

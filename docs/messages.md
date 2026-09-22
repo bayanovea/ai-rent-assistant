@@ -238,6 +238,30 @@ filters it out by exact text match (`_META_SAFETY_NOTICE`) alongside the
 "Вы создали этот чат." system row, so it never reaches `reply_hash` or a
 classification batch as if the seller had written it.
 
+## Facebook's own daily limit on first-contact sends
+
+Measured live 2026-09-22, sending to the Longlist plus the last unwritten
+Shortlist listing (27 targets): the first **10** first-contact sends went
+through cleanly across two runs; every send attempted after that opened a
+second dialog on top of the compose one — "You've reached the messaging
+limit ... To help build a better community for buyers and sellers, there
+is a temporary limit on how much you can message. You can continue
+tomorrow." — in English, regardless of the account's Russian UI locale.
+This is Facebook's own anti-spam throttle on the account, not a bug in the
+jitter or the selectors, and not something to work around: `messenger.py`
+detects the dialog's marker text and raises
+`MessagingLimitReachedError`, which `messages send`'s loop treats like
+`LoginRequiredError` — stop the whole batch immediately, report how many
+got through, and let the user re-run the same selection once the cap
+resets. Already-sent listings are skipped on the re-run (stage `written` +
+the send log), so nothing doubles up.
+
+**Do not hardcode "10" as the limit anywhere.** It is one measurement on
+one account on one day, not a documented Facebook policy — the real number
+could depend on account age, history, or simply vary. Treat the error as
+the only reliable signal; do not pre-emptively cap `--cap` at 10 to "avoid"
+it.
+
 ## Decisions locked from this recon
 
 - **Cutoff dating works** off the Marketplace folder row's relative

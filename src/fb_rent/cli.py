@@ -63,6 +63,7 @@ from .extractors import (
     parse_price,
 )
 from .messenger import (
+    MessagingLimitReachedError,
     MessengerPinRequiredError,
     list_marketplace_threads,
     read_thread,
@@ -2977,6 +2978,14 @@ def messages_send_cmd(
                 break
             except MessengerPinRequiredError as exc:
                 _echo_err(str(exc))
+                break
+            except MessagingLimitReachedError as exc:
+                _echo_err(str(exc))
+                _echo_err(
+                    f"Stopped after {sent} of {len(drafts)} sent — Facebook's "
+                    "own daily cap, not this tool's. Re-run the same "
+                    "selection tomorrow; already-sent listings are skipped."
+                )
                 break
             except Exception as exc:  # noqa: BLE001 — one listing's DOM
                 # hiccup (a stray overlay, a slow render) must not take the
