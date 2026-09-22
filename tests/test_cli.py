@@ -2147,3 +2147,37 @@ def test_messages_classify_apply_updates_state(home):
     conn.close()
     assert row["state"] == "viewing_proposed"
     assert row["needs_action"] == 1
+
+
+def test_messages_send_apply_continues_after_one_failure(home, monkeypatch):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    _add_listing(conn, "901")
+    decisions.save_decision(None, "900", "shortlist")
+    decisions.save_decision(None, "901", "shortlist")
+    decisions.sync_to_db(conn)
+    conn.close()
+
+    _stub_browser(monkeypatch)
+    sent_urls = []
+
+    def _send_first_message(ctx, url, text):
+        if "900" in url:
+            raise RuntimeError("stray overlay intercepted the click")
+        sent_urls.append(url)
+        return True
+
+    monkeypatch.setattr(cli, "send_first_message", _send_first_message)
+
+    result = _run("messages", "send", "--apply", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert "FAILED: 900" in result.output
+    assert len(sent_urls) == 1
+    log = messages_module.load_send_log()
+    assert "900:900:first_contact" not in log
+    assert "901:901:first_contact" in log
+    entry_900 = decisions.load_decisions(None).get("900") or {}
+    assert "stage" not in entry_900
+    entry_901 = decisions.load_decisions(None)["901"]
+    assert entry_901["stage"] == "written"

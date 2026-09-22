@@ -2978,6 +2978,12 @@ def messages_send_cmd(
             except MessengerPinRequiredError as exc:
                 _echo_err(str(exc))
                 break
+            except Exception as exc:  # noqa: BLE001 — one listing's DOM
+                # hiccup (a stray overlay, a slow render) must not take the
+                # rest of the batch down with it; report and move on.
+                failed.append(fb_id)
+                click.echo(f"  [{idx + 1}/{len(drafts)}] FAILED: {fb_id} ({exc})")
+                continue
             if not ok:
                 failed.append(fb_id)
                 click.echo(f"  [{idx + 1}/{len(drafts)}] FAILED: {fb_id}")
