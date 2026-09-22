@@ -24,12 +24,17 @@ to hand, ``shortlist`` the best, ``rejected`` what is out.
 An entry may also carry a ``stage`` — what happened after the listing was
 shortlisted: contacted the landlord, agreed on a viewing, or viewed and not
 yet compared against the others. It is independent of ``status`` on purpose
-(see :func:`save_stage`) and adds four more keys when present: ``stage``,
+(see :func:`save_stage`) and adds five more keys when present: ``stage``,
 ``stage_fb_id`` (which of the postings merged into this row the stage is
 actually about — dedupe can fold several ads into one row, and a comma
 joins more than one when you wrote to some of them and not the rest),
-``stage_at`` (the viewing's date/time, only for ``viewing_scheduled``) and
-``stage_note``.
+``stage_at`` (the viewing's date/time, only for ``viewing_scheduled``),
+``stage_note`` and ``stage_profile`` (which of the user's own Facebook
+accounts did the writing — ``"default"`` for the first/primary account,
+a ``--profile`` name for any other; see ``docs/messages.md`` "Two
+accounts"). ``None``/missing means the stage predates this key and has
+not been backfilled — :func:`save_stage` never invents a value for a call
+that does not pass one.
 
 Writes go through a temp file plus ``os.replace``, so an interrupted run
 leaves the previous decisions intact rather than a truncated file.
@@ -152,7 +157,14 @@ def save_decision(
     previous = decisions.get(str(fb_id)) or {}
     entry = {
         key: previous[key]
-        for key in ("stage", "stage_fb_id", "stage_at", "stage_note", "stage_updated_at")
+        for key in (
+            "stage",
+            "stage_fb_id",
+            "stage_at",
+            "stage_note",
+            "stage_profile",
+            "stage_updated_at",
+        )
         if key in previous
     }
     entry.update(
@@ -176,6 +188,7 @@ def save_stage(
     posting_fb_id: str | None = None,
     viewing_at: str | None = None,
     note: str | None = None,
+    profile: str | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
     """Record the post-shortlist stage for a listing, alongside its status.
@@ -192,6 +205,15 @@ def save_stage(
     if more than one. This module has no DB access, so it cannot check those
     ids against the row's known postings — the caller (the CLI) must have
     already resolved and validated them before this is called.
+
+    ``profile`` names which Facebook account did the writing (``"default"``
+    for the first, a ``--profile`` name for any other — see
+    ``docs/messages.md`` "Two accounts"). Omitted, it leaves whatever was
+    already recorded alone rather than overwriting it with ``None`` — unlike
+    ``posting_fb_id``/``viewing_at``/``note``, which each call fully
+    re-describes: which account wrote the very first message stays true
+    regardless of what a later ``schedule-viewing`` or ``mark-viewed`` call
+    happens to pass.
     """
     if stage not in VALID_STAGES:
         raise ValueError(
@@ -213,6 +235,8 @@ def save_stage(
     entry["stage_fb_id"] = posting_fb_id
     entry["stage_at"] = viewing_at
     entry["stage_note"] = note
+    if profile is not None:
+        entry["stage_profile"] = profile
     entry["stage_updated_at"] = now or _now_iso()
     decisions[str(fb_id)] = entry
     _write_atomic(target, decisions)
@@ -233,7 +257,14 @@ def clear_stage(
     if entry is None or "stage" not in entry:
         return entry
     entry = dict(entry)
-    for key in ("stage", "stage_fb_id", "stage_at", "stage_note", "stage_updated_at"):
+    for key in (
+        "stage",
+        "stage_fb_id",
+        "stage_at",
+        "stage_note",
+        "stage_profile",
+        "stage_updated_at",
+    ):
         entry.pop(key, None)
     decisions[str(fb_id)] = entry
     _write_atomic(target, decisions)
@@ -292,6 +323,7 @@ def sync_to_db(
                 entry.get("stage_fb_id"),
                 entry.get("stage_at"),
                 entry.get("stage_note"),
+                entry.get("stage_profile"),
             )
         )
 
@@ -299,8 +331,8 @@ def sync_to_db(
     conn.executemany(
         "INSERT INTO decisions "
         "(fb_id, status, reason, rating, decided_at, "
-        " stage, stage_fb_id, stage_at, stage_note) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " stage, stage_fb_id, stage_at, stage_note, stage_profile) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
     conn.commit()

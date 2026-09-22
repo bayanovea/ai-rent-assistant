@@ -246,10 +246,16 @@ def append_send_log(
     text: str,
     *,
     thread_id: str | None = None,
+    profile: str | None = None,
     path: Path | str | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
     """Record one successful send. Returns the stored entry.
+
+    ``profile`` is which Facebook account sent it (``"default"`` for the
+    first/primary account, a ``--profile`` name for any other — see
+    docs/messages.md "Two accounts"); stored as given, not defaulted here,
+    so an old caller that never passes it does not silently claim "default".
 
     Writes go through a temp file plus ``os.replace``, same as
     ``decisions._write_atomic``, so an interrupted run leaves the previous
@@ -263,6 +269,7 @@ def append_send_log(
         "kind": kind,
         "text": text,
         "thread_id": thread_id,
+        "profile": profile,
         "sent_at": now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     log[send_log_key(fb_id, posting_fb_id, kind)] = entry

@@ -97,10 +97,11 @@ CREATE TABLE IF NOT EXISTS decisions (
     reason      TEXT,
     rating      REAL,
     decided_at  TEXT NOT NULL,
-    stage       TEXT,
-    stage_fb_id TEXT,
-    stage_at    TEXT,
-    stage_note  TEXT
+    stage         TEXT,
+    stage_fb_id   TEXT,
+    stage_at      TEXT,
+    stage_note    TEXT,
+    stage_profile TEXT
 );
 """
 
@@ -441,6 +442,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # Same story: rebuilt from decisions.json on every sync.
         for column in ("stage", "stage_fb_id", "stage_at", "stage_note"):
             conn.execute(f"ALTER TABLE decisions ADD COLUMN {column} TEXT")
+
+    have = {row["name"] for row in conn.execute("PRAGMA table_info(decisions)")}
+    if "stage_profile" not in have:
+        # Same story again: rebuilt from decisions.json on every sync.
+        conn.execute("ALTER TABLE decisions ADD COLUMN stage_profile TEXT")
 
     have = {row["name"] for row in conn.execute("PRAGMA table_info(listings)")}
     if "content_key" not in have:
@@ -2282,7 +2288,7 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                a.photo_schema_version, a.photos_analyzed_at, a.photos_hash,
                d.status AS user_status, d.reason AS user_reason,
                d.rating AS user_rating, d.decided_at,
-               d.stage, d.stage_fb_id, d.stage_at, d.stage_note
+               d.stage, d.stage_fb_id, d.stage_at, d.stage_note, d.stage_profile
         FROM listings AS l
         LEFT JOIN ai_analysis AS a ON a.fb_id = l.fb_id
         LEFT JOIN decisions AS d ON d.fb_id = l.fb_id
@@ -3625,6 +3631,10 @@ _FIXED_COLUMNS: dict[str, dict[str, Any]] = {
         "label": "Заметка", "kind": "comment", "src": "sys",
         "tabs": ["in_progress", "all"],
     },
+    "stage_profile": {
+        "label": "Аккаунт", "kind": "text", "src": "sys",
+        "tabs": ["in_progress", "all"],
+    },
     # Messenger conversation columns — same scoping as the stage columns
     # above, and the same rule: no score weight, ever (CLAUDE.md "The
     # table"). `messages sync`/`classify-apply` write these, never a rating.
@@ -3653,6 +3663,7 @@ _VISIBLE_ORDER: tuple[str, ...] = (
     "stage_fb_id",
     "stage_at",
     "stage_note",
+    "stage_profile",
     "convo_state",
     "convo_needs",
     "convo_last",
@@ -3712,6 +3723,22 @@ _UNCLEAR_SPEAKS: frozenset[str] = frozenset({"pets"})
 # what makes "мои отказы" a filter chip: the AI auto-rejects outnumber the
 # hand-made ones 47 to 1, and nothing else on the row separates them.
 _DECIDER_LABELS: dict[str, str] = {"user": "вы", "ai": "AI"}
+
+
+def _profile_label(stage_profile: Any) -> str:
+    """Human label for ``decisions.stage_profile`` — which account wrote.
+
+    ``"default"`` is the first/primary Facebook account; any other value is
+    a ``--profile`` name (see ``docs/messages.md`` "Two accounts") shown as
+    typed, since it is the user's own choice of name for that account.
+    Missing/``None`` means the stage predates this field and was never
+    backfilled — blank, not a guess.
+    """
+    if not stage_profile:
+        return ""
+    if stage_profile == "default":
+        return "первый пользователь"
+    return str(stage_profile)
 
 # messages.VALID_CONVO_STATES / NEEDS_ACTION_REASONS, in Russian for the
 # table. Kept here rather than in messages.py so the export's vocabulary
@@ -4039,6 +4066,9 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
         "stage_fb_id": {"t": item.get("stage_fb_id") or "", "c": ""},
         "stage_at": {"t": item.get("stage_at") or "", "c": ""},
         "stage_note": {"t": item.get("stage_note") or "", "c": ""},
+        "stage_profile": {
+            "t": _profile_label(item.get("stage_profile")), "c": "",
+        },
         # Messenger conversation state — no score weight, ever (see
         # CLAUDE.md "The table": a tie at 100 is how rules.score breaks).
         "convo_state": {

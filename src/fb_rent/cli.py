@@ -3027,7 +3027,9 @@ def messages_send_cmd(
                 click.echo(f"  [{idx + 1}/{len(drafts)}] FAILED: {fb_id}")
                 continue
 
-            messages_module.append_send_log(fb_id, fb_id, "first_contact", text)
+            messages_module.append_send_log(
+                fb_id, fb_id, "first_contact", text, profile=profile or "default"
+            )
             db_conn = _open_db()
             try:
                 target = _resolve_posting(db_conn, fb_id, fb_id)
@@ -3037,6 +3039,7 @@ def messages_send_cmd(
                     "written",
                     posting_fb_id=target,
                     note="авто: первое сообщение",
+                    profile=profile or "default",
                 )
                 _sync_decisions(db_conn)
             finally:

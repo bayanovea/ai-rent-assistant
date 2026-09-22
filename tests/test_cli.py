@@ -2325,3 +2325,41 @@ def test_messages_send_default_profile_unchanged(home, monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert captured["profile_dir"] == config.BROWSER_PROFILE_DIR
+
+
+def test_messages_send_records_stage_profile_default(home, monkeypatch):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    decisions.save_decision(None, "900", "shortlist")
+    decisions.sync_to_db(conn)
+    conn.close()
+
+    _stub_browser(monkeypatch)
+    monkeypatch.setattr(cli, "send_first_message", lambda ctx, url, text: True)
+
+    result = _run("messages", "send", "--apply", "--yes")
+    assert result.exit_code == 0, result.output
+
+    entry = decisions.load_decisions(None)["900"]
+    assert entry["stage_profile"] == "default"
+    log = messages_module.load_send_log()
+    assert log["900:900:first_contact"]["profile"] == "default"
+
+
+def test_messages_send_records_stage_profile_named(home, monkeypatch):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    decisions.save_decision(None, "900", "shortlist")
+    decisions.sync_to_db(conn)
+    conn.close()
+
+    _stub_browser(monkeypatch)
+    monkeypatch.setattr(cli, "send_first_message", lambda ctx, url, text: True)
+
+    result = _run("messages", "send", "--apply", "--yes", "--profile", "partner")
+    assert result.exit_code == 0, result.output
+
+    entry = decisions.load_decisions(None)["900"]
+    assert entry["stage_profile"] == "partner"
+    log = messages_module.load_send_log()
+    assert log["900:900:first_contact"]["profile"] == "partner"

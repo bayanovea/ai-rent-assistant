@@ -362,3 +362,42 @@ def test_stage_reaches_the_html_row(path: Path):
     assert cells["stage_at"]["t"] == "2026-09-25 14:00"
     assert cells["stage_note"]["t"] == "встречает партнёр"
     conn.close()
+
+
+# --- stage_profile (which Facebook account wrote) --------------------------
+
+
+def test_save_stage_records_profile(path: Path):
+    dec.save_stage(path, "123", "written", profile="default")
+    entry = dec.load_decisions(path)["123"]
+    assert entry["stage_profile"] == "default"
+
+
+def test_save_stage_without_profile_leaves_it_untouched(path: Path):
+    dec.save_stage(path, "123", "written", profile="partner")
+    dec.save_stage(path, "123", "viewing_scheduled", viewing_at="2026-09-25 14:00")
+    entry = dec.load_decisions(path)["123"]
+    assert entry["stage_profile"] == "partner"
+
+
+def test_save_decision_preserves_stage_profile(path: Path):
+    dec.save_stage(path, "123", "written", profile="default")
+    dec.save_decision(path, "123", "rejected", "далеко")
+    entry = dec.load_decisions(path)["123"]
+    assert entry["stage_profile"] == "default"
+    assert entry["status"] == "rejected"
+
+
+def test_clear_stage_drops_profile(path: Path):
+    dec.save_stage(path, "123", "written", profile="default")
+    dec.clear_stage(path, "123")
+    entry = dec.load_decisions(path)["123"]
+    assert "stage_profile" not in entry
+
+
+def test_sync_to_db_carries_stage_profile(path: Path):
+    dec.save_stage(path, "123", "written", profile="partner")
+    conn = storage.init_db(":memory:")
+    dec.sync_to_db(conn, dec.load_decisions(path))
+    row = conn.execute("SELECT stage_profile FROM decisions WHERE fb_id='123'").fetchone()
+    assert row["stage_profile"] == "partner"
