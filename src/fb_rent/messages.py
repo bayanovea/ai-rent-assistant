@@ -57,13 +57,12 @@ NEEDS_ACTION_REASONS: frozenset[str] = frozenset(
 # existed (see docs/messages.md) — do not rephrase without checking with
 # them first.
 MESSAGE_PETS_KNOWN: str = (
-    "Hello! I'm interested in your apartment listing for a 1-year lease and "
-    "would like to view it in person. When would be a good time for a "
-    "viewing?"
+    "Hello! I want to rent your house for 1 year. Can I come to see it? "
+    "When is a good time for you?"
 )
 MESSAGE_PETS_UNKNOWN: str = (
     MESSAGE_PETS_KNOWN
-    + " Also, are pets allowed? We have a small, well-behaved small dog."
+    + " Also, can we live there with a dog? It is a small, quiet small dog."
 )
 
 
