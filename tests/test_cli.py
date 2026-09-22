@@ -19,6 +19,8 @@ from fb_rent import (
     buildings,
     cli,
     config,
+    decisions,
+    messages as messages_module,
     photos,
     rules,
     storage,
@@ -39,6 +41,7 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PHOTOS_DIR", root / "photos")
     monkeypatch.setattr(config, "DECISIONS_PATH", root / "decisions.json")
     monkeypatch.setattr(config, "BUILDINGS_PATH", root / "buildings.json")
+    monkeypatch.setattr(config, "MESSAGES_SENT_PATH", root / "messages_sent.json")
     return root
 
 
@@ -1860,3 +1863,287 @@ def test_export_reports_a_broken_buildings_file(home):
     assert result.exit_code != 0
     assert "unknown pets policy" in result.output
     assert "Traceback" not in result.output
+
+
+# --- messages sync / send / status --------------------------------------
+
+
+def _stub_browser(monkeypatch, *, logged_in=True):
+    """Same shape as `_stub_scrape`'s browser stack, without the scrape stubs."""
+
+    class _Context:
+        def close(self) -> None:
+            pass
+
+    class _Playwright:
+        def stop(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "start_playwright", lambda: _Playwright())
+    monkeypatch.setattr(cli, "launch_persistent", lambda pw, headless=True: _Context())
+    monkeypatch.setattr(cli, "is_logged_in", lambda ctx: logged_in)
+    monkeypatch.setattr(cli.time, "sleep", lambda _s: None)
+
+
+def test_messages_sync_skips_pre_cutoff_threads(home, monkeypatch):
+    _stub_browser(monkeypatch)
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    conn.close()
+
+    monkeypatch.setattr(
+        cli,
+        "list_marketplace_threads",
+        lambda ctx, **kw: [
+            {"thread_id": "recent", "peer_name": "A", "last_activity_raw": "14 мин."},
+            {"thread_id": "ancient", "peer_name": "B", "last_activity_raw": "2 г."},
+        ],
+    )
+    read_calls = []
+
+    def _read_thread(ctx, thread_id):
+        read_calls.append(thread_id)
+        return {
+            "thread_id": thread_id,
+            "peer_name": "A",
+            "listing_fb_id": "900",
+            "messages": [{"direction": "out", "text": "Hello!", "sent_at": None}],
+        }
+
+    monkeypatch.setattr(cli, "read_thread", _read_thread)
+
+    result = _run("messages", "sync")
+
+    assert result.exit_code == 0, result.output
+    assert read_calls == ["recent"]
+    assert "skipped 1 too old" in result.output
+
+
+def test_messages_sync_writes_conversation(home, monkeypatch):
+    _stub_browser(monkeypatch)
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    conn.close()
+
+    monkeypatch.setattr(
+        cli,
+        "list_marketplace_threads",
+        lambda ctx, **kw: [
+            {"thread_id": "t1", "peer_name": "A", "last_activity_raw": "14 мин."}
+        ],
+    )
+    monkeypatch.setattr(
+        cli,
+        "read_thread",
+        lambda ctx, thread_id: {
+            "thread_id": thread_id,
+            "peer_name": "A",
+            "listing_fb_id": "900",
+            "messages": [
+                {"direction": "out", "text": "Hello!", "sent_at": None},
+                {"direction": "in", "text": "Sure, come by", "sent_at": None},
+            ],
+        },
+    )
+
+    result = _run("messages", "sync")
+    assert result.exit_code == 0, result.output
+
+    conn = storage.init_db(config.DB_PATH)
+    row = conn.execute(
+        "SELECT fb_id, state FROM conversations WHERE thread_id = 't1'"
+    ).fetchone()
+    conn.close()
+    assert row["fb_id"] == "900"
+    assert row["state"] == "replied"
+
+
+def test_messages_sync_resolves_merged_posting(home, monkeypatch):
+    _stub_browser(monkeypatch)
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    conn.execute(
+        "INSERT INTO duplicates (fb_id, canonical_fb_id, content_key, noticed_at, url)"
+        " VALUES ('901', '900', 'k', '2026-09-01', NULL)"
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(
+        cli,
+        "list_marketplace_threads",
+        lambda ctx, **kw: [
+            {"thread_id": "t1", "peer_name": "A", "last_activity_raw": "14 мин."}
+        ],
+    )
+    monkeypatch.setattr(
+        cli,
+        "read_thread",
+        lambda ctx, thread_id: {
+            "thread_id": thread_id,
+            "peer_name": "A",
+            "listing_fb_id": "901",
+            "messages": [{"direction": "out", "text": "Hello!", "sent_at": None}],
+        },
+    )
+
+    result = _run("messages", "sync")
+    assert result.exit_code == 0, result.output
+
+    conn = storage.init_db(config.DB_PATH)
+    row = conn.execute(
+        "SELECT fb_id, posting_fb_id FROM conversations WHERE thread_id = 't1'"
+    ).fetchone()
+    conn.close()
+    assert row["fb_id"] == "900"
+    assert row["posting_fb_id"] == "901"
+
+
+def test_messages_send_dry_run_writes_nothing(home, monkeypatch):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    decisions.save_decision(None, "900", "shortlist")
+    decisions.sync_to_db(conn)
+    conn.close()
+
+    result = _run("messages", "send")
+
+    assert result.exit_code == 0, result.output
+    assert "Dry run" in result.output
+    assert messages_module.load_send_log() == {}
+    entry = decisions.load_decisions(None).get("900") or {}
+    assert "stage" not in entry
+
+
+def test_messages_send_apply_sends_and_records_stage(home, monkeypatch):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    decisions.save_decision(None, "900", "shortlist")
+    decisions.sync_to_db(conn)
+    conn.close()
+
+    _stub_browser(monkeypatch)
+    sent_texts = []
+
+    def _send_first_message(ctx, url, text):
+        sent_texts.append((url, text))
+        return True
+
+    monkeypatch.setattr(cli, "send_first_message", _send_first_message)
+
+    result = _run("messages", "send", "--apply", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert len(sent_texts) == 1
+    log = messages_module.load_send_log()
+    assert "900:900:first_contact" in log
+    entry = decisions.load_decisions(None)["900"]
+    assert entry["stage"] == "written"
+
+
+def test_messages_send_skips_already_sent(home, monkeypatch):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    decisions.save_decision(None, "900", "shortlist")
+    decisions.sync_to_db(conn)
+    conn.close()
+    messages_module.append_send_log("900", "900", "first_contact", "Hello!")
+
+    result = _run("messages", "send")
+
+    assert result.exit_code == 0, result.output
+    assert "Nothing to send" in result.output
+
+
+def test_messages_send_respects_cap(home, monkeypatch):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    _add_listing(conn, "901")
+    decisions.save_decision(None, "900", "shortlist")
+    decisions.save_decision(None, "901", "shortlist")
+    decisions.sync_to_db(conn)
+    conn.close()
+
+    result = _run("messages", "send", "--cap", "1")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.count("---") == 2  # one draft block: 2 dashes-lines
+
+
+def test_messages_status_reports_needs_action(home, monkeypatch):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id="900",
+        posting_fb_id="900",
+        peer_name="Landlord",
+        messages=[
+            {"direction": "out", "text": "Hello!", "sent_at": None},
+            {"direction": "in", "text": "No pets allowed", "sent_at": None},
+        ],
+        state="pets_declined",
+        needs_action=True,
+        needs_action_reason="pets_declined",
+        reply_hash="h1",
+    )
+    conn.close()
+
+    result = _run("messages", "status")
+
+    assert result.exit_code == 0, result.output
+    assert "900" in result.output
+    assert "pets_declined" in result.output
+
+
+def test_messages_status_empty(home):
+    result = _run("messages", "status")
+    assert result.exit_code == 0, result.output
+    assert "Nothing needs your attention" in result.output
+
+
+def test_messages_classify_apply_updates_state(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "900")
+    storage.save_conversation(
+        conn,
+        thread_id="t1",
+        fb_id="900",
+        posting_fb_id="900",
+        peer_name="Landlord",
+        messages=[
+            {"direction": "out", "text": "Hello!", "sent_at": None},
+            {"direction": "in", "text": "Saturday works", "sent_at": None},
+        ],
+        state="replied",
+        needs_action=False,
+        needs_action_reason=None,
+        reply_hash="h1",
+    )
+    conn.close()
+
+    result_path = home / "result.json"
+    result_path.write_text(
+        json.dumps(
+            [
+                {
+                    "thread_id": "t1",
+                    "reply_hash": "h1",
+                    "facts": {"viewing_proposed": True, "proposed_times": ["Saturday"]},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = _run("messages", "classify-apply", str(result_path))
+
+    assert result.exit_code == 0, result.output
+    conn = storage.init_db(config.DB_PATH)
+    row = conn.execute(
+        "SELECT state, needs_action FROM conversations WHERE thread_id = 't1'"
+    ).fetchone()
+    conn.close()
+    assert row["state"] == "viewing_proposed"
+    assert row["needs_action"] == 1

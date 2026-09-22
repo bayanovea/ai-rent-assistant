@@ -44,8 +44,10 @@ from . import (
     config,
     decisions,
     fingerprint,
+    messages as messages_module,
     photo_batch,
     photos,
+    rules,
 )
 from .browser import (
     LoginRequiredError,
@@ -60,10 +62,19 @@ from .extractors import (
     extract_property_type,
     parse_price,
 )
+from .messenger import (
+    MessengerPinRequiredError,
+    list_marketplace_threads,
+    read_thread,
+    send_first_message,
+)
 from .scraper_detail import check_listing_alive, scrape_detail
 from .scraper_group import scrape_group_feed, scrape_group_post
 from .scraper_list import scrape_list
 from .storage import (
+    apply_conversation_classification,
+    conversations_by_fb_id,
+    conversations_needing_classification,
     dedupe_listings,
     dedupe_one,
     duplicate_fb_ids,
@@ -80,6 +91,9 @@ from .storage import (
     known_fb_ids,
     listings_missing_photo_hashes,
     marketplace_url,
+    needs_action_conversations,
+    normalise_district,
+    save_conversation,
     save_photo_hashes,
     sync_buildings_to_db,
     upsert_listing,
@@ -2662,6 +2676,437 @@ def clear_stage_cmd(fb_id: str) -> None:
         conn.close()
     click.echo(f"{fb_id}: stage cleared")
     click.echo(f"Saved to {config.DECISIONS_PATH}. Run `fb-rent export` to refresh the table.")
+
+
+@main.group("messages")
+def messages_group() -> None:
+    """Messenger outreach: sync conversations, send first contact, check status."""
+
+
+@messages_group.command("sync")
+@click.option(
+    "--since",
+    default=None,
+    help=f"Skip threads older than this date (default: {config.MESSAGES_SINCE}).",
+)
+@click.option(
+    "--limit", default=None, type=int, help="Stop after this many threads."
+)
+def messages_sync_cmd(since: str | None, limit: int | None) -> None:
+    """Pull Marketplace Messenger threads into the DB.
+
+    Never opens a thread whose relative age in the thread list cannot be
+    positively dated on or after the cutoff, unless it is already known
+    (synced before, or in the send log) — see docs/messages.md. A thread
+    with a new, unclassified inbound reply is reported but not flagged
+    ``needs_action`` here; that is ``messages classify-apply``'s call.
+    """
+    cutoff = since or config.MESSAGES_SINCE
+
+    playwright = start_playwright()
+    context = None
+    synced = 0
+    skipped_old = 0
+    new_replies = 0
+    unmatched = 0
+    try:
+        try:
+            context = launch_persistent(playwright, headless=True)
+        except Exception as exc:  # noqa: BLE001 — surface a friendly error
+            _echo_err(f"Failed to launch browser: {exc}")
+            sys.exit(2)
+
+        if not is_logged_in(context):
+            _echo_err("No active Facebook session. Run `fb-rent login` first.")
+            sys.exit(3)
+
+        conn = _open_db()
+        try:
+            known_thread_ids = {
+                str(row["thread_id"])
+                for row in conn.execute("SELECT thread_id FROM conversations").fetchall()
+            }
+
+            try:
+                threads = list_marketplace_threads(context)
+            except LoginRequiredError as exc:
+                _echo_err(str(exc))
+                sys.exit(3)
+            except MessengerPinRequiredError as exc:
+                _echo_err(str(exc))
+                sys.exit(4)
+
+            candidates = []
+            for t in threads:
+                age_iso = messages_module.parse_thread_age(t.get("last_activity_raw"))
+                recent = messages_module.is_on_or_after_cutoff(age_iso, cutoff)
+                if not recent and t["thread_id"] not in known_thread_ids:
+                    skipped_old += 1
+                    continue
+                candidates.append(t)
+            if limit is not None:
+                candidates = candidates[:limit]
+
+            reposts = duplicates_by_canonical(conn)
+            canonical_by_posting: dict[str, str] = {}
+            for canonical_id, postings in reposts.items():
+                for posting in postings:
+                    canonical_by_posting[str(posting["fb_id"])] = canonical_id
+
+            for idx, t in enumerate(candidates):
+                if idx:
+                    time.sleep(
+                        random.uniform(
+                            config.DETAIL_DELAY_MIN_SEC, config.DETAIL_DELAY_MAX_SEC
+                        )
+                    )
+                try:
+                    detail = read_thread(context, t["thread_id"])
+                except LoginRequiredError as exc:
+                    _echo_err(str(exc))
+                    _echo_err(
+                        f"Stopped after {idx} of {len(candidates)} — run "
+                        "`fb-rent login` and retry for the rest."
+                    )
+                    break
+                except MessengerPinRequiredError as exc:
+                    _echo_err(str(exc))
+                    break
+                if detail is None:
+                    continue
+
+                posting_fb_id = detail.get("listing_fb_id")
+                fb_id = (
+                    canonical_by_posting.get(posting_fb_id, posting_fb_id)
+                    if posting_fb_id
+                    else None
+                )
+
+                thread_messages = detail["messages"]
+                has_outbound = any(m["direction"] == "out" for m in thread_messages)
+                has_inbound = any(m["direction"] == "in" for m in thread_messages)
+                reply_hash = (
+                    messages_module.reply_hash_of(thread_messages) if has_inbound else None
+                )
+                state, needs_action, reason = messages_module.derive_state(
+                    has_outbound, has_inbound, None
+                )
+
+                if fb_id is None:
+                    needs_action = True
+                    reason = "no_listing_match"
+                    unmatched += 1
+                elif has_inbound:
+                    new_replies += 1
+
+                save_conversation(
+                    conn,
+                    thread_id=t["thread_id"],
+                    fb_id=fb_id,
+                    posting_fb_id=posting_fb_id,
+                    peer_name=detail.get("peer_name") or t.get("peer_name"),
+                    messages=thread_messages,
+                    state=state,
+                    needs_action=needs_action,
+                    needs_action_reason=reason,
+                    reply_hash=reply_hash,
+                )
+                synced += 1
+                click.echo(f"  [{idx + 1}/{len(candidates)}] {t['thread_id']}: {state}")
+        finally:
+            conn.close()
+    finally:
+        if context is not None:
+            context.close()
+        playwright.stop()
+
+    click.echo(
+        f"\nSynced {synced} thread(s), skipped {skipped_old} too old, "
+        f"{new_replies} with a new unclassified reply, "
+        f"{unmatched} not matched to a listing."
+    )
+    if new_replies:
+        click.echo("Run `fb-rent messages classify-batch` to read the new replies.")
+
+
+def _selection_rows(
+    conn: sqlite3.Connection,
+    *,
+    statuses: tuple[str, ...],
+    district: str | None,
+    ids: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    rows = fetch_enriched(conn)
+    if ids:
+        wanted = set(ids)
+        return [r for r in rows if str(r["fb_id"]) in wanted]
+    selected = [r for r in rows if r["status"] in set(statuses)]
+    if district:
+        needle = district.strip().lower()
+        selected = [
+            r
+            for r in selected
+            if needle in (normalise_district(r.get("district")) or "").lower()
+            or needle in (rules.value_of(r.get("fields") or {}, "area") or "").lower()
+        ]
+    return selected
+
+
+@messages_group.command("send")
+@click.option(
+    "--status",
+    "statuses",
+    multiple=True,
+    default=("shortlist",),
+    show_default=True,
+    help="Only listings currently in these tabs (repeatable).",
+)
+@click.option("--district", default=None, help="Filter by district/area substring.")
+@click.option("--ids", "ids", multiple=True, help="Specific fb_id(s), bypassing --status.")
+@click.option(
+    "--cap",
+    default=config.MESSAGES_SEND_CAP,
+    show_default=True,
+    help="Stop after sending this many messages.",
+)
+@click.option(
+    "--apply", "do_apply", is_flag=True, default=False, help="Actually send (default: show drafts only)."
+)
+@click.option(
+    "--yes", "skip_confirm", is_flag=True, default=False, help="Skip the batch confirmation prompt."
+)
+def messages_send_cmd(
+    statuses: tuple[str, ...],
+    district: str | None,
+    ids: tuple[str, ...],
+    cap: int,
+    do_apply: bool,
+    skip_confirm: bool,
+) -> None:
+    """Send the first-contact message to a selection of listings.
+
+    Dry-run by default: prints every draft and sends nothing. With
+    ``--apply``, asks for one confirmation covering the whole batch, then
+    sends with jitter and a hard cap. A listing already written to (stage
+    ``written``+, or a prior entry in the send log, or an existing outbound
+    message in a synced conversation) is skipped, not re-sent.
+    """
+    conn = _open_db()
+    try:
+        rows = _selection_rows(conn, statuses=statuses, district=district, ids=ids)
+        convo_by_fb_id = conversations_by_fb_id(conn)
+
+        drafts: list[tuple[dict[str, Any], str]] = []
+        skipped: list[tuple[str, str]] = []
+        for row in rows:
+            fb_id = str(row["fb_id"])
+            stage = row.get("stage")
+            if stage in ("written", "viewing_scheduled", "viewed"):
+                skipped.append((fb_id, f"stage already {stage}"))
+                continue
+            if messages_module.already_sent(fb_id, fb_id, "first_contact"):
+                skipped.append((fb_id, "already in send log"))
+                continue
+            convo = convo_by_fb_id.get(fb_id)
+            if convo and convo.get("last_direction") is not None:
+                skipped.append((fb_id, "conversation already exists"))
+                continue
+            drafts.append((row, messages_module.compose_first_message(row)))
+            if len(drafts) >= cap:
+                break
+    finally:
+        conn.close()
+
+    if skipped:
+        click.echo(f"Skipping {len(skipped)} already-contacted listing(s):")
+        for fb_id, why in skipped:
+            click.echo(f"  - {fb_id}: {why}")
+
+    if not drafts:
+        click.echo("Nothing to send.")
+        return
+
+    click.echo(f"\n{len(drafts)} draft(s):")
+    for row, text in drafts:
+        title = row.get("title") or row["fb_id"]
+        price = row.get("price_thb")
+        district_label = normalise_district(row.get("district")) or "?"
+        click.echo(f"\n--- {row['fb_id']}: {title} ({price} THB, {district_label}) ---")
+        click.echo(text)
+
+    if not do_apply:
+        click.echo("\nDry run — rerun with --apply to send these.")
+        return
+
+    if not skip_confirm and not click.confirm(
+        f"\nSend these {len(drafts)} message(s) now?"
+    ):
+        click.echo("Cancelled.")
+        return
+
+    playwright = start_playwright()
+    context = None
+    sent = 0
+    failed: list[str] = []
+    try:
+        try:
+            context = launch_persistent(playwright, headless=True)
+        except Exception as exc:  # noqa: BLE001 — surface a friendly error
+            _echo_err(f"Failed to launch browser: {exc}")
+            sys.exit(2)
+
+        if not is_logged_in(context):
+            _echo_err("No active Facebook session. Run `fb-rent login` first.")
+            sys.exit(3)
+
+        for idx, (row, text) in enumerate(drafts):
+            fb_id = str(row["fb_id"])
+            url = row.get("url") or marketplace_url(fb_id)
+            if idx:
+                time.sleep(
+                    random.uniform(
+                        config.MESSAGE_SEND_DELAY_MIN_SEC,
+                        config.MESSAGE_SEND_DELAY_MAX_SEC,
+                    )
+                )
+            try:
+                ok = send_first_message(context, url, text)
+            except LoginRequiredError as exc:
+                _echo_err(str(exc))
+                _echo_err(f"Stopped after {sent} of {len(drafts)} sent.")
+                break
+            except MessengerPinRequiredError as exc:
+                _echo_err(str(exc))
+                break
+            if not ok:
+                failed.append(fb_id)
+                click.echo(f"  [{idx + 1}/{len(drafts)}] FAILED: {fb_id}")
+                continue
+
+            messages_module.append_send_log(fb_id, fb_id, "first_contact", text)
+            db_conn = _open_db()
+            try:
+                target = _resolve_posting(db_conn, fb_id, fb_id)
+                decisions.save_stage(
+                    None,
+                    fb_id,
+                    "written",
+                    posting_fb_id=target,
+                    note="авто: первое сообщение",
+                )
+                _sync_decisions(db_conn)
+            finally:
+                db_conn.close()
+            sent += 1
+            click.echo(f"  [{idx + 1}/{len(drafts)}] sent: {fb_id}")
+    finally:
+        if context is not None:
+            context.close()
+        playwright.stop()
+
+    click.echo(f"\nSent {sent} of {len(drafts)}, {len(failed)} failed.")
+    if sent:
+        click.echo("Run `fb-rent export` to refresh the table.")
+
+
+@messages_group.command("status")
+def messages_status_cmd() -> None:
+    """Report conversations that need your attention, without touching the network."""
+    conn = _open_db()
+    try:
+        needs_action = needs_action_conversations(conn)
+    finally:
+        conn.close()
+
+    if not needs_action:
+        click.echo("Nothing needs your attention.")
+        return
+
+    click.echo(f"{len(needs_action)} conversation(s) need you:")
+    for convo in needs_action:
+        thread_url = f"https://www.facebook.com/messages/t/{convo['thread_id']}/"
+        reason = convo.get("needs_action_reason") or "?"
+        snippet = convo.get("last_snippet") or ""
+        click.echo(
+            f"  - {convo.get('fb_id') or '?'} ({convo.get('peer_name') or '?'}): "
+            f"{reason} — \"{snippet}\" — {thread_url}"
+        )
+
+
+@messages_group.command("classify-batch")
+@click.option("--limit", default=None, type=int, help="Cap how many threads to include.")
+def messages_classify_batch_cmd(limit: int | None) -> None:
+    """Write the batch file of threads with a new, unclassified reply."""
+    conn = _open_db()
+    try:
+        pending = conversations_needing_classification(conn, limit=limit)
+        if not pending:
+            click.echo("Nothing to classify.")
+            return
+        items = []
+        for convo in pending:
+            msgs = conn.execute(
+                "SELECT direction, text FROM conversation_messages WHERE thread_id = ? ORDER BY position",
+                (convo["thread_id"],),
+            ).fetchall()
+            listing = conn.execute(
+                "SELECT title FROM listings WHERE fb_id = ?", (convo.get("fb_id"),)
+            ).fetchone()
+            items.append(
+                {
+                    "thread_id": convo["thread_id"],
+                    "reply_hash": convo["reply_hash"],
+                    "fb_id": convo.get("fb_id"),
+                    "listing_title": listing["title"] if listing else None,
+                    "messages": [dict(m) for m in msgs],
+                }
+            )
+    finally:
+        conn.close()
+
+    config.ensure_home()
+    config.AI_DIR.mkdir(parents=True, exist_ok=True)
+    path = ai_batch.timestamped_path(config.AI_DIR, "messages-batch", None)
+    path.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    click.echo(f"Wrote {len(items)} thread(s) to {path}")
+
+
+@messages_group.command("classify-apply")
+@click.argument("result_path", type=click.Path(exists=True, path_type=Path))
+@click.option("--dry-run", is_flag=True, default=False, help="Report without writing.")
+def messages_classify_apply_cmd(result_path: Path, dry_run: bool) -> None:
+    """Apply classification facts written by the messages skill."""
+    raw = json.loads(result_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        raise click.ClickException("result file must be a JSON array")
+
+    conn = _open_db()
+    applied = 0
+    stale = 0
+    try:
+        for item in raw:
+            thread_id = item.get("thread_id")
+            reply_hash = item.get("reply_hash")
+            facts = item.get("facts") or {}
+            if not thread_id or not reply_hash:
+                continue
+            if dry_run:
+                click.echo(f"  would apply {thread_id}: {facts}")
+                continue
+            ok = apply_conversation_classification(conn, thread_id, reply_hash, facts)
+            if ok:
+                applied += 1
+            else:
+                stale += 1
+                click.echo(f"  {thread_id}: stale reply_hash, skipped")
+    finally:
+        conn.close()
+
+    if dry_run:
+        return
+    click.echo(f"Applied {applied}, skipped {stale} stale.")
+    if applied:
+        click.echo("Run `fb-rent export` to refresh the table.")
 
 
 if __name__ == "__main__":
