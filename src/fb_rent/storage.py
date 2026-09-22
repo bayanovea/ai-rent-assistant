@@ -2292,11 +2292,19 @@ def fetch_enriched(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
     reposts = duplicates_by_canonical(conn)
     known_buildings = mirrored_buildings(conn)
+    known_conversations = conversations_by_fb_id(conn)
 
     enriched: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
         item["duplicates"] = reposts.get(str(item["fb_id"]), [])
+        convo = known_conversations.get(str(item["fb_id"]))
+        item["convo_state"] = convo["state"] if convo else None
+        item["convo_needs_action"] = bool(convo["needs_action"]) if convo else False
+        item["convo_needs_reason"] = convo["needs_action_reason"] if convo else None
+        item["convo_last_at"] = convo["last_message_at"] if convo else None
+        item["convo_last_snippet"] = convo["last_snippet"] if convo else None
+        item["convo_thread_id"] = convo["thread_id"] if convo else None
         text_fields = fields_of(item.pop("data_json", None))
         photo_fields = fields_of(item.pop("photo_data_json", None))
         fields: dict[str, Any] = {**text_fields, **photo_fields}
@@ -2534,6 +2542,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
   tr.row-shortlist td:first-child { border-left: 3px solid #f9ab00; }
   tr.row-longlist td:first-child { border-left: 3px solid #4285f4; }
   tr.row-in_progress td:first-child { border-left: 3px solid #34a853; }
+  tr.row-needs-action td:first-child { border-left: 3px solid #e8710a; }
   .empty { padding: 1rem; color: #888; }
 </style>
 </head>
@@ -2865,6 +2874,7 @@ function rowHTML(row) {
   else if (et === "in_progress") cls.push("row-in_progress");
   else if (et === "shortlist") cls.push("row-shortlist");
   else if (et === "longlist") cls.push("row-longlist");
+  if (row.needs_action && row.status !== "rejected") cls.push("row-needs-action");
   if (row.fb_id === cursorId) cls.push("cursor");
   return '<tr class="' + cls.join(" ") + '" data-row="' + esc(row.fb_id) + '">'
     + visibleColumns().map(c => tdHTML(row, c)).join("") + '</tr>';
@@ -3313,8 +3323,11 @@ function render() {
 
   document.querySelectorAll(".tab").forEach(btn => {
     const key = btn.dataset.tab;
-    const n = DATA.filter(r => inTab(r, key)).length;
-    btn.textContent = TAB_LABELS[key] + " (" + n + ")";
+    const inThisTab = DATA.filter(r => inTab(r, key));
+    const n = inThisTab.length;
+    const needsAction = inThisTab.filter(r => r.needs_action).length;
+    btn.textContent = TAB_LABELS[key] + " (" + n + ")"
+      + (needsAction ? " ⚠ " + needsAction : "");
     btn.classList.toggle("on", key === tab);
   });
 
@@ -3612,6 +3625,21 @@ _FIXED_COLUMNS: dict[str, dict[str, Any]] = {
         "label": "Заметка", "kind": "comment", "src": "sys",
         "tabs": ["in_progress", "all"],
     },
+    # Messenger conversation columns — same scoping as the stage columns
+    # above, and the same rule: no score weight, ever (CLAUDE.md "The
+    # table"). `messages sync`/`classify-apply` write these, never a rating.
+    "convo_state": {
+        "label": "Диалог", "kind": "text", "src": "sys",
+        "tabs": ["in_progress", "all"],
+    },
+    "convo_needs": {
+        "label": "Ждёт меня", "kind": "tag", "src": "sys",
+        "tabs": ["in_progress", "all"],
+    },
+    "convo_last": {
+        "label": "Последний ответ", "kind": "comment", "src": "sys",
+        "tabs": ["in_progress", "all"],
+    },
 }
 
 # The default view, in reading order. Everything countable comes first, so a
@@ -3625,6 +3653,9 @@ _VISIBLE_ORDER: tuple[str, ...] = (
     "stage_fb_id",
     "stage_at",
     "stage_note",
+    "convo_state",
+    "convo_needs",
+    "convo_last",
     "score",
     "pets",
     "price",
@@ -3681,6 +3712,26 @@ _UNCLEAR_SPEAKS: frozenset[str] = frozenset({"pets"})
 # what makes "мои отказы" a filter chip: the AI auto-rejects outnumber the
 # hand-made ones 47 to 1, and nothing else on the row separates them.
 _DECIDER_LABELS: dict[str, str] = {"user": "вы", "ai": "AI"}
+
+# messages.VALID_CONVO_STATES / NEEDS_ACTION_REASONS, in Russian for the
+# table. Kept here rather than in messages.py so the export's vocabulary
+# can change without touching the state machine, same split as
+# decisions.STAGE_LABELS.
+_CONVO_STATE_LABELS: dict[str, str] = {
+    "contacted": "Написали, ждём ответа",
+    "replied": "Ответили, не разобрано",
+    "pets_declined": "Животные нельзя",
+    "viewing_proposed": "Предложили время",
+    "answered": "Ответили",
+    "viewing_agreed": "Время согласовано",
+}
+_CONVO_REASON_LABELS: dict[str, str] = {
+    "viewing_time": "согласовать время",
+    "pets_declined": "животные нельзя",
+    "unusual_reply": "нестандартный ответ",
+    "no_listing_match": "не сопоставлено с объявлением",
+    "unclassified": "не удалось разобрать",
+}
 
 # Values of the FB `district` field that name the island or the province
 # rather than a district — nothing to show.
@@ -3988,6 +4039,23 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
         "stage_fb_id": {"t": item.get("stage_fb_id") or "", "c": ""},
         "stage_at": {"t": item.get("stage_at") or "", "c": ""},
         "stage_note": {"t": item.get("stage_note") or "", "c": ""},
+        # Messenger conversation state — no score weight, ever (see
+        # CLAUDE.md "The table": a tie at 100 is how rules.score breaks).
+        "convo_state": {
+            "t": _CONVO_STATE_LABELS.get(item.get("convo_state") or "", ""),
+            "c": "",
+        },
+        "convo_needs": {
+            "t": _CONVO_REASON_LABELS.get(item.get("convo_needs_reason") or "", "")
+            if item.get("convo_needs_action")
+            else "",
+            "c": rules.CLASS_BAD if item.get("convo_needs_action") else "",
+        },
+        "convo_last": {
+            "t": item.get("convo_last_snippet") or "",
+            "c": "",
+            "ev": item.get("convo_last_at") or "",
+        },
     }
     if price_ev:
         cells["price"]["ev"] = price_ev
@@ -4029,6 +4097,7 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
         "stage": stage,
         "decided_by": decided_by,
         "analyzed": analyzed,
+        "needs_action": bool(item.get("convo_needs_action")),
         "cells": cells,
     }
 
