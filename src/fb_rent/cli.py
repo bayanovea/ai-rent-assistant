@@ -2521,35 +2521,47 @@ def rate_cmd(fb_id: str, rating: float, reason: str | None) -> None:
 def _resolve_posting(
     conn: sqlite3.Connection, fb_id: str, posting_fb_id: str | None
 ) -> str:
-    """Which specific ad a stage is about, validated against this row's group.
+    """Which specific ad(s) a stage is about, validated against this row's group.
 
-    Defaults to whatever a previous stage already recorded for ``fb_id`` (so
-    ``schedule-viewing`` and ``mark-viewed`` do not need ``--posting``
-    repeated once ``contact`` set it), and beyond that to ``fb_id`` itself.
-    An explicit ``--posting`` must be ``fb_id`` or one of the postings
-    ``fb-rent dedupe`` has already merged into it — the same ids the table's
-    ID cell lists — so a typo cannot silently point the stage at some other
-    listing entirely.
+    ``--posting`` may name more than one id, comma-separated — dedupe can
+    fold many postings into one row, and you may have written to several of
+    them without writing to the rest. Defaults to whatever a previous stage
+    already recorded for ``fb_id`` (so ``schedule-viewing`` and
+    ``mark-viewed`` do not need ``--posting`` repeated once ``contact`` set
+    it), and beyond that to ``fb_id`` itself.
+
+    Each id must be ``fb_id`` itself or one of the postings ``fb-rent
+    dedupe`` has already merged into it — the same ids the table's ID cell
+    lists — so a typo cannot silently point the stage at some other listing
+    entirely. A merged-away posting need not have its own row in ``listings``
+    (an exact repost is recorded in ``duplicates`` at write time and never
+    gets one), so membership is checked against the duplicates group first,
+    and only a name that matches neither is reported as "no such listing".
     """
-    target = posting_fb_id
-    if not target:
+    raw = posting_fb_id
+    if not raw:
         existing = decisions.load_decisions(None).get(str(fb_id)) or {}
-        target = existing.get("stage_fb_id") or fb_id
+        raw = existing.get("stage_fb_id") or fb_id
 
-    if not conn.execute(
-        "SELECT 1 FROM listings WHERE fb_id = ?", (target,)
-    ).fetchone():
-        raise click.ClickException(f"{target}: no such listing")
-
-    if target != fb_id:
-        known = {d["fb_id"] for d in duplicates_by_canonical(conn).get(fb_id, [])}
-        if target not in known:
+    known = {d["fb_id"] for d in duplicates_by_canonical(conn).get(fb_id, [])}
+    resolved: list[str] = []
+    for target in dict.fromkeys(p.strip() for p in raw.split(",") if p.strip()):
+        if target == fb_id or target in known:
+            resolved.append(target)
+            continue
+        if conn.execute(
+            "SELECT 1 FROM listings WHERE fb_id = ?", (target,)
+        ).fetchone():
             where = f" ({', '.join(sorted(known))})" if known else " — dedupe has not merged anything into this row"
             raise click.ClickException(
                 f"{target} is not one of {fb_id}'s known postings{where}. "
                 "Check the ID cell, or omit --posting to use the row itself."
             )
-    return target
+        raise click.ClickException(f"{target}: no such listing")
+
+    if not resolved:
+        raise click.ClickException("--posting named nothing")
+    return ",".join(resolved)
 
 
 def _record_stage(
@@ -2582,7 +2594,8 @@ def _record_stage(
     label = decisions.STAGE_LABELS[stage]
     when = f" — {viewing_at}" if viewing_at else ""
     note_suffix = f" ({note})" if note else ""
-    click.echo(f"{fb_id}: {label}, объявление {target}{when}{note_suffix}")
+    postings_word = "объявление" if "," not in target else "объявления"
+    click.echo(f"{fb_id}: {label}, {postings_word} {target}{when}{note_suffix}")
     click.echo(f"Saved to {config.DECISIONS_PATH}. Run `fb-rent export` to refresh the table.")
 
 
@@ -2592,7 +2605,7 @@ def _record_stage(
     "--posting",
     "posting_fb_id",
     default=None,
-    help="Which merged posting you actually wrote to (default: fb_id itself).",
+    help="Which merged posting(s) you actually wrote to, comma-separated (default: fb_id itself).",
 )
 @click.option("--note", default=None, help="A note to keep with the stage.")
 def contact_cmd(fb_id: str, posting_fb_id: str | None, note: str | None) -> None:
@@ -2611,7 +2624,7 @@ def contact_cmd(fb_id: str, posting_fb_id: str | None, note: str | None) -> None
     "--posting",
     "posting_fb_id",
     default=None,
-    help="Which merged posting the viewing is about (default: whatever `contact` recorded, or fb_id itself).",
+    help="Which merged posting(s) the viewing is about, comma-separated (default: whatever `contact` recorded, or fb_id itself).",
 )
 @click.option("--note", default=None, help="A note to keep with the stage.")
 def schedule_viewing_cmd(
@@ -2627,7 +2640,7 @@ def schedule_viewing_cmd(
     "--posting",
     "posting_fb_id",
     default=None,
-    help="Which merged posting was viewed (default: whatever the prior stage recorded, or fb_id itself).",
+    help="Which merged posting(s) were viewed, comma-separated (default: whatever the prior stage recorded, or fb_id itself).",
 )
 @click.option("--note", default=None, help="A note to keep with the stage.")
 def mark_viewed_cmd(fb_id: str, posting_fb_id: str | None, note: str | None) -> None:

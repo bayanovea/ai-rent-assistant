@@ -26,9 +26,10 @@ shortlisted: contacted the landlord, agreed on a viewing, or viewed and not
 yet compared against the others. It is independent of ``status`` on purpose
 (see :func:`save_stage`) and adds four more keys when present: ``stage``,
 ``stage_fb_id`` (which of the postings merged into this row the stage is
-actually about — dedupe can fold several ads into one row, and the stage
-belongs to one specific ad), ``stage_at`` (the viewing's date/time, only for
-``viewing_scheduled``) and ``stage_note``.
+actually about — dedupe can fold several ads into one row, and a comma
+joins more than one when you wrote to some of them and not the rest),
+``stage_at`` (the viewing's date/time, only for ``viewing_scheduled``) and
+``stage_note``.
 
 Writes go through a temp file plus ``os.replace``, so an interrupted run
 leaves the previous decisions intact rather than a truncated file.
@@ -186,11 +187,11 @@ def save_stage(
     also holds — :func:`save_decision` never touches these keys, so rejecting
     a listing you already wrote to keeps that history rather than erasing it.
 
-    ``posting_fb_id`` is the one specific ad, among however many dedupe has
-    merged into this row, that the stage is actually about. This module has
-    no DB access, so it cannot check that id against the row's known
-    postings — the caller (the CLI) must have already resolved and validated
-    it before this is called.
+    ``posting_fb_id`` is the specific ad(s), among however many dedupe has
+    merged into this row, that the stage is actually about — comma-separated
+    if more than one. This module has no DB access, so it cannot check those
+    ids against the row's known postings — the caller (the CLI) must have
+    already resolved and validated them before this is called.
     """
     if stage not in VALID_STAGES:
         raise ValueError(

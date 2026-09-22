@@ -270,6 +270,67 @@ def test_contact_refuses_a_posting_outside_the_group(home):
     assert not config.DECISIONS_PATH.exists()
 
 
+def test_contact_accepts_a_posting_merged_at_write_time_with_no_own_row(home):
+    """A repost caught by content_key at scrape time gets no `listings` row
+
+    of its own (see upsert_listing) — only a `duplicates` entry. It must
+    still be a valid --posting target, the same as one dedupe merged later.
+    """
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    conn.execute(
+        "INSERT INTO duplicates (fb_id, canonical_fb_id, content_key, url, noticed_at) "
+        "VALUES ('2', '1', 'x', 'https://example.com/2', '2026-08-01T00:00:00Z')"
+    )
+    conn.commit()
+    conn.close()
+
+    result = _run("contact", "1", "--posting", "2")
+
+    assert result.exit_code == 0
+    entry = json.loads(config.DECISIONS_PATH.read_text(encoding="utf-8"))["1"]
+    assert entry["stage_fb_id"] == "2"
+
+
+def test_contact_accepts_several_postings_comma_separated(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    _add_listing(conn, "2")
+    _add_listing(conn, "3")
+    for other in ("2", "3"):
+        conn.execute(
+            "INSERT INTO duplicates (fb_id, canonical_fb_id, content_key, url, noticed_at) "
+            f"VALUES ('{other}', '1', 'x', 'https://example.com/{other}', '2026-08-01T00:00:00Z')"
+        )
+    conn.commit()
+    conn.close()
+
+    result = _run("contact", "1", "--posting", "2, 3", "--note", "только этим двум")
+
+    assert result.exit_code == 0
+    entry = json.loads(config.DECISIONS_PATH.read_text(encoding="utf-8"))["1"]
+    assert entry["stage_fb_id"] == "2,3"
+
+
+def test_contact_refuses_if_any_of_several_postings_is_outside_the_group(home):
+    conn = storage.init_db(config.DB_PATH)
+    _add_listing(conn, "1")
+    _add_listing(conn, "2")
+    _add_listing(conn, "3")
+    conn.execute(
+        "INSERT INTO duplicates (fb_id, canonical_fb_id, content_key, url, noticed_at) "
+        "VALUES ('2', '1', 'x', 'https://example.com/2', '2026-08-01T00:00:00Z')"
+    )
+    conn.commit()
+    conn.close()
+
+    result = _run("contact", "1", "--posting", "2,3")
+
+    assert result.exit_code != 0
+    assert "not one of" in result.output
+    assert not config.DECISIONS_PATH.exists()
+
+
 def test_contact_refuses_an_unknown_posting(home):
     conn = storage.init_db(config.DB_PATH)
     _add_listing(conn, "1")
