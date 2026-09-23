@@ -2503,7 +2503,16 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .rt td:first-child, .rt th:first-child { position: sticky; left: 0; z-index: 1; background: #fff; box-shadow: 1px 0 0 #dde; }
   .rt thead th:first-child { z-index: 4; background: #eef0f4; }
   .rt tbody tr:hover td { background: #f9fbff; }
-  .id-list { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+  /* A fixed width, not auto: Chromium's intrinsic-width algorithm for a
+     `column` flex container with dozens of children inside a `white-space:
+     nowrap` table cell sums the children's widths instead of taking their
+     max — a merge with many postings (dedupe can chain quite a few, see
+     docs/dedupe.md "the group of 52") blew the ID column out to 13000px+
+     and pushed every other column off-screen. max-height/overflow-y alone
+     does not touch it — this bug is about width, not height. 160px comfortably
+     fits one 17-digit id plus the `×N` badge; anything can still scroll. */
+  .id-list { display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+    width: 160px; max-height: 110px; overflow-y: auto; overflow-x: hidden; }
   .id-cell { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #1a73e8; text-decoration: none; }
   .id-cell:hover { text-decoration: underline; }
   .id-row { display: flex; align-items: center; }
