@@ -186,27 +186,27 @@ def test_extract_property_type_empty_inputs() -> None:
 
 
 def test_description_from_text_lines_good_fixture() -> None:
-    """«Хорошая» страница: срез после `Описание` — это само объявление."""
+    """The "good" page: the slice after `Description` is the ad itself."""
     lines = load(GOOD)["text_lines"]
     body = description_from_text_lines(lines)
 
     assert body is not None
-    assert body.startswith("🏢 The Origin Kathu")
-    assert "Fully Equipped with Appliances" in body
+    assert body.startswith("🏡 Sample Garden Village")
+    assert "Separate kitchen" in body
     assert body.endswith("[hidden information]")
 
 
 def test_description_from_text_lines_sidebar_fixture_skips_junk() -> None:
-    """«Плохая» страница: берём объявление, а НЕ сайдбар `Выбор дня`."""
+    """The "bad" page: take the ad, NOT the `Daily pick` sidebar."""
     lines = load(SIDEBAR)["text_lines"]
     body = description_from_text_lines(lines)
 
     assert body is not None
-    assert "House for rent in Wichit-Chalong" in body
+    assert "House for rent in Example Village" in body
     assert "For rent 30,000/month" in body
-    # Сайдбар с чужими объявлениями идёт следом — его быть не должно.
-    assert "Выбор дня" not in body
-    assert "Korter" not in body
+    # The sidebar of other people's listings follows — none of it may leak in.
+    assert "Daily pick" not in body
+    assert "Example Property Co" not in body
 
 
 @pytest.mark.parametrize("name", [GOOD, SIDEBAR])
@@ -214,9 +214,9 @@ def test_description_from_text_lines_drops_chrome(name: str) -> None:
     body = description_from_text_lines(load(name)["text_lines"])
 
     assert body is not None
-    assert "Информация о продавце" not in body
-    assert not body.endswith("Ещё")
-    assert "Описание" not in body.splitlines()
+    assert "Seller information" not in body
+    assert not body.endswith("See more")
+    assert "Description" not in body.splitlines()
 
 
 def test_description_from_text_lines_english_markers() -> None:
@@ -245,7 +245,7 @@ def test_description_from_text_lines_without_seller_marker_runs_to_end() -> None
         None,
         [],
         ["Marketplace", "16 000 ฿/месяц", "Отправить сообщение"],  # маркера нет
-        ["Описание", "Информация о продавце", "A. Example"],  # срез пустой
+        ["Описание", "Информация о продавце", "A. Example"],  # empty slice
         ["Описание", "Ещё", "Информация о продавце"],  # только «Ещё»
     ],
 )
@@ -294,9 +294,9 @@ def test_clean_fb_title_junk(raw: str | None) -> None:
     assert clean_fb_title(raw) is None
 
 
-def test_clean_fb_title_uses_real_fixture_titles() -> None:
-    assert clean_fb_title(load(GOOD)["title"]) == "1 Bed 1 Bath - Apartment"
-    assert clean_fb_title(load(SIDEBAR)["title"]) == "2 ห้องนอน 2 ห้องน้ำ - บ้าน"
+def test_clean_fb_title_uses_fixture_titles() -> None:
+    assert clean_fb_title(load(GOOD)["title"]) == "2 Bed 2 Bath - Townhouse"
+    assert clean_fb_title(load(SIDEBAR)["title"]) == "2 Bed 1 Bath - House"
 
 
 # --- parse_published_at --------------------------------------------------
@@ -424,9 +424,9 @@ def test_group_post_title_none_when_nothing_usable() -> None:
     assert group_post_title("Phuket Rent and Sale property", "") is None
 
 
-def test_parse_published_at_reads_real_fixture_line() -> None:
+def test_parse_published_at_reads_fixture_line() -> None:
     lines = load(GOOD)["text_lines"]
-    line = next(line for line in lines if line.startswith("Опубликовано"))
+    line = next(line for line in lines if line.startswith("Listed"))
     assert parse_published_at(line, NOW) == "2026-08-25T00:00:00Z"
 
 
