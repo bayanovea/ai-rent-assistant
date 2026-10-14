@@ -1,9 +1,9 @@
-"""Runtime configuration and default paths for fb-rent.
+"""Runtime configuration and default paths for rent-assistant.
 
-All local state (SQLite DB, CSV export, Playwright profile) lives in the
-sibling ``data/`` directory next to the ``scrapper/`` package by default.
-Override the root via the ``FB_RENT_HOME`` environment variable — useful
-for tests and isolated runs.
+All local state (SQLite DB, exports, photos, the Playwright profile, the
+decision files) lives in one directory: ``~/.rent-assistant`` by default,
+or wherever the ``RENT_ASSISTANT_HOME`` environment variable points. Nothing
+private is ever written into the checkout.
 """
 
 from __future__ import annotations
@@ -11,12 +11,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# Repo layout: <fb-rent-root>/scrapper/src/fb_rent/config.py — data lives at
-# <fb-rent-root>/data.
-_DEFAULT_HOME: Path = Path(__file__).resolve().parents[3] / "data"
+# Where runtime state lives unless ``RENT_ASSISTANT_HOME`` says otherwise.
+_DEFAULT_HOME: Path = Path.home() / ".rent-assistant"
 
 # Editable, version-controlled configuration lives in the repo itself (not in
-# FB_RENT_HOME): the AI field registry and the search requirements letter.
+# RENT_ASSISTANT_HOME): the AI field registry and the search requirements letter.
 REPO_ROOT: Path = Path(__file__).resolve().parents[2]
 CONFIG_DIR: Path = REPO_ROOT / "config"
 AI_FIELDS_PATH: Path = CONFIG_DIR / "ai_fields.json"
@@ -86,19 +85,19 @@ MESSAGE_SEND_DELAY_MAX_SEC: float = 45.0
 
 
 def _home() -> Path:
-    """Return the fb-rent home directory, honouring ``FB_RENT_HOME`` env var."""
-    override = os.environ.get("FB_RENT_HOME")
+    """Return the rent-assistant home directory, honouring ``RENT_ASSISTANT_HOME`` env var."""
+    override = os.environ.get("RENT_ASSISTANT_HOME")
     if override:
         return Path(override).expanduser().resolve()
     return _DEFAULT_HOME
 
 
-FB_RENT_HOME: Path = _home()
-DB_PATH: Path = FB_RENT_HOME / "rentals.db"
-CSV_PATH: Path = FB_RENT_HOME / "rentals.csv"
-HTML_PATH: Path = FB_RENT_HOME / "rentals.html"
-BROWSER_PROFILE_DIR: Path = FB_RENT_HOME / "browser-profile"
-AI_DIR: Path = FB_RENT_HOME / "ai"
+RENT_ASSISTANT_HOME: Path = _home()
+DB_PATH: Path = RENT_ASSISTANT_HOME / "rentals.db"
+CSV_PATH: Path = RENT_ASSISTANT_HOME / "rentals.csv"
+HTML_PATH: Path = RENT_ASSISTANT_HOME / "rentals.html"
+BROWSER_PROFILE_DIR: Path = RENT_ASSISTANT_HOME / "browser-profile"
+AI_DIR: Path = RENT_ASSISTANT_HOME / "ai"
 
 
 def browser_profile_dir(profile: str | None) -> Path:
@@ -115,21 +114,21 @@ def browser_profile_dir(profile: str | None) -> Path:
     """
     if not profile or profile == "default":
         return BROWSER_PROFILE_DIR
-    return FB_RENT_HOME / f"browser-profile-{profile}"
-PHOTOS_DIR: Path = FB_RENT_HOME / "photos"
-DECISIONS_PATH: Path = FB_RENT_HOME / "decisions.json"
+    return RENT_ASSISTANT_HOME / f"browser-profile-{profile}"
+PHOTOS_DIR: Path = RENT_ASSISTANT_HOME / "photos"
+DECISIONS_PATH: Path = RENT_ASSISTANT_HOME / "decisions.json"
 # Researched pets policy per building — like decisions.json, a file no
 # init_db can wipe, mirrored into a table only so fetch_enriched can JOIN.
-BUILDINGS_PATH: Path = FB_RENT_HOME / "buildings.json"
+BUILDINGS_PATH: Path = RENT_ASSISTANT_HOME / "buildings.json"
 # Log of every message this tool has actually sent — like decisions.json,
 # irreversible and outside init_db's reach. A send cannot be re-scraped back
 # if the DB is wiped between sending and the next sync, so this plus the
 # `written` stage in decisions.json are the two things standing between a
 # re-run and a duplicate message to a real person.
-MESSAGES_SENT_PATH: Path = FB_RENT_HOME / "messages_sent.json"
+MESSAGES_SENT_PATH: Path = RENT_ASSISTANT_HOME / "messages_sent.json"
 
 
 def ensure_home() -> Path:
-    """Create the fb-rent home directory if it does not exist yet."""
-    FB_RENT_HOME.mkdir(parents=True, exist_ok=True)
-    return FB_RENT_HOME
+    """Create the rent-assistant home directory if it does not exist yet."""
+    RENT_ASSISTANT_HOME.mkdir(parents=True, exist_ok=True)
+    return RENT_ASSISTANT_HOME

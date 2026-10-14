@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from fb_rent import ai_batch, ai_schema, config, photos, storage
+from rent_assistant import ai_batch, ai_schema, config, photos, storage
 
 
 @pytest.fixture()

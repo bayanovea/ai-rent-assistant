@@ -26,13 +26,13 @@
 
 ## Context (from discovery)
 
-- `src/fb_rent/cli.py:445` — точка внутри `scrape`, где детальная страница
+- `src/rent_assistant/cli.py:445` — точка внутри `scrape`, где детальная страница
   уже прочитана и оплачен джиттер; там же вызывается `_download_photos`.
-- `src/fb_rent/photos.py` — галерея на диске и `photos_hash`, ключ
+- `src/rent_assistant/photos.py` — галерея на диске и `photos_hash`, ключ
   идемпотентности **полного** фото-прохода. Новый этап его не трогает.
-- `src/fb_rent/storage.py:615` `dedupe_listings`, `:564` `_group_duplicates`,
+- `src/rent_assistant/storage.py:615` `dedupe_listings`, `:564` `_group_duplicates`,
   `:495` `same_property`, `:446` `_contradicts` — сюда встраивается сигнал.
-- `src/fb_rent/storage.py:701` `gallery_urls_of` — достаёт `gallery_urls` из
+- `src/rent_assistant/storage.py:701` `gallery_urls_of` — достаёт `gallery_urls` из
   `raw_json`; на этом же построен `photos-fetch` (`cli.py:953`).
 - `docs/photo-analysis.md` — измерение, из которого растёт весь план.
 
@@ -109,7 +109,7 @@
 
 ## Technical Details
 
-**Новый модуль `src/fb_rent/fingerprint.py`** (не в `photos.py`: тот про
+**Новый модуль `src/rent_assistant/fingerprint.py`** (не в `photos.py`: тот про
 файлы на диске для AI-прохода, этот — про хэши в БД):
 
 ```python
@@ -157,7 +157,7 @@ PHOTO_HASH_COMMON_MAX: int = 4     # хэш чаще этого — застав
 (идёт всегда, в том числе под `--no-photos`; не идёт под `--dry-run`) →
 `upsert_listing` → при результате не `duplicate` пишем `save_photo_hashes`.
 
-**Бэкфилл `fb-rent photo-hash`:** по строкам без хэшей, у которых в
+**Бэкфилл `rent-assistant photo-hash`:** по строкам без хэшей, у которых в
 `raw_json.gallery_urls` что-то есть. Подписи CDN живут ~неделю — что не
 успело, чинится через `scrape --ids`, ровно как у `photos-fetch`.
 
@@ -171,14 +171,14 @@ PHOTO_HASH_COMMON_MAX: int = 4     # хэш чаще этого — застав
 ### Task 1: Модуль хэширования снимка
 
 **Files:**
-- Create: `src/fb_rent/fingerprint.py`
-- Modify: `src/fb_rent/config.py`
+- Create: `src/rent_assistant/fingerprint.py`
+- Modify: `src/rent_assistant/config.py`
 - Create: `tests/test_fingerprint.py`
 
 - [x] добавить в `config.py` константы `PHOTO_FINGERPRINT_COUNT`,
       `PHOTO_MATCH_MIN`, `PHOTO_HASH_COMMON_MAX` с комментарием, почему
       порог именно два снимка
-- [x] создать `src/fb_rent/fingerprint.py` с модульным docstring:
+- [x] создать `src/rent_assistant/fingerprint.py` с модульным docstring:
       зачем два хэша и почему сюда, а не в `photos.py`
 - [x] реализовать `dhash(image)` — grayscale, resize до 9×8, сравнение
       соседних пикселей по строке, 64 бита в 16 hex-символов
@@ -198,7 +198,7 @@ PHOTO_HASH_COMMON_MAX: int = 4     # хэш чаще этого — застав
 ### Task 2: Хранение хэшей в БД
 
 **Files:**
-- Modify: `src/fb_rent/storage.py`
+- Modify: `src/rent_assistant/storage.py`
 - Modify: `tests/test_storage.py`
 
 - [x] добавить `_PHOTO_HASHES_SCHEMA` и оба индекса, подключить в
@@ -219,7 +219,7 @@ PHOTO_HASH_COMMON_MAX: int = 4     # хэш чаще этого — застав
 ### Task 3: Сигнал `photos` в dedupe
 
 **Files:**
-- Modify: `src/fb_rent/storage.py`
+- Modify: `src/rent_assistant/storage.py`
 - Modify: `tests/test_storage.py`
 
 - [x] реализовать `_photo_matches(hashes_by_id)` — инвертированный индекс,
@@ -244,7 +244,7 @@ PHOTO_HASH_COMMON_MAX: int = 4     # хэш чаще этого — застав
 ### Task 4: Этап внутри scrape
 
 **Files:**
-- Modify: `src/fb_rent/cli.py`
+- Modify: `src/rent_assistant/cli.py`
 - Modify: `tests/test_cli.py`
 
 - [x] добавить `_fetch_photo_hashes(context, detail)` рядом с
@@ -260,10 +260,10 @@ PHOTO_HASH_COMMON_MAX: int = 4     # хэш чаще этого — застав
 - [x] написать тест: объявление без `gallery_urls` проходит без ошибки
 - [x] прогнать `pytest` — зелёно перед задачей 5
 
-### Task 5: Команда `fb-rent photo-hash` (бэкфилл)
+### Task 5: Команда `rent-assistant photo-hash` (бэкфилл)
 
 **Files:**
-- Modify: `src/fb_rent/cli.py`
+- Modify: `src/rent_assistant/cli.py`
 - Modify: `tests/test_cli.py`
 
 - [x] добавить команду `photo-hash` с `--limit` (по умолчанию 100),
@@ -272,7 +272,7 @@ PHOTO_HASH_COMMON_MAX: int = 4     # хэш чаще этого — застав
       `gallery_urls_of`, пауза между объявлениями по
       `PHOTO_FETCH_DELAY_MIN_SEC` / `MAX`
 - [x] отдельно сообщать про строки без `gallery_urls` и про протухшие
-      подписи, с подсказкой `fb-rent scrape --ids <fb_id>`
+      подписи, с подсказкой `rent-assistant scrape --ids <fb_id>`
 - [x] добавить в `ai-status` строку «Фото-хэши: N из M» — чтобы очередь
       бэкфилла была видна
 - [x] написать тест: команда пропускает строки, у которых хэши уже есть
@@ -312,7 +312,7 @@ PHOTO_HASH_COMMON_MAX: int = 4     # хэш чаще этого — застав
 *Требует живой БД и ручной проверки — без чекбоксов*
 
 **Подбор порогов на реальных данных:**
-- прогнать `fb-rent photo-hash --all`, затем `fb-rent dedupe --dry-run` и
+- прогнать `rent-assistant photo-hash --all`, затем `rent-assistant dedupe --dry-run` и
   глазами проверить первые 10–15 групп с причиной `photos`
 - если пойдут ложные склейки — поднимать `PHOTO_MATCH_MIN` до 3 или
   снижать `PHOTO_HASH_COMMON_MAX`

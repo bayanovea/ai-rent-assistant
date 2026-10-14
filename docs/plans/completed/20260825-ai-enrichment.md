@@ -24,8 +24,8 @@
 
 ## Context (from discovery)
 
-- **Репозиторий**: `~/AI/fb-rent/scrapper` (git root), рантайм-данные в соседнем `~/AI/fb-rent/data/` (`FB_RENT_HOME`, gitignored).
-- **Стек**: Python 3.11+, click CLI, Playwright, SQLite. Пакет `fb-rent` v0.1.0, `src/`-layout, entry point `fb-rent = fb_rent.cli:main`. Тесты — pytest, 67+ штук, `pythonpath = ["src"]`.
+- **Репозиторий**: `~/AI/rent-assistant/scrapper` (git root), рантайм-данные в соседнем `~/AI/rent-assistant/data/` (`RENT_ASSISTANT_HOME`, gitignored).
+- **Стек**: Python 3.11+, click CLI, Playwright, SQLite. Пакет `rent-assistant` v0.1.0, `src/`-layout, entry point `rent-assistant = rent_assistant.cli:main`. Тесты — pytest, 67+ штук, `pythonpath = ["src"]`.
 - **Существующие модули**: `config.py`, `url_builder.py`, `extractors.py` (чистые функции + table-driven тесты), `storage.py` (`init_db`/`upsert_listing`/`export_csv`/`export_html`), `browser.py`, `scraper_list.py`, `scraper_detail.py`, `cli.py`.
 - **БД**: `data/rentals.db`, одна таблица `listings` (`fb_id` PK, `url`, `title`, `price_thb`, `price_raw`, `district`, `bedrooms`, `property_type`, `description`, `published_at`, `first_seen_at`, `last_seen_at`, `raw_json`). 21 строка.
 - **`raw_json`** — `{"url", "final_url", "title", "text_lines": [...]}`, где `text_lines` = первые 200 непустых строк detail-страницы. Это самый богатый и самый надёжный материал для AI, богаче колонки `description`.
@@ -41,7 +41,7 @@
 - **CRITICAL: all tests must pass before starting next task** — no exceptions
 - **CRITICAL: update this plan file when scope changes during implementation**
 - run tests after each change
-- обратная совместимость: существующие 67 тестов должны остаться зелёными, `fb-rent scrape/export/login` не меняют сигнатуры
+- обратная совместимость: существующие 67 тестов должны остаться зелёными, `rent-assistant scrape/export/login` не меняют сигнатуры
 
 ## Autonomous Execution Notes (for ralphex / agent runs)
 
@@ -54,7 +54,7 @@
 
 **Специфика этой итерации — что агент выполнить не может:**
 
-1. `fb-rent scrape --refresh` требует живой залогиненной сессии FB → `MANUAL:`.
+1. `rent-assistant scrape --refresh` требует живой залогиненной сессии FB → `MANUAL:`.
 2. **Сам прогон AI-анализа выполнить автономно нельзя**: он требует интерактивной сессии Claude Code (шаг с `AskUserQuestion` про новые поля) и свежих данных из FB. Агент строит **инструментарий**, а не выполняет анализ → `MANUAL:`.
 
 Поэтому каждая задача обязана быть проверяемой **без живого Facebook и без человека**: вместо живых данных используются зафиксированные фикстуры (Task 1) и синтетические словари в тестах. Ни один автоматизируемый чекбокс в этом плане не должен требовать сети.
@@ -80,12 +80,12 @@
 ## Solution Overview
 
 ```
-fb-rent scrape --refresh        →  rentals.db (listings)
-fb-rent ai-batch                →  data/ai/batch-<ts>.json   ← pending + реестр полей + requirements
+rent-assistant scrape --refresh        →  rentals.db (listings)
+rent-assistant ai-batch                →  data/ai/batch-<ts>.json   ← pending + реестр полей + requirements
      Claude Code (Opus, high effort) читает, думает, пишет:
                                    data/ai/result-<ts>.json
-fb-rent ai-apply <file>         →  rentals.db (ai_analysis)
-fb-rent export                  →  data/rentals.html
+rent-assistant ai-apply <file>         →  rentals.db (ai_analysis)
+rent-assistant export                  →  data/rentals.html
 ```
 
 Весь цикл запускается одной командой через skill `/analyze`.
@@ -244,15 +244,15 @@ CREATE TABLE IF NOT EXISTS decisions (   -- зеркало data/decisions.json
 ### CLI
 
 ```sh
-fb-rent ai-status                    # analyzed / pending / stale / no-raw-data
-fb-rent ai-batch [--limit 25] [--all] [--ids ID...] [--out PATH]
-fb-rent ai-apply PATH [--dry-run]
-fb-rent ai-field list
-fb-rent ai-field add --key K --label L --type enum --values a,b,c [--group G] [--after K] [--backfill]
-fb-rent reject ID --reason "..."     # → data/decisions.json, перекрывает AI
-fb-rent unreject ID
-fb-rent shortlist ID [--reason "..."]
-fb-rent export                       # имя прежнее, рендерит полную таблицу
+rent-assistant ai-status                    # analyzed / pending / stale / no-raw-data
+rent-assistant ai-batch [--limit 25] [--all] [--ids ID...] [--out PATH]
+rent-assistant ai-apply PATH [--dry-run]
+rent-assistant ai-field list
+rent-assistant ai-field add --key K --label L --type enum --values a,b,c [--group G] [--after K] [--backfill]
+rent-assistant reject ID --reason "..."     # → data/decisions.json, перекрывает AI
+rent-assistant unreject ID
+rent-assistant shortlist ID [--reason "..."]
+rent-assistant export                       # имя прежнее, рендерит полную таблицу
 ```
 
 `--backfill` поднимает `schema_version` и помечает существующие строки устаревшими, чтобы `ai-batch` их подобрал; без флага старые строки просто получают цвет `c-stale`. Этот флаг и есть ответ на вопрос «переанализировать или оставить unknown», вшитый прямо в CLI.
@@ -294,7 +294,7 @@ fb-rent export                       # имя прежнее, рендерит �
 ### Task 2: Экстракторы описания, заголовка и даты публикации
 
 **Files:**
-- Modify: `src/fb_rent/extractors.py`
+- Modify: `src/rent_assistant/extractors.py`
 - Modify: `tests/test_extractors.py`
 
 - [x] `description_from_text_lines(text_lines: list[str]) -> str | None` — вырезает срез между маркером `Описание`/`Description` и маркером `Информация о продавце`/`Seller information`; отбрасывает хвостовое `Ещё`/`See more`; возвращает `None`, если маркера нет
@@ -307,8 +307,8 @@ fb-rent export                       # имя прежнее, рендерит �
 ### Task 3: Подключение исправленных экстракторов к скраперам
 
 **Files:**
-- Modify: `src/fb_rent/scraper_detail.py`
-- Modify: `src/fb_rent/scraper_list.py`
+- Modify: `src/rent_assistant/scraper_detail.py`
+- Modify: `src/rent_assistant/scraper_list.py`
 
 - [x] в `scraper_detail._extract_description()` (`scraper_detail.py:118`) сначала пробовать `description_from_text_lines(raw_json["text_lines"])`; на старую эвристику «самый длинный текстовый блок» откатываться, только если маркер не найден
 - [x] в `scraper_detail` парсить `published_at` через обновлённый экстрактор и класть ISO-дату вместо NULL — `_extract_published_at()` теперь возвращает ISO-строку через `parse_published_at`, локальный EN-only `_PUBLISHED_RE` удалён
@@ -316,29 +316,29 @@ fb-rent export                       # имя прежнее, рендерит �
   - ⚠️ отклонение от формулировки: у карточки списка нет `raw_json["title"]` (это поле detail-страницы), поэтому `clean_fb_title` применяется к каждой не-ценовой строке карточки; первая, что пережила фильтр, становится заголовком, иначе — прежний фолбэк «первая не-ценовая строка». Эффект тот же: `"Недавно опубликовано"` больше не попадает в `title`, когда на карточке есть настоящий заголовок
 - [x] DESIGN: unit-тесты для Playwright-модулей не пишем осознанно (сеть + живой FB = хрупко); поведение покрыто тестами экстракторов на фикстурах в Task 2
 - [x] прогнать `pytest tests/ -q` — все зелёные (131 passed)
-- [x] MANUAL: `fb-rent scrape --refresh` — перезалить 21 существующую строку корректным текстом (skipped — requires live FB / human action)
+- [x] MANUAL: `rent-assistant scrape --refresh` — перезалить 21 существующую строку корректным текстом (skipped — requires live FB / human action)
 
 ### Task 4: Реестр полей и файл требований
 
 **Files:**
 - Create: `config/ai_fields.json`
 - Create: `config/requirements.md`
-- Create: `src/fb_rent/ai_schema.py`
+- Create: `src/rent_assistant/ai_schema.py`
 - Create: `tests/test_ai_schema.py`
-- Modify: `src/fb_rent/config.py`
+- Modify: `src/rent_assistant/config.py`
 
 - [x] создать `config/ai_fields.json` со `schema_version: 1` и всеми полями из таблицы в Technical Details; у каждого поля `key`, `label`, `group`, `type`, `values` (для enum), `added_in: 1`, `prompt` — короткая инструкция для AI, что именно извлекать
 - [x] создать `config/requirements.md`: текст письма агенту дословно (пара + небольшая собака, переезд 01.12.2026, год контракта, 15–30k THB, дом/таунхаус в посёлке, меблировка, 1 спальня + гостиная, кухня, зелёная зона, парковка, интернет) плюс чеклист приоритетов, где животные помечены как критерий №1
-- [x] `src/fb_rent/ai_schema.py`: `load_registry(path) -> Registry` с валидацией (уникальность `key`, известный `type`, `values` непуст для enum, `added_in <= schema_version`), `field_keys()`, `schema_version`
+- [x] `src/rent_assistant/ai_schema.py`: `load_registry(path) -> Registry` с валидацией (уникальность `key`, известный `type`, `values` непуст для enum, `added_in <= schema_version`), `field_keys()`, `schema_version`
 - [x] `ai_schema.source_hash(listing: dict) -> str` — sha256 по `title | price_raw | district | description | len(text_lines)`, стабильный к порядку ключей
-- [x] добавить в `config.py`: `AI_DIR = FB_RENT_HOME / "ai"`, `AI_FIELDS_PATH`, `REQUIREMENTS_PATH`, `BUDGET_HARD_MAX_THB = 35_000`
+- [x] добавить в `config.py`: `AI_DIR = RENT_ASSISTANT_HOME / "ai"`, `AI_FIELDS_PATH`, `REQUIREMENTS_PATH`, `BUDGET_HARD_MAX_THB = 35_000`
 - [x] написать `tests/test_ai_schema.py`: реальный `config/ai_fields.json` загружается и валиден, дубль `key` → ошибка, enum без `values` → ошибка, `source_hash` детерминирован и меняется при смене описания
 - [x] прогнать `pytest tests/ -q` — все зелёные
 
 ### Task 5: Правила решений и цветовые классы
 
 **Files:**
-- Create: `src/fb_rent/rules.py`
+- Create: `src/rent_assistant/rules.py`
 - Create: `tests/test_rules.py`
 
 - [x] `decide(fields: dict, price_thb: int | None) -> tuple[str, str | None]` — возвращает `("active"|"rejected", reason)`; ровно три условия реджекта: `pets == "not_allowed"`, `price > BUDGET_HARD_MAX_THB`, явная студия (`property_type == "studio"` или `bedrooms == 0`)
@@ -351,7 +351,7 @@ fb-rent export                       # имя прежнее, рендерит �
 ### Task 6: Слой хранения для результатов AI
 
 **Files:**
-- Modify: `src/fb_rent/storage.py`
+- Modify: `src/rent_assistant/storage.py`
 - Modify: `tests/test_storage.py`
 
 - [x] в `init_db()` добавить `CREATE TABLE IF NOT EXISTS ai_analysis` и `decisions` по схеме из Technical Details, идемпотентно; существующая таблица `listings` не трогается
@@ -365,7 +365,7 @@ fb-rent export                       # имя прежнее, рендерит �
 ### Task 7: Решения пользователя вне БД
 
 **Files:**
-- Create: `src/fb_rent/decisions.py`
+- Create: `src/rent_assistant/decisions.py`
 - Create: `tests/test_decisions.py`
 
 - [x] `load_decisions(path) -> dict[str, dict]` / `save_decision(path, fb_id, status, reason)` — работа с `data/decisions.json`, атомарная запись через temp-файл + rename, отсутствующий файл = пустой словарь
@@ -378,7 +378,7 @@ fb-rent export                       # имя прежнее, рендерит �
 ### Task 8: Сборка batch и приём результатов
 
 **Files:**
-- Create: `src/fb_rent/ai_batch.py`
+- Create: `src/rent_assistant/ai_batch.py`
 - Create: `tests/test_ai_batch.py`
 
 - [x] `build_batch(conn, registry, requirements_md, limit, ids=None) -> dict` — формирует JSON batch по формату из Technical Details; в каждый item кладёт `description` (через `description_from_text_lines`, если колонка испорчена) и `text_lines`, плюс `source_hash`
@@ -391,24 +391,24 @@ fb-rent export                       # имя прежнее, рендерит �
 ### Task 9: CLI-команды
 
 **Files:**
-- Modify: `src/fb_rent/cli.py`
+- Modify: `src/rent_assistant/cli.py`
 - Create: `tests/test_cli_ai_field.py`
 
-- [x] `fb-rent ai-status` — печатает analyzed / pending / stale / «нет сырых данных, нужен scrape --refresh» со счётчиками
-- [x] `fb-rent ai-batch [--limit 25] [--all] [--ids ...] [--out PATH]` — собирает и пишет batch, печатает путь и количество; при нуле pending говорит об этом и выходит с кодом 0
-- [x] `fb-rent ai-apply PATH [--dry-run]` — применяет результат, печатает отчёт: сколько принято, сколько авторежектнуто и по какой причине, какие новые поля предложены
-- [x] `fb-rent ai-field list` и `fb-rent ai-field add --key --label --type [--values] [--group] [--after] [--backfill]` — добавляет поле в `config/ai_fields.json`; с `--backfill` поднимает `schema_version` и помечает существующие строки устаревшими, без него старые строки просто получают `c-stale`
+- [x] `rent-assistant ai-status` — печатает analyzed / pending / stale / «нет сырых данных, нужен scrape --refresh» со счётчиками
+- [x] `rent-assistant ai-batch [--limit 25] [--all] [--ids ...] [--out PATH]` — собирает и пишет batch, печатает путь и количество; при нуле pending говорит об этом и выходит с кодом 0
+- [x] `rent-assistant ai-apply PATH [--dry-run]` — применяет результат, печатает отчёт: сколько принято, сколько авторежектнуто и по какой причине, какие новые поля предложены
+- [x] `rent-assistant ai-field list` и `rent-assistant ai-field add --key --label --type [--values] [--group] [--after] [--backfill]` — добавляет поле в `config/ai_fields.json`; с `--backfill` поднимает `schema_version` и помечает существующие строки устаревшими, без него старые строки просто получают `c-stale`
   - ⚠️ уточнение механики: `schema_version` поднимается при **любом** добавлении поля (иначе `added_in` нового поля не может быть больше версии строки и `c-stale` недостижим — валидация реестра требует `added_in <= schema_version`). Разделяет два случая новый необязательный ключ реестра `analysis_version`: он догоняет `schema_version` только при `--backfill`, и именно он решает, попадают ли уже проанализированные строки обратно в очередь. Без `--backfill` они числятся `stale` (отдельный счётчик в `ai-status`, из batch исключены), с `--backfill` — снова `pending`. `ai_schema` лишний ключ игнорирует, менять слой хранения не потребовалось
   - ⚠️ у `ai-field list/add` есть опция `--registry PATH` (по умолчанию `config/ai_fields.json`) — иначе тесты мутировали бы реальный реестр
-- [x] `fb-rent reject ID --reason "..."`, `fb-rent unreject ID`, `fb-rent shortlist ID [--reason]` — пишут в `data/decisions.json` через `decisions.py`
+- [x] `rent-assistant reject ID --reason "..."`, `rent-assistant unreject ID`, `rent-assistant shortlist ID [--reason]` — пишут в `data/decisions.json` через `decisions.py`
 - [x] DESIGN: тесты на тонкие CLI-обёртки не пишем — логика покрыта юнит-тестами нижних слоёв; исключение — `ai-field add`, где есть реальная мутация реестра
 - [x] написать `tests/test_cli_ai_field.py`: `ai-field add` на копии реестра добавляет поле с корректным `added_in`, `--after` ставит поле в нужную позицию, дубликат ключа → ошибка, `--backfill` поднимает `schema_version`
-- [x] прогнать `pytest tests/ -q` и `fb-rent --help` — новые команды видны
+- [x] прогнать `pytest tests/ -q` и `rent-assistant --help` — новые команды видны
 
 ### Task 10: Переписанный HTML-экспорт
 
 **Files:**
-- Modify: `src/fb_rent/storage.py`
+- Modify: `src/rent_assistant/storage.py`
 - Modify: `tests/test_storage.py`
 
 - [x] переписать `export_html()`: строит строки через `fetch_enriched`, для каждой ячейки берёт класс из `rules.cell_class`, инлайнит данные в `const DATA` с прежним экранированием `</` и `<!--` и хелпером `esc()`
@@ -427,10 +427,10 @@ fb-rent export                       # имя прежнее, рендерит �
 - Create: `.claude/skills/analyze/SKILL.md`
 
 - [x] frontmatter с `name: analyze` и описанием-триггером («проанализировать необработанные листинги»)
-- [x] шаги 1–3: `fb-rent ai-status`; если есть листинги без сырых данных — сказать пользователю запустить `fb-rent scrape --refresh` и остановиться; иначе `fb-rent ai-batch --limit 25` и прочитать batch вместе с `config/requirements.md`
+- [x] шаги 1–3: `rent-assistant ai-status`; если есть листинги без сырых данных — сказать пользователю запустить `rent-assistant scrape --refresh` и остановиться; иначе `rent-assistant ai-batch --limit 25` и прочитать batch вместе с `config/requirements.md`
 - [x] шаги 4–6 (правила извлечения): факты строить по `text_lines` (срез после `Описание`), а не по возможно испорченной колонке `description`; выставлять `data_quality`; ничего не выдумывать — отсутствие доказательства означает `unclear`; про животных — `allowed` только при явном подтверждении, `not_allowed` только при явном запрете, всегда с цитатой в `ev`; лишние комнаты — плюс, а не минус; неупомянутая гостиная — не дефект; написать короткий вердикт по каждому листингу с учётом всего известного, включая то, для чего колонок ещё нет
 - [x] шаг 7 (эволюция схемы): если один и тот же полезный сигнал встретился в ≥2 листингах и поля для него нет — добавить в `proposed_new_fields`
-- [x] шаги 8–10: `fb-rent ai-apply <result>`; если поля предложены — задать пользователю через `AskUserQuestion` два вопроса: (а) действительно ли это важно, (б) переанализировать старые листинги или оставить им `unknown` отдельным цветом; затем `fb-rent ai-field add [--backfill]` и возврат к шагу 2 при backfill; в конце `fb-rent export` и отчёт: счётчики, авторежекты с причинами, топ-5 по score
+- [x] шаги 8–10: `rent-assistant ai-apply <result>`; если поля предложены — задать пользователю через `AskUserQuestion` два вопроса: (а) действительно ли это важно, (б) переанализировать старые листинги или оставить им `unknown` отдельным цветом; затем `rent-assistant ai-field add [--backfill]` и возврат к шагу 2 при backfill; в конце `rent-assistant export` и отчёт: счётчики, авторежекты с причинами, топ-5 по score
 - [x] DESIGN: автотестов на файл-промпт не пишем — проверяется реальным прогоном в Post-Completion
 - [x] прогнать `pytest tests/ -q` — все зелёные
 
@@ -438,15 +438,15 @@ fb-rent export                       # имя прежнее, рендерит �
 
 **Автоматизируемое** (агент выполняет):
 - [x] `pytest tests/ -q` — весь набор зелёный, включая 67 тестов итерации 1 (248 tests pass; the iteration-1 suite on `main` is 76 tests, not 67 — all still green)
-- [x] `fb-rent --help` показывает `ai-status`, `ai-batch`, `ai-apply`, `ai-field`, `reject`, `unreject`, `shortlist`
-- [x] `python -c "from fb_rent.ai_schema import load_registry; r=load_registry(); print(r.schema_version, len(r.fields))"` — реестр грузится, поля на месте
+- [x] `rent-assistant --help` показывает `ai-status`, `ai-batch`, `ai-apply`, `ai-field`, `reject`, `unreject`, `shortlist`
+- [x] `python -c "from rent_assistant.ai_schema import load_registry; r=load_registry(); print(r.schema_version, len(r.fields))"` — реестр грузится, поля на месте
 - [x] идемпотентность: на временной БД собрать batch из 3 листингов, применить синтетический результат, повторно вызвать `fetch_pending` — эти 3 не возвращаются; изменить `description` одного из них — возвращается ровно он
 - [x] эволюция схемы: `ai-field add --key balcony --label Balcony --type enum --values yes,no,unclear` без `--backfill` → в HTML старые строки получают `c-stale`, не `c-none`; повторить с `--backfill` → строки снова в pending
 - [x] решения переживают стирание БД: `reject` на временных данных, удалить файл БД, `init_db` + `sync_to_db` — решение и причина на месте
-- [x] `fb-rent export` на БД без единой строки `ai_analysis` — валидный HTML без падения
+- [x] `rent-assistant export` на БД без единой строки `ai_analysis` — валидный HTML без падения
 
 **Требует ручных действий** (агент помечает как skipped):
-- [x] MANUAL: `fb-rent scrape --refresh` — перезалить листинги исправленными экстракторами (skipped — requires live FB / human action)
+- [x] MANUAL: `rent-assistant scrape --refresh` — перезалить листинги исправленными экстракторами (skipped — requires live FB / human action)
 - [x] MANUAL: проверить в sqlite3, что ни один `description` не равен сайдбарному boilerplate длиной 1288/962 символа, `title` больше нигде не `"Недавно опубликовано"`, `published_at` не NULL там, где FB показывал дату (skipped — requires live FB / human action)
 - [x] MANUAL: полный цикл `/analyze` в интерактивной сессии Claude Code (Opus, high effort) на 3–5 листингах (skipped — requires interactive AI session)
 - [x] MANUAL: открыть `data/rentals.html` — колонка Pets зелёная/жёлтая/красная как задумано, отклонённые строки визуально отличимы и с причинами, все колонки достижимы горизонтальным скроллом, легенда соответствует реальности (skipped — requires human review)
@@ -468,7 +468,7 @@ fb-rent export                       # имя прежнее, рендерит �
 
 **Что нужно сделать руками после автономного прогона** (собрано из всех `MANUAL:` пунктов выше):
 
-1. `fb-rent scrape --refresh` — перезалить 21 существующую строку с исправленными экстракторами. Без этого шага анализировать нечего: у 10 строк нет описания вовсе, у большинства остальных туда попал сайдбар.
+1. `rent-assistant scrape --refresh` — перезалить 21 существующую строку с исправленными экстракторами. Без этого шага анализировать нечего: у 10 строк нет описания вовсе, у большинства остальных туда попал сайдбар.
 2. Проверить качество данных в sqlite3: сайдбарного boilerplate (1288 / 962 символа) быть не должно, `title` не должен быть `"Недавно опубликовано"`, `published_at` не должен быть NULL везде.
 3. Запустить `/analyze` в интерактивной сессии Claude Code (Opus, high thinking effort) сначала на 3–5 листингах — убедиться, что извлечение адекватно и цитаты `ev` действительно подтверждают значения.
 4. Открыть `data/rentals.html`, проверить цвета, вкладки, легенду и горизонтальный скролл.

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 
-from fb_rent.rules import (
+from rent_assistant.rules import (
     CLASS_BAD,
     CLASS_GOOD,
     CLASS_NONE,

@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from fb_rent import config
-from fb_rent.ai_schema import RegistryError, field_source, load_registry, source_hash
+from rent_assistant import config
+from rent_assistant.ai_schema import RegistryError, field_source, load_registry, source_hash
 
 
 def _write(tmp_path, registry: dict):

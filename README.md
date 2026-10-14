@@ -1,4 +1,4 @@
-# fb-rent
+# rent-assistant
 
 Finding a long-term rental on Phuket means reading a few hundred Facebook
 Marketplace ads that all say "fully furnished, pets negotiable". This scrapes
@@ -35,16 +35,16 @@ date parsing) and Pillow (the photo downscale).
 The `-e` is required, not a convenience: `config/ai_fields.json` and
 `config/requirements.md` are read from the checkout through a path relative to
 the package source and are not packaged into a wheel. After a plain
-`pip install .` every `ai-*` command and `fb-rent export` fail to find the
+`pip install .` every `ai-*` command and `rent-assistant export` fail to find the
 field registry.
 
 ## Quickstart
 
 ```sh
-fb-rent login          # one-time headed login, session persisted to ../data/
-fb-rent scrape         # headless scrape, writes ../data/rentals.{db,csv,html}
-fb-rent dedupe         # merge reposts and the same flat listed by several agents
-fb-rent export         # regenerate CSV + HTML from the DB without scraping
+rent-assistant login          # one-time headed login, session persisted to ../data/
+rent-assistant scrape         # headless scrape, writes ../data/rentals.{db,csv,html}
+rent-assistant dedupe         # merge reposts and the same flat listed by several agents
+rent-assistant export         # regenerate CSV + HTML from the DB without scraping
 ```
 
 Then, in a Claude Code session:
@@ -61,10 +61,10 @@ confirm it by hand. [docs/pets-policy.md](docs/pets-policy.md) has the four
 policy values and why a proposal is inert.
 
 ```sh
-fb-rent buildings-batch --limit 5     # what to research
-fb-rent buildings-apply <file>        # store the findings as proposals
-fb-rent buildings list --status proposed
-fb-rent buildings set <key> --policy not_allowed   # your confirmation
+rent-assistant buildings-batch --limit 5     # what to research
+rent-assistant buildings-apply <file>        # store the findings as proposals
+rent-assistant buildings list --status proposed
+rent-assistant buildings set <key> --policy not_allowed   # your confirmation
 ```
 
 Open `../data/rentals.html` in a browser: one self-contained file, no server
@@ -77,8 +77,8 @@ Every AI-filled cell carries the quote it came from in its tooltip.
 Record what you think as you go — this is the part no machine does for you:
 
 ```sh
-fb-rent rate 1234567890 4.5              # 4.5+ shortlist, 4 longlist, 3- reject
-fb-rent reject 1234567890 --reason "агент не отвечает"
+rent-assistant rate 1234567890 4.5              # 4.5+ shortlist, 4 longlist, 3- reject
+rent-assistant reject 1234567890 --reason "агент не отвечает"
 ```
 
 ## What it is looking for
@@ -103,7 +103,7 @@ Everything the machine produced goes into the sibling `data/` directory
 (`rentals.db`, `rentals.csv`, `rentals.html`, `photos/`, `decisions.json`,
 `buildings.json`);
 everything you edit is version-controlled in `config/`. Override the base path
-with `FB_RENT_HOME`. Details: [docs/data-layout.md](docs/data-layout.md).
+with `RENT_ASSISTANT_HOME`. Details: [docs/data-layout.md](docs/data-layout.md).
 
 ## Docs
 

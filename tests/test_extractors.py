@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from fb_rent.extractors import (
+from rent_assistant.extractors import (
     clean_fb_title,
     description_from_text_lines,
     extract_bedrooms,
@@ -16,7 +16,7 @@ from fb_rent.extractors import (
     parse_price,
     parse_published_at,
 )
-from fb_rent.scraper_detail import extract_gallery_urls
+from rent_assistant.scraper_detail import extract_gallery_urls
 from tests.fixtures import GOOD, SIDEBAR, load
 
 

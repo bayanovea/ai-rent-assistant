@@ -8,7 +8,7 @@ Where the rest is:
 
 - [pipeline.md](pipeline.md) — where this pass sits (it does not sit *in* the
   pipeline; it runs beside it);
-- [cli.md](cli.md#fb-rent-buildings-batch--fb-rent-buildings-apply) —
+- [cli.md](cli.md#rent-assistant-buildings-batch--rent-assistant-buildings-apply) —
   `buildings-batch`, `buildings-apply`, `buildings list`, `buildings set`;
 - [data-layout.md](data-layout.md) — `data/buildings.json` and the mirror table;
 - `CLAUDE.md` — the traps (a proposal is inert, the policy carries no score
@@ -75,7 +75,7 @@ ads carry, is not consent, or the building rule would reject nothing.
 
 Several such ads in one building are a different claim: that the research read
 the wrong tower, or the wrong chain member. `storage.fetch_pets_conflicts`
-collects those (two or more by default) and `fb-rent buildings conflicts`
+collects those (two or more by default) and `rent-assistant buildings conflicts`
 prints them with their URLs; `ai-status` carries the count on a «Расхождения»
 line. Nothing in that path changes a status — it is a queue for the user's own
 eyes, and it keeps `proposed` buildings too, since a contradiction is exactly
@@ -86,7 +86,7 @@ what should be seen *before* a policy is confirmed.
 Nothing auto-rejects on the strength of a web search. A researched building
 lands in the store as `proposed` and is **inert**: `policy_for` hands out
 nothing for it, so `rules.decide` never sees it and not a single row changes
-status. Only `fb-rent buildings set` — the user's own word — makes a policy
+status. Only `rent-assistant buildings set` — the user's own word — makes a policy
 act.
 
 That is the whole safety property of the pass, and it is why the skill can be
@@ -115,13 +115,13 @@ reads the policy, and that is deliberate.
 ## The loop
 
 ```sh
-fb-rent ai-status                      # «Здания:» — unresearched / proposed / confirmed
-fb-rent buildings-batch --limit 5      # writes ../data/ai/buildings-batch-<ts>.json
+rent-assistant ai-status                      # «Здания:» — unresearched / proposed / confirmed
+rent-assistant buildings-batch --limit 5      # writes ../data/ai/buildings-batch-<ts>.json
 # /pets-policy  — one subagent per building, WebSearch + WebFetch
-fb-rent buildings-apply ../data/ai/buildings-result-<ts>.json
-fb-rent buildings list --status proposed
-fb-rent buildings set the-base-central --policy not_allowed
-fb-rent export
+rent-assistant buildings-apply ../data/ai/buildings-result-<ts>.json
+rent-assistant buildings list --status proposed
+rent-assistant buildings set the-base-central --policy not_allowed
+rent-assistant export
 ```
 
 The skill fans out **one subagent per building**, all launched in a single
@@ -367,7 +367,7 @@ the first run written into every prompt.
   forbidding building right now.
 
 **A dedupe ran mid-pass, from another session.** At 19:37–19:38 UTC
-`fb-rent dedupe` collapsed 834 duplicates (2235 listings → 1401), between the
+`rent-assistant dedupe` collapsed 834 duplicates (2235 listings → 1401), between the
 batch being built and the results being applied. Nothing was lost — every
 collapsed row is in the `duplicates` table with its canonical id — but the
 batch file's counts, the apply report's counts and the confirmation's counts

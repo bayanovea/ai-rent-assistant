@@ -38,24 +38,24 @@ Two decisions shape everything below:
 
 Files and facts the plan builds on:
 
-- `src/fb_rent/rules.py` — `decide()` already auto-rejects on
+- `src/rent_assistant/rules.py` — `decide()` already auto-rejects on
   `pets == "not_allowed"` (`REASON_PETS`), and both `decide` and `score` are
   recomputed **on read** in `fetch_enriched`. A new rejection reason therefore
   reaches every existing row without re-running any AI pass.
-- `src/fb_rent/storage.py:1238` `fetch_enriched` — the single funnel every
+- `src/rent_assistant/storage.py:1238` `fetch_enriched` — the single funnel every
   export and every skill reads through. This is where the building policy has
   to be joined in.
 - `config/ai_fields.json` — already carries **`project_name`** ("Проект/посёлок")
   and `area`. Those two are the research key; no new AI field is needed.
-- `src/fb_rent/decisions.py` — the pattern to copy for the store: a plain JSON
-  file under `FB_RENT_HOME` that `init_db` cannot wipe, mirrored into a SQLite
+- `src/rent_assistant/decisions.py` — the pattern to copy for the store: a plain JSON
+  file under `RENT_ASSISTANT_HOME` that `init_db` cannot wipe, mirrored into a SQLite
   table only so `fetch_enriched` can JOIN it. Confirmed policies and the
   research behind them are exactly as unreproducible as a user verdict.
-- `src/fb_rent/photo_batch.py` + `.claude/skills/photo-analyze/` — the shape of
+- `src/rent_assistant/photo_batch.py` + `.claude/skills/photo-analyze/` — the shape of
   an occasional out-of-pipeline pass: `*-batch` writes a JSON file, the skill
   fans out over subagents, `*-apply` reads a result file back and validates it
   hard before writing anything.
-- `src/fb_rent/cli.py` — Click group, `@main.command("name")`; 1676 lines, all
+- `src/rent_assistant/cli.py` — Click group, `@main.command("name")`; 1676 lines, all
   commands in one module.
 - Tests: pytest, `testpaths = ["tests"]`, one `test_<module>.py` per module.
 
@@ -98,12 +98,12 @@ first. Tasks 1–8 are each a commit.
 ## Solution Overview
 
 ```
-fb-rent buildings-batch          →  buildings-batch-<ts>.json   (what to research)
+rent-assistant buildings-batch          →  buildings-batch-<ts>.json   (what to research)
         ↓  skill: one subagent per building, WebSearch + WebFetch
         ↓  writes buildings-result-<ts>.json
-fb-rent buildings-apply <file>   →  data/buildings.json, status: "proposed"   (inert)
+rent-assistant buildings-apply <file>   →  data/buildings.json, status: "proposed"   (inert)
         ↓  skill: AskUserQuestion per proposal, showing quotes + affected rows
-fb-rent buildings set <key> --policy not_allowed
+rent-assistant buildings set <key> --policy not_allowed
                                  →  data/buildings.json, status: "confirmed"  (live)
         ↓
 fetch_enriched  →  rules.decide(..., building_policy=...)  →  «Кондо запрещает животных»
@@ -239,7 +239,7 @@ the last one so the researcher can see a contradiction coming.
 ### Task 1: Building key normalisation and the JSON store
 
 **Files:**
-- Create: `src/fb_rent/buildings.py`
+- Create: `src/rent_assistant/buildings.py`
 - Create: `tests/test_buildings.py`
 
 - [x] `building_key(name)` — lowercase, alphanumerics only, collapse whitespace,
@@ -262,7 +262,7 @@ the last one so the researcher can see a contradiction coming.
 ### Task 2: The `buildings` table and the research queue
 
 **Files:**
-- Modify: `src/fb_rent/storage.py`
+- Modify: `src/rent_assistant/storage.py`
 - Modify: `tests/test_storage.py`
 
 - [x] add the `buildings` table to `_SCHEMA` (`CREATE TABLE IF NOT EXISTS`) —
@@ -283,7 +283,7 @@ the last one so the researcher can see a contradiction coming.
 ### Task 3: The rejection rule
 
 **Files:**
-- Modify: `src/fb_rent/rules.py`
+- Modify: `src/rent_assistant/rules.py`
 - Modify: `tests/test_rules.py`
 
 - [x] add `REASON_BUILDING_PETS = "Кондо запрещает животных"`
@@ -303,7 +303,7 @@ the last one so the researcher can see a contradiction coming.
 ### Task 4: Wire the policy into `fetch_enriched`
 
 **Files:**
-- Modify: `src/fb_rent/storage.py`
+- Modify: `src/rent_assistant/storage.py`
 - Modify: `tests/test_storage.py`
 
 - [x] load the confirmed-policy map once per `fetch_enriched` call and resolve
@@ -320,7 +320,7 @@ the last one so the researcher can see a contradiction coming.
 ### Task 5: Batch and apply
 
 **Files:**
-- Create: `src/fb_rent/buildings_batch.py`
+- Create: `src/rent_assistant/buildings_batch.py`
 - Create: `tests/test_buildings_batch.py`
 
 - [x] `build_buildings_batch(conn, store, limit=None, keys=None, refresh=False)`
@@ -342,16 +342,16 @@ the last one so the researcher can see a contradiction coming.
 ### Task 6: CLI commands
 
 **Files:**
-- Modify: `src/fb_rent/cli.py`
+- Modify: `src/rent_assistant/cli.py`
 - Modify: `tests/test_cli.py`
 
-- [x] `fb-rent buildings-batch [--limit N] [--key K]... [--refresh]` — writes the
+- [x] `rent-assistant buildings-batch [--limit N] [--key K]... [--refresh]` — writes the
       batch file, prints its path and the queue size
-- [x] `fb-rent buildings-apply <file> [--dry-run]` — prints counters, each
+- [x] `rent-assistant buildings-apply <file> [--dry-run]` — prints counters, each
       proposal with its policy, confidence and affected listing count
-- [x] `fb-rent buildings list [--status proposed|confirmed] [--policy P]` —
+- [x] `rent-assistant buildings list [--status proposed|confirmed] [--policy P]` —
       the review view: name, policy, status, sources, affected rows
-- [x] `fb-rent buildings set <key> --policy P [--note TEXT] [--alias A]...` —
+- [x] `rent-assistant buildings set <key> --policy P [--note TEXT] [--alias A]...` —
       records the user's confirmation (`status: "confirmed"`), syncs the mirror
       and re-exports nothing (the caller runs `export`)
 - [x] a `buildings` block in `ai-status`: how many buildings are unresearched,
@@ -364,7 +364,7 @@ the last one so the researcher can see a contradiction coming.
 ### Task 7: Show the policy in the table
 
 **Files:**
-- Modify: `src/fb_rent/storage.py` (`export_html`)
+- Modify: `src/rent_assistant/storage.py` (`export_html`)
 - Modify: `tests/test_storage.py`
 
 - [x] render the policy as a **badge on the existing "Проект/посёлок" cell**, not
@@ -485,7 +485,7 @@ the last one so the researcher can see a contradiction coming.
 *No checkboxes — these need a live run and the user's own judgement.*
 
 **First research run:**
-- run `fb-rent buildings-batch --limit 5` first, not the whole queue: the point
+- run `rent-assistant buildings-batch --limit 5` first, not the whole queue: the point
   is to read five proposals closely and see whether the subagent's evidence bar
   is where it should be before trusting it at volume
 - check at least one `not_allowed` proposal by opening its source URLs yourself

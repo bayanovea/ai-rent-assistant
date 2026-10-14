@@ -24,8 +24,8 @@ htmlcov/
 *.sqlite3
 *.csv
 
-# Local fb-rent home (if user placed it inside repo for testing)
-.fb-rent/
+# Local rent-assistant home (if user placed it inside repo for testing)
+.rent-assistant/
 
 # IDE / OS
 .DS_Store

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from fb_rent import messages as msg
+from rent_assistant import messages as msg
 
 
 # --- compose_first_message / pets_already_allowed -------------------------

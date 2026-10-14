@@ -23,31 +23,31 @@ MACHINE, AI, HUMAN = "#2F6F9F", "#7A4FB6", "#C0771B"
 STAGES = [
     dict(color=MACHINE, icon="term", badge="CLI · PLAYWRIGHT",
          title="Collect and merge",
-         cmds=["fb-rent scrape --bands 4 --no-photos", "fb-rent dedupe"],
+         cmds=["rent-assistant scrape --bands 4 --no-photos", "rent-assistant dedupe"],
          out="listings, gallery links, photo hashes",
          note="The only stage that talks to Facebook.",
          flow="raw ad text"),
     dict(color=AI, icon="spark", badge="SKILL  /analyze  ·  OPUS",
          title="Read the text",
-         cmds=["fb-rent ai-batch    →  Claude reads the ads", "fb-rent ai-apply    →  rules.py decides"],
+         cmds=["rent-assistant ai-batch    →  Claude reads the ads", "rent-assistant ai-apply    →  rules.py decides"],
          out="filled columns, one-line verdict, auto-rejections",
          note="Never touches Facebook, so it can run while a scrape does.",
          flow="a scored table"),
     dict(color=HUMAN, icon="person", badge="YOU",
          title="Cut what is obviously wrong",
-         cmds=["fb-rent rate <id> 1–5", "fb-rent reject <id> --reason \"…\""],
+         cmds=["rent-assistant rate <id> 1–5", "rent-assistant reject <id> --reason \"…\""],
          out="decisions.json — your word beats the rules",
          note="Every rejection here is a gallery not downloaded and tokens not spent.",
          flow="the survivors, and only them"),
     dict(color=AI, icon="spark", badge="SKILL  /photo-analyze  ·  SONNET SUBAGENTS",
          title="Look at the photos",
-         cmds=["fb-rent photos-fetch  →  photo-batch", "one subagent per listing  →  fb-rent photo-apply"],
+         cmds=["rent-assistant photos-fetch  →  photo-batch", "one subagent per listing  →  rent-assistant photo-apply"],
          out="disagreements with the text, score recomputed",
          note="Runs only when you ask for it — never on its own.",
          flow="where the pictures contradict the ad"),
     dict(color=HUMAN, icon="person", badge="YOU",
          title="Shortlist and write",
-         cmds=["fb-rent shortlist <id> --reason \"…\"", ""],
+         cmds=["rent-assistant shortlist <id> --reason \"…\"", ""],
          out="the Shortlist tab in rentals.html",
          note="The only output that leaves the machine: a message to an agent.",
          flow=None),
@@ -81,11 +81,11 @@ height = TOP + len(STAGES) * CARD_H + (len(STAGES) - 1) * GAP + 62
 
 parts.append(
     f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {height}" width="{W}" '
-    f'height="{height}" role="img" aria-label="The fb-rent pipeline in five stages: '
+    f'height="{height}" role="img" aria-label="The rent-assistant pipeline in five stages: '
     f'collect, read the text, cut what is wrong, look at the photos, shortlist" '
     f'font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif">'
 )
-parts.append('<title>The fb-rent pipeline, five stages top to bottom</title>')
+parts.append('<title>The rent-assistant pipeline, five stages top to bottom</title>')
 parts.append(f'<rect width="{W}" height="{height}" fill="#ffffff"/>')
 
 # header: title on the left, colour legend on the right
@@ -142,7 +142,7 @@ for i, s in enumerate(STAGES):
 
 foot = TOP + len(STAGES) * CARD_H + (len(STAGES) - 1) * GAP + 34
 parts.append(f'<text x="{CARD_X}" y="{foot}" font-size="11.5" fill="#8b93a1">'
-             'fb-rent export refreshes rentals.csv and rentals.html after any stage — it only reads.'
+             'rent-assistant export refreshes rentals.csv and rentals.html after any stage — it only reads.'
              '</text>')
 parts.append('</svg>')
 

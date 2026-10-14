@@ -13,7 +13,7 @@ import shutil
 import pytest
 from click.testing import CliRunner
 
-from fb_rent import (
+from rent_assistant import (
     ai_batch,
     ai_schema,
     buildings,
@@ -25,15 +25,15 @@ from fb_rent import (
     rules,
     storage,
 )
-from fb_rent.cli import main
+from rent_assistant.cli import main
 
 
 @pytest.fixture()
 def home(tmp_path, monkeypatch):
-    """Point every fb-rent path at a temp directory."""
+    """Point every rent-assistant path at a temp directory."""
     root = tmp_path / "home"
     root.mkdir()
-    monkeypatch.setattr(config, "FB_RENT_HOME", root)
+    monkeypatch.setattr(config, "RENT_ASSISTANT_HOME", root)
     monkeypatch.setattr(config, "DB_PATH", root / "rentals.db")
     monkeypatch.setattr(config, "CSV_PATH", root / "rentals.csv")
     monkeypatch.setattr(config, "HTML_PATH", root / "rentals.html")
@@ -1161,7 +1161,7 @@ def test_photos_fetch_names_the_listings_whose_links_were_never_stored(
 
     assert result.exit_code == 0, result.output
     assert "No stored gallery links for 1 listing(s)" in result.output
-    assert "fb-rent scrape --ids 1" in result.output
+    assert "rent-assistant scrape --ids 1" in result.output
 
 
 def test_photos_fetch_leaves_photos_that_are_already_on_disk(home, monkeypatch):
@@ -1482,7 +1482,7 @@ def test_photo_hash_reports_listings_without_gallery_links(home, monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert "No stored gallery links for 1 listing(s)" in result.output
-    assert "fb-rent scrape --ids 1" in result.output
+    assert "rent-assistant scrape --ids 1" in result.output
     assert _hash_rows("1") == []
 
 
@@ -2197,7 +2197,7 @@ def test_messages_send_stops_on_daily_limit(home, monkeypatch):
     conn.close()
 
     _stub_browser(monkeypatch)
-    from fb_rent.messenger import MessagingLimitReachedError
+    from rent_assistant.messenger import MessagingLimitReachedError
 
     calls = []
 
@@ -2230,7 +2230,7 @@ def test_browser_profile_dir_named(home):
     partner_dir = config.browser_profile_dir("partner")
     assert partner_dir != config.BROWSER_PROFILE_DIR
     assert partner_dir.name == "browser-profile-partner"
-    assert partner_dir.parent == config.FB_RENT_HOME
+    assert partner_dir.parent == config.RENT_ASSISTANT_HOME
 
 
 def test_messages_sync_uses_named_profile(home, monkeypatch):

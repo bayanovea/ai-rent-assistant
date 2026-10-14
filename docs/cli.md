@@ -1,13 +1,13 @@
 # Command reference
 
-Every command is a subcommand of `fb-rent`. The two AI passes are not commands
+Every command is a subcommand of `rent-assistant`. The two AI passes are not commands
 — they are Claude Code skills (`/analyze`, `/photo-analyze`) that drive the
 commands below; see [pipeline.md](pipeline.md).
 
 Paths default to the sibling `data/` directory; override the base with
-`FB_RENT_HOME` (see [data-layout.md](data-layout.md)).
+`RENT_ASSISTANT_HOME` (see [data-layout.md](data-layout.md)).
 
-## `fb-rent login`
+## `rent-assistant login`
 
 Opens Chromium in headed mode and waits (up to 5 minutes) for you to sign in
 manually — including 2FA if enabled. On success the cookies are stored in the
@@ -16,7 +16,7 @@ persistent profile so later `scrape` runs can reuse the session headlessly.
 Re-run whenever Facebook invalidates the session (typically every 1–4 weeks, or
 after a suspicious-activity check).
 
-## `fb-rent scrape`
+## `rent-assistant scrape`
 
 Runs the full collection pipeline: build the search URL → scrape the list →
 walk each detail page with a 3–7 s random jitter → extract fields → hash the
@@ -39,15 +39,15 @@ regenerate CSV and HTML.
 | `--ids`           | —       | Scrape these `fb_id`s directly, skipping the feed.       |
 
 ```sh
-fb-rent scrape --max 10 --dry-run       # smoke check, no writes
-fb-rent scrape --max 40                 # regular run
-fb-rent scrape --max 60 --skip-details  # fast incremental sweep
+rent-assistant scrape --max 10 --dry-run       # smoke check, no writes
+rent-assistant scrape --max 40                 # regular run
+rent-assistant scrape --max 60 --skip-details  # fast incremental sweep
 
 # wide sweep: 4 price bands x 60 cards, 150 detail pages, photos later
-fb-rent scrape --bands 4 --max 60 --days 30 --detail-cap 150 --no-photos
+rent-assistant scrape --bands 4 --max 60 --days 30 --detail-cap 150 --no-photos
 
 # repair path: open these listings whatever the DB already holds
-fb-rent scrape --ids 1234567890 --ids 9876543210
+rent-assistant scrape --ids 1234567890 --ids 9876543210
 ```
 
 Why the flags behave the way they do — bands, the detail budget, what `--ids`
@@ -55,10 +55,10 @@ repairs and what a re-sighting is allowed to overwrite — is in
 [scraping.md](scraping.md).
 
 Two timeouts can be raised from the environment for a slow night run:
-`FB_RENT_PAGE_LOAD_TIMEOUT_MS` (default 30000) and
-`FB_RENT_CONTENT_TIMEOUT_MS` (default 15000).
+`RENT_ASSISTANT_PAGE_LOAD_TIMEOUT_MS` (default 30000) and
+`RENT_ASSISTANT_CONTENT_TIMEOUT_MS` (default 15000).
 
-## `fb-rent scrape-groups`
+## `rent-assistant scrape-groups`
 
 Same pipeline as `scrape`, second source: reads rental posts out of
 Facebook groups (`config.GROUPS`) into the same `listings` table, tagged
@@ -77,12 +77,12 @@ chronological feed, walked by scroll rather than by query.
 | `--ids`           | —             | Scrape these post `fb_id`s directly. Requires one `--group`. |
 
 ```sh
-fb-rent scrape-groups --max 5 --detail-cap 2 --dry-run   # smoke check
-fb-rent scrape-groups                                     # every group, regular run
-fb-rent scrape-groups --group phuketrentsale --max 20
+rent-assistant scrape-groups --max 5 --detail-cap 2 --dry-run   # smoke check
+rent-assistant scrape-groups                                     # every group, regular run
+rent-assistant scrape-groups --group phuketrentsale --max 20
 
 # repair path: open one post whatever the DB already holds
-fb-rent scrape-groups --group phuketrentsale --ids 9000000000000003
+rent-assistant scrape-groups --group phuketrentsale --ids 9000000000000003
 ```
 
 `scrape --ids` on an id already in the DB also works for a group post — it
@@ -92,7 +92,7 @@ article is told apart from an unrelated one FB renders next to it, and why
 group-post galleries skip the alt-grouping trick entirely, is in
 [scraping.md](scraping.md#facebook-groups--a-second-source-one-table).
 
-## `fb-rent dedupe`
+## `rent-assistant dedupe`
 
 Merges listings that describe the same flat, using the photo and fact signals
 that need no matching text. `--exact-only` restricts it to byte-identical text
@@ -101,9 +101,9 @@ remembered in `duplicates`, so the next scrape skips it without opening its
 page. See [dedupe.md](dedupe.md).
 
 ```sh
-fb-rent dedupe                          # the whole base — Shift+D in the table
-fb-rent dedupe 9000000000000004         # one row — d in the table
-fb-rent dedupe 9000000000000004 --into 9000000000000005
+rent-assistant dedupe                          # the whole base — Shift+D in the table
+rent-assistant dedupe 9000000000000004         # one row — d in the table
+rent-assistant dedupe 9000000000000004 --into 9000000000000005
 ```
 
 With an id it answers the other question — "I have seen this flat before,
@@ -113,18 +113,18 @@ nearest rows are printed with the `--into` line that merges each, and the DB is
 untouched. `--into` is the only way a merge happens without a signal; the row
 you name is the keeper, whatever it carries.
 
-## `fb-rent export`
+## `rent-assistant export`
 
 Regenerates the CSV and HTML from the current DB, and mirrors `decisions.json`
 into it on the way.
 
 ```sh
-fb-rent export                               # writes ../data/rentals.{csv,html}
-fb-rent export --path /tmp/rentals.csv       # custom CSV destination
-fb-rent export --html-path /tmp/rentals.html # custom HTML destination
+rent-assistant export                               # writes ../data/rentals.{csv,html}
+rent-assistant export --path /tmp/rentals.csv       # custom CSV destination
+rent-assistant export --html-path /tmp/rentals.html # custom HTML destination
 ```
 
-## `fb-rent ai-status`
+## `rent-assistant ai-status`
 
 The dashboard for both passes. Prints the registry version and field count,
 then the text queue — analysed, pending (with the reason: never analysed,
@@ -136,9 +136,9 @@ how many are proposed and how many you confirmed. A non-empty queue there is
 not an invitation: that pass runs when you ask for it.
 
 Listings with no raw text are printed by `fb_id`; they need
-`fb-rent scrape --ids <fb_id>` before there is anything to analyse.
+`rent-assistant scrape --ids <fb_id>` before there is anything to analyse.
 
-## `fb-rent ai-batch`
+## `rent-assistant ai-batch`
 
 Writes the JSON batch the text pass reads: the requirements letter, the field
 registry and the raw text of each pending listing.
@@ -155,24 +155,24 @@ the loop is idempotent, so re-running `ai-batch` right after `ai-apply` yields
 an empty queue. A listing comes back only if its description changed or the
 registry grew and you asked for a backfill.
 
-## `fb-rent ai-apply`
+## `rent-assistant ai-apply`
 
 Reads the result file, validates it against the registry, writes the fields
 into `ai_analysis`, applies `rules.py` and reports what happened: applied,
 auto-rejected and why, skipped, and any new fields the AI proposed.
 
 ```sh
-fb-rent ai-apply ../data/ai/result-20260825-141500.json --dry-run
-fb-rent ai-apply ../data/ai/result-20260825-141500.json
+rent-assistant ai-apply ../data/ai/result-20260825-141500.json --dry-run
+rent-assistant ai-apply ../data/ai/result-20260825-141500.json
 ```
 
-## `fb-rent ai-field`
+## `rent-assistant ai-field`
 
 Evolving the schema — the registry of columns the AI fills.
 
 ```sh
-fb-rent ai-field list
-fb-rent ai-field add --key balcony --label Balcony --type enum --values yes,no,unclear
+rent-assistant ai-field list
+rent-assistant ai-field add --key balcony --label Balcony --type enum --values yes,no,unclear
 ```
 
 | Flag         | Description                                                        |
@@ -191,7 +191,7 @@ What `--backfill` actually moves, and how an unfilled new column is rendered
 differently from an empty one, is in
 [ai-enrichment.md](ai-enrichment.md#evolving-the-schema).
 
-## `fb-rent photos-fetch`
+## `rent-assistant photos-fetch`
 
 Downloads the galleries the photo pass is waiting for, from the links the
 detail page left behind in `raw_json`. `scrape` already does this inline; this
@@ -211,9 +211,9 @@ into the queue for pictures that did not change.
 
 A listing whose signed links have expired, or that was scraped before galleries
 were collected at all, is named in the output together with the command that
-fixes it: `fb-rent scrape --ids <fb_id>`.
+fixes it: `rent-assistant scrape --ids <fb_id>`.
 
-## `fb-rent photo-batch` / `fb-rent photo-apply`
+## `rent-assistant photo-batch` / `rent-assistant photo-apply`
 
 `photo-batch` mirrors `ai-batch` flag for flag (`--limit` 25, `--all`, `--ids`,
 `--out`); `photo-apply` takes `--dry-run`. The batch ships only the fields
@@ -228,7 +228,7 @@ A result whose `photos_hash` no longer matches what is on disk is **skipped**,
 not written. Text can be re-read; an analysis of photos that have since changed
 describes a different flat.
 
-## `fb-rent photo-hash`
+## `rent-assistant photo-hash`
 
 Backfills the duplicate signal for listings scraped before the hash stage
 existed. Fetches the first three gallery shots from the same signed links
@@ -244,7 +244,7 @@ nothing to disk.
 The queue is every listing with gallery links and no hashes, oldest first. New
 scrapes need none of this: they hash inline, `--no-photos` included.
 
-## `fb-rent buildings-batch` / `fb-rent buildings-apply`
+## `rent-assistant buildings-batch` / `rent-assistant buildings-apply`
 
 The pets pass, keyed by building rather than by listing — one house rule
 answers for every flat in the tower. Full story in
@@ -274,17 +274,17 @@ finding.
 A ban that lets the juristic office grant exceptions counts as `not_allowed`,
 not `negotiable` — see [pets-policy.md](pets-policy.md).
 
-## `fb-rent buildings`
+## `rent-assistant buildings`
 
 The review side of the same pass.
 
 ```sh
-fb-rent buildings list --status proposed      # policy, evidence, affected rows
-fb-rent buildings list --policy not_allowed
-fb-rent buildings set the-base-central --policy not_allowed \
+rent-assistant buildings list --status proposed      # policy, evidence, affected rows
+rent-assistant buildings list --policy not_allowed
+rent-assistant buildings set the-base-central --policy not_allowed \
     --note "УК: no pets" --alias "base central"
-fb-rent buildings conflicts                   # ads that argue with the rule
-fb-rent export
+rent-assistant buildings conflicts                   # ads that argue with the rule
+rent-assistant export
 ```
 
 `list` prints each building with its policy, status, confidence, area,
@@ -298,7 +298,7 @@ name or any of its aliases. `--alias` is how a second spelling is pointed at an
 existing building — there is no fuzzy matching, on purpose. Aliases are only
 ever added, never dropped.
 
-`set` re-exports nothing; run `fb-rent export` to refresh the table.
+`set` re-exports nothing; run `rent-assistant export` to refresh the table.
 
 `conflicts` prints the buildings researched as `not_allowed` whose ads keep
 saying the opposite — two or more of them claiming `pets: allowed`
@@ -315,11 +315,11 @@ The AI's verdict is a suggestion. Yours wins, and unlike everything else it
 survives a DB wipe — it lives in `../data/decisions.json`.
 
 ```sh
-fb-rent reject 1234567890 --reason "агент не отвечает"
-fb-rent unreject 1234567890 --reason "перезвонили, животные ок"
-fb-rent shortlist 1234567890 --reason "поехать смотреть в четверг"
-fb-rent rate 1234567890 4.5          # a 1-5 mark that sets the status itself
-fb-rent export                       # refresh the table
+rent-assistant reject 1234567890 --reason "агент не отвечает"
+rent-assistant unreject 1234567890 --reason "перезвонили, животные ок"
+rent-assistant shortlist 1234567890 --reason "поехать смотреть в четверг"
+rent-assistant rate 1234567890 4.5          # a 1-5 mark that sets the status itself
+rent-assistant export                       # refresh the table
 ```
 
 `reject` takes a listing out (overriding an AI `active`), `unreject` puts it
@@ -348,11 +348,11 @@ contacted yet — unless it is rejected, in which case it drops out of «В
 Rejected.
 
 ```sh
-fb-rent contact 1234567890 --note "написал в вотсапе"
-fb-rent schedule-viewing 1234567890 "2026-09-25 14:00" --note "встречает партнёр"
-fb-rent mark-viewed 1234567890 --note "тесновато, но фото не врали"
-fb-rent clear-stage 1234567890       # back to nothing — a mistake, or done comparing
-fb-rent export                       # refresh the table
+rent-assistant contact 1234567890 --note "написал в вотсапе"
+rent-assistant schedule-viewing 1234567890 "2026-09-25 14:00" --note "встречает партнёр"
+rent-assistant mark-viewed 1234567890 --note "тесновато, но фото не врали"
+rent-assistant clear-stage 1234567890       # back to nothing — a mistake, or done comparing
+rent-assistant export                       # refresh the table
 ```
 
 Dedupe can fold several Facebook postings into one row, and the stage is
@@ -364,21 +364,21 @@ whatever a previous stage on this row already recorded, and only falls back
 to the row's own id if nothing was recorded yet — so `schedule-viewing` and
 `mark-viewed` do not need `--posting` repeated once `contact` set it once.
 
-## `fb-rent messages`
+## `rent-assistant messages`
 
 Automates the first half of "contact the landlord": syncing the real
 Messenger conversation and sending the opening message, instead of you
-typing `fb-rent contact` by hand after messaging manually. See
+typing `rent-assistant contact` by hand after messaging manually. See
 [messages.md](messages.md) for what was measured live and the `/messages`
 skill for the orchestration (classifying replies, translating a
 free-text selection into flags). Four subcommands:
 
 ```sh
-fb-rent messages sync [--since 2026-09-20] [--limit N] [--profile NAME]
-fb-rent messages send [--status shortlist]... [--district TEXT] [--ids ID]... [--cap 10] [--apply] [--yes] [--profile NAME]
-fb-rent messages status
-fb-rent messages classify-batch [--limit N]
-fb-rent messages classify-apply <result.json> [--dry-run]
+rent-assistant messages sync [--since 2026-09-20] [--limit N] [--profile NAME]
+rent-assistant messages send [--status shortlist]... [--district TEXT] [--ids ID]... [--cap 10] [--apply] [--yes] [--profile NAME]
+rent-assistant messages status
+rent-assistant messages classify-batch [--limit N]
+rent-assistant messages classify-apply <result.json> [--dry-run]
 ```
 
 `sync` pulls the Marketplace folder into the `conversations` /
@@ -392,7 +392,7 @@ already known from a previous sync (see `CLAUDE.md`).
 known `allowed`) and sends nothing until `--apply`, which asks for one
 confirmation covering the whole batch (`--yes` skips it, for the skill's
 own use once the user has already confirmed). A successful send records
-the `written` stage exactly the way `fb-rent contact` would — «В работе»
+the `written` stage exactly the way `rent-assistant contact` would — «В работе»
 and the `--posting` semantics above apply unchanged — plus an entry in
 `data/messages_sent.json`, a send log kept for the same reason
 `decisions.json` is a file and not only a DB row: a send cannot be
@@ -411,7 +411,7 @@ was written.
 `--profile NAME` (on `login`, `sync` and `send`) points the persistent
 browser context at its own directory —
 `config.browser_profile_dir(name)`, e.g. `data/browser-profile-partner` —
-instead of the default account's. `fb-rent login --profile partner` opens a
+instead of the default account's. `rent-assistant login --profile partner` opens a
 headed window for that person to sign into *their own* Facebook account
 once; every later `--profile partner` call reuses those cookies headlessly,
 exactly like the default profile does. This exists for a genuine second

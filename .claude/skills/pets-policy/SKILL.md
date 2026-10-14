@@ -1,6 +1,6 @@
 ---
 name: pets-policy
-description: Третий проход по листингам fb-rent — правило дома о животных, по одному разу на здание: buildings-batch → веер сабагентов с веб-поиском → buildings-apply → подтверждение пользователем → buildings set → export. Активируется ТОЛЬКО по явной просьбе: «исследуй правила о животных», «узнай, где можно с котом», «pets policy», «/pets-policy». Непустая очередь зданий в `ai-status` сама по себе поводом не является — проход стоит веб-поиска на каждое здание и запускается, когда пользователь этого просит.
+description: Третий проход по листингам rent-assistant — правило дома о животных, по одному разу на здание: buildings-batch → веер сабагентов с веб-поиском → buildings-apply → подтверждение пользователем → buildings set → export. Активируется ТОЛЬКО по явной просьбе: «исследуй правила о животных», «узнай, где можно с котом», «pets policy», «/pets-policy». Непустая очередь зданий в `ai-status` сама по себе поводом не является — проход стоит веб-поиска на каждое здание и запускается, когда пользователь этого просит.
 ---
 
 # Правило дома о животных — по зданию, а не по объявлению
@@ -17,7 +17,7 @@ house rule, он опубликован у управляющей компани
 - **Исследование предлагает, решает пользователь.** Всё, что приносит этот
   проход, ложится в `data/buildings.json` со статусом `proposed` и не
   меняет ни одной строки. Отклоняет объявления только политика, которую
-  пользователь подтвердил руками (`fb-rent buildings set`). Это одно
+  пользователь подтвердил руками (`rent-assistant buildings set`). Это одно
   подтверждение на N объявлений — оно дёшево, и оно единственное, что стоит
   между неудачным веб-поиском и вычеркнутым зданием.
 
@@ -36,7 +36,7 @@ house rule, он опубликован у управляющей компани
   про эту квартиру, и обычно это владелец, у которого разрешение УК уже есть;
 - когда таких объявлений в одном доме **несколько**, это уже не шум, а знак,
   что исследование прочитало не тот дом. Их собирает
-  `fb-rent buildings conflicts` — разбирает пользователь руками.
+  `rent-assistant buildings conflicts` — разбирает пользователь руками.
 
 Ничего, кроме файла с результатами, ты сам не пишешь: и store, и таблица
 меняются только через CLI.
@@ -44,17 +44,17 @@ house rule, он опубликован у управляющей компани
 ## 1. Проверить очередь
 
 ```sh
-fb-rent ai-status
+rent-assistant ai-status
 ```
 
 Смотри блок «Здания»:
 
 - `Не исследованы: 0` — искать нечего, скажи об этом и остановись (разве что
   просят пересмотреть конкретное здание — тогда
-  `fb-rent buildings-batch --key "<название>" --refresh`);
+  `rent-assistant buildings-batch --key "<название>" --refresh`);
 - `Предложены: N` — N предложений ждут ответа пользователя. Это очередь
   вопросов, а не сделанной работы: если она непустая, начни с шага 6 —
-  сперва добей их (`fb-rent buildings list --status proposed`), потом ищи
+  сперва добей их (`rent-assistant buildings list --status proposed`), потом ищи
   новое;
 - `Подтверждены: N` — эти политики уже работают.
 
@@ -65,7 +65,7 @@ fb-rent ai-status
 ## 2. Собрать batch
 
 ```sh
-fb-rent buildings-batch --limit 5
+rent-assistant buildings-batch --limit 5
 ```
 
 **Первый прогон — именно `--limit 5`, не вся очередь.** Смысл в том, чтобы
@@ -202,7 +202,7 @@ Agent(subagent_type: "general-purpose", prompt: <инструкция ниже>)
 ## 5. Применить
 
 ```sh
-fb-rent buildings-apply <путь к buildings-result-*.json>
+rent-assistant buildings-apply <путь к buildings-result-*.json>
 ```
 
 При сомнениях сначала `--dry-run`. Команда печатает по предложению: имя,
@@ -225,7 +225,7 @@ fb-rent buildings-apply <путь к buildings-result-*.json>
 ## 6. Подтверждение — по одному вопросу на предложение
 
 ```sh
-fb-rent buildings list --status proposed
+rent-assistant buildings list --status proposed
 ```
 
 На каждое предложение — свой `AskUserQuestion`. Покажи в нём:
@@ -244,7 +244,7 @@ fb-rent buildings list --status proposed
 Что пользователь подтвердил — записывай:
 
 ```sh
-fb-rent buildings set the-base-central-phuket --policy not_allowed \
+rent-assistant buildings set the-base-central-phuket --policy not_allowed \
   --note "УК: no pets" --alias "base central"
 ```
 
@@ -259,8 +259,8 @@ fb-rent buildings set the-base-central-phuket --policy not_allowed \
 ## 7. Экспорт и отчёт
 
 ```sh
-fb-rent export
-fb-rent buildings conflicts
+rent-assistant export
+rent-assistant buildings conflicts
 ```
 
 Отчитайся коротко:
@@ -269,7 +269,7 @@ fb-rent buildings conflicts
   «Кондо запрещает животных»;
 - `negotiable` — здания, где вопрос решается: эти объявления остаются, и по
   ним есть о чём спросить агента;
-- расхождения из `fb-rent buildings conflicts` — дома, где несколько
+- расхождения из `rent-assistant buildings conflicts` — дома, где несколько
   объявлений обещают животных вопреки правилу: перечисли их со ссылками,
   это очередь ручного разбора, а не сделанная работа;
 - какие предложения пользователь отклонил или отложил (остались `proposed`);
@@ -278,5 +278,5 @@ fb-rent buildings conflicts
 - сколько зданий осталось в очереди.
 
 Решение по конкретному объявлению принимает пользователь через
-`fb-rent reject / unreject / shortlist`. Сам эти команды не вызывай, если не
+`rent-assistant reject / unreject / shortlist`. Сам эти команды не вызывай, если не
 просили.

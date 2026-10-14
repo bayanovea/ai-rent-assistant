@@ -63,8 +63,8 @@ def _timeout_ms(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
-PAGE_LOAD_TIMEOUT_MS: int = _timeout_ms("FB_RENT_PAGE_LOAD_TIMEOUT_MS", 30_000)
-CONTENT_TIMEOUT_MS: int = _timeout_ms("FB_RENT_CONTENT_TIMEOUT_MS", 15_000)
+PAGE_LOAD_TIMEOUT_MS: int = _timeout_ms("RENT_ASSISTANT_PAGE_LOAD_TIMEOUT_MS", 30_000)
+CONTENT_TIMEOUT_MS: int = _timeout_ms("RENT_ASSISTANT_CONTENT_TIMEOUT_MS", 15_000)
 
 MESSAGES_HOME_URL = "https://www.facebook.com/messages/t/"
 
@@ -148,7 +148,7 @@ def _guard_page(page: "Page") -> None:
     """Raise if this page is not a normal, authenticated Messenger view."""
     if _detect_login_redirect(page):
         raise LoginRequiredError(
-            "Facebook redirected to login. Run `fb-rent login` and retry."
+            "Facebook redirected to login. Run `rent-assistant login` and retry."
         )
     if _detect_pin_dialog(page):
         raise MessengerPinRequiredError(
@@ -410,7 +410,7 @@ def read_thread(context: "BrowserContext", thread_id: str) -> dict[str, Any] | N
         except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
             if _detect_login_redirect(page):
                 raise LoginRequiredError(
-                    "Facebook redirected to login. Run `fb-rent login` and retry."
+                    "Facebook redirected to login. Run `rent-assistant login` and retry."
                 ) from exc
             return None
 

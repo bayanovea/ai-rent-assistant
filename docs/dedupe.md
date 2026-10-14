@@ -10,9 +10,9 @@ one catches something the others cannot.
 |---|---|---|
 | `fb_id` | the same posting seen again | on write |
 | `exact` | the same ad text at the same price (`content_key`) | on write |
-| `photos` | two of the first three gallery shots are the same pictures | `fb-rent dedupe` |
-| `text` | the ad body is all but identical — a repost with a line edited | `fb-rent dedupe` |
-| `manual` | you pointed at the pair yourself | `fb-rent dedupe <id> --into <id>` |
+| `photos` | two of the first three gallery shots are the same pictures | `rent-assistant dedupe` |
+| `text` | the ad body is all but identical — a repost with a line edited | `rent-assistant dedupe` |
+| `manual` | you pointed at the pair yourself | `rent-assistant dedupe <id> --into <id>` |
 
 A signal merges on its own only if it **identifies** a flat rather than
 describes one. There used to be a sixth, `facts` — same project, same price,
@@ -36,7 +36,7 @@ table and pressing `d` asks something else — *I have seen this flat before,
 find it* — and the answer has to survive being wrong, because a merge deletes
 a row.
 
-So `fb-rent dedupe <fb_id>` merges only what the hard signals already tie to
+So `rent-assistant dedupe <fb_id>` merges only what the hard signals already tie to
 that row, pairwise. Pairwise is the whole difference from the whole-base pass:
 there the veto is checked against the entire group, and a third listing that
 claims another floor pulls apart a pair that is one flat (see "the group of
@@ -50,7 +50,7 @@ runs on — each with the `--into` that merges it:
 ```
 Nothing merged: no signal ties 9000000000000006 to another listing.
 Closest rows — run one of these if it is the same flat:
-  fb-rent dedupe 9000000000000006 --into 9000000000000005
+  rent-assistant dedupe 9000000000000006 --into 9000000000000005
       1 bed 1 bathroom – Flat — 25000 THB [active] — тот же проект,
       текст совпадает на 62%, столько же спален, та же цена;
       но этаж, корпус или площадь расходятся
@@ -146,7 +146,7 @@ from the index. The thresholds live in `config.py`:
 `PHOTO_HASH_COMMON_MAX = 4`.
 
 Rows scraped before the hash stage existed are caught up with
-`fb-rent photo-hash`; `ai-status` prints the queue.
+`rent-assistant photo-hash`; `ai-status` prints the queue.
 
 ### The 2026-08-26 backfill: the thresholds hold
 

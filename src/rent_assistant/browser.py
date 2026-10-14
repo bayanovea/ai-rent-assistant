@@ -1,7 +1,7 @@
-"""Playwright browser session helpers for fb-rent.
+"""Playwright browser session helpers for rent-assistant.
 
 Uses a persistent Chromium context under ``BROWSER_PROFILE_DIR`` so the
-user logs in once via ``fb-rent login`` and later headless scrapes reuse
+user logs in once via ``rent-assistant login`` and later headless scrapes reuse
 the same cookies/localStorage. Facebook sessions typically live 1–4 weeks.
 """
 

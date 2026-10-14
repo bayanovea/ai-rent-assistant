@@ -1,4 +1,4 @@
-"""Tests for `fb-rent ai-field` — the one CLI command that mutates state.
+"""Tests for `rent-assistant ai-field` — the one CLI command that mutates state.
 
 The other AI commands are thin wrappers over `ai_batch` / `storage` /
 `decisions`, already covered by their own unit tests. `ai-field add` rewrites
@@ -13,8 +13,8 @@ import shutil
 import pytest
 from click.testing import CliRunner
 
-from fb_rent import ai_schema, config
-from fb_rent.cli import main
+from rent_assistant import ai_schema, config
+from rent_assistant.cli import main
 
 
 @pytest.fixture()

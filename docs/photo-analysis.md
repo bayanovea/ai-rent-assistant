@@ -67,14 +67,14 @@ Neither `/analyze` nor `ai-status` offers the photo pass. An agent should not
 start one on its own just because the queue is not empty.
 
 ```sh
-fb-rent scrape                  # the gallery is downloaded here, whole
-fb-rent ai-status               # the "Фото" block: analysed / pending / no photos
+rent-assistant scrape                  # the gallery is downloaded here, whole
+rent-assistant ai-status               # the "Фото" block: analysed / pending / no photos
    # /analyze, then you read the table and cut what is wrong
-fb-rent photos-fetch            # galleries for the survivors
-fb-rent photo-batch --limit 25  # -> ../data/ai/photo-batch-<ts>.json
+rent-assistant photos-fetch            # galleries for the survivors
+rent-assistant photo-batch --limit 25  # -> ../data/ai/photo-batch-<ts>.json
    # /photo-analyze: subagent fan-out, result in photo-result-<ts>.json
-fb-rent photo-apply <result>    # merge fields, recompute decide and score
-fb-rent export
+rent-assistant photo-apply <result>    # merge fields, recompute decide and score
+rent-assistant export
 ```
 
 ## Measured on live data
@@ -241,7 +241,7 @@ feed:
 
 ```sh
 rm -rf ../data/photos/<fb_id>
-fb-rent scrape --refresh
+rent-assistant scrape --refresh
 ```
 
 ## On plan limits

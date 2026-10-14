@@ -21,14 +21,14 @@ replace it.
 
 | # | Step | Who runs it | Reads | Writes |
 |---|------|-------------|-------|--------|
-| — | `fb-rent login` | you, once every 1–4 weeks | — | `data/browser-profile/` |
-| 1 | `fb-rent scrape` (and/or `fb-rent scrape-groups`), then `fb-rent dedupe` | you / cron | Facebook | `listings`, `photo_hashes`, `duplicates`, `photos/<fb_id>/` |
+| — | `rent-assistant login` | you, once every 1–4 weeks | — | `data/browser-profile/` |
+| 1 | `rent-assistant scrape` (and/or `rent-assistant scrape-groups`), then `rent-assistant dedupe` | you / cron | Facebook | `listings`, `photo_hashes`, `duplicates`, `photos/<fb_id>/` |
 | 2 | `/analyze` skill | Claude Code (Opus) | `listings.description`, `config/requirements.md`, `config/ai_fields.json` | `ai_analysis.data_json`, auto-rejections |
 | 3 | reading the table | **you** | `data/rentals.html` | `data/decisions.json` |
-| 4 | `fb-rent photos-fetch`, then `/photo-analyze` | you, then Claude Code (Sonnet subagents) | stored gallery URLs, then the photo files | `photos/<fb_id>/`, `ai_analysis.photo_data_json` |
+| 4 | `rent-assistant photos-fetch`, then `/photo-analyze` | you, then Claude Code (Sonnet subagents) | stored gallery URLs, then the photo files | `photos/<fb_id>/`, `ai_analysis.photo_data_json` |
 | 5 | reading the table again | **you** | `data/rentals.html` | `data/decisions.json` |
 | — | `/pets-policy` skill | you ask for it, occasionally | the web, one search per building | `data/buildings.json` (proposals), then your confirmations |
-| — | `fb-rent export` | after anything above | the DB + `decisions.json` + `buildings.json` | `rentals.csv`, `rentals.html` |
+| — | `rent-assistant export` | after anything above | the DB + `decisions.json` + `buildings.json` | `rentals.csv`, `rentals.html` |
 
 Stage 3 is not a formality. The photo queue skips everything you rejected, so
 every listing you throw out by hand before stage 4 is tokens not spent. Neither
@@ -37,7 +37,7 @@ every listing you throw out by hand before stage 4 is tokens not spent. Neither
 It is also the stage that stalls, and the reason is arithmetic: it is the only
 one that costs a person's attention per row. So the table takes decisions from
 the keyboard — `↓ ↑` to walk, `1`–`5` to mark, `r` to reject — and hands back a
-block of `fb-rent rate` / `reject` commands to paste in one go, rather than
+block of `rent-assistant rate` / `reject` commands to paste in one go, rather than
 asking for one command per listing. See [data-layout.md](data-layout.md#the-html-export).
 
 Which stages can run alone, and which genuinely depend on each other, is the
@@ -104,7 +104,7 @@ is to write a batch out and read a result back.
 
 A result file is rejected wholesale if it carries a key the registry does not
 know — new signals go into `proposed_new_fields`, and you decide whether they
-become columns ([`ai-field add`](cli.md#fb-rent-ai-field)). The photo pass
+become columns ([`ai-field add`](cli.md#rent-assistant-ai-field)). The photo pass
 mirrors this with `photo-batch` / `photo-apply`, keyed on `photos_hash` instead
 of the text hash.
 
@@ -115,17 +115,17 @@ megabytes over a big run, and most of those listings will be rejected on their
 text alone. So a wide sweep splits collection from downloading:
 
 ```sh
-fb-rent scrape --bands 4 --max 60 --days 7 --detail-cap 150 --no-photos
-fb-rent dedupe
+rent-assistant scrape --bands 4 --max 60 --days 7 --detail-cap 150 --no-photos
+rent-assistant dedupe
 # /analyze  — the text pass, does not touch Facebook
 # you read the table and cut what is obviously wrong
-fb-rent photos-fetch --all      # only for what survived
+rent-assistant photos-fetch --all      # only for what survived
 # /photo-analyze
 ```
 
 The stored gallery URLs are signed and expire in about a week, which is what
 makes this order possible at all — and what bounds it. Past the expiry only the
-detail page can hand out fresh links (`fb-rent scrape --ids <fb_id>`).
+detail page can hand out fresh links (`rent-assistant scrape --ids <fb_id>`).
 
 ## What can run on its own
 
@@ -157,7 +157,7 @@ Only three couplings are real:
 
 Note what is *not* in that list: `photo-hash` does not depend on the photo pass
 at all. It is a dedupe signal, it runs inline in every `scrape` (including
-`--no-photos`), and `fb-rent photo-hash` only exists to catch up rows scraped
+`--no-photos`), and `rent-assistant photo-hash` only exists to catch up rows scraped
 before the stage did.
 
 ### What can run at the same time

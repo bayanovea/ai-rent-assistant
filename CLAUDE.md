@@ -1,4 +1,4 @@
-# fb-rent — notes for Claude
+# rent-assistant — notes for Claude
 
 Traps only. Each entry below is something the code depends on that reading the
 code does not reveal, and that a plausible-looking change would break. How the
@@ -178,7 +178,7 @@ the middle band so that some mark maps back to `active` silently breaks the
 queue — nothing raises, the tab just stops emptying.
 
 **`d` is per-row, `Shift`+`D` is the whole base — and the merge never
-guesses.** `d` means "I have already seen this flat": `fb-rent dedupe <fb_id>`
+guesses.** `d` means "I have already seen this flat": `rent-assistant dedupe <fb_id>`
 looks for the copy carrying your decision and merges this row into it, running
 the same hard signals **pairwise**, without the whole-base pass's group veto —
 which is the only reason the pair is still standing. When no signal matches it

@@ -1,6 +1,6 @@
 ---
 name: photo-analyze
-description: Второй проход по фотографиям листингов fb-rent — прогнать цикл photo-batch → веер сабагентов по картинкам → photo-apply → export. Активируется ТОЛЬКО по явной просьбе: «проанализируй фото», «посмотри картинки объявлений», «photo analyze», «/photo-analyze». Непустая очередь фото в `ai-status` сама по себе поводом не является: проход идёт после того, как пользователь просмотрел таблицу и отклонил лишнее руками.
+description: Второй проход по фотографиям листингов rent-assistant — прогнать цикл photo-batch → веер сабагентов по картинкам → photo-apply → export. Активируется ТОЛЬКО по явной просьбе: «проанализируй фото», «посмотри картинки объявлений», «photo analyze», «/photo-analyze». Непустая очередь фото в `ai-status` сама по себе поводом не является: проход идёт после того, как пользователь просмотрел таблицу и отклонил лишнее руками.
 ---
 
 # Анализ фотографий листингов
@@ -25,17 +25,17 @@ description: Второй проход по фотографиям листин�
 ## 1. Проверить очередь
 
 ```sh
-fb-rent ai-status
+rent-assistant ai-status
 ```
 
 Смотри блок «Фото»:
 
 - `Pending: 0` — смотреть нечего, скажи об этом и остановись (разве что
-  просят пересмотреть конкретные id — тогда `fb-rent photo-batch --ids <ID>`);
+  просят пересмотреть конкретные id — тогда `rent-assistant photo-batch --ids <ID>`);
 - `No photos: N` — у этих листингов на диске нет картинок. Скажи
   пользователю:
 
-  > N листингов без фото. Запусти `fb-rent photos-fetch`, потом
+  > N листингов без фото. Запусти `rent-assistant photos-fetch`, потом
   > вернёмся к фото-анализу.
 
   Это не повод останавливаться, если `Pending` при этом больше нуля:
@@ -47,7 +47,7 @@ fb-rent ai-status
 ## 2. Собрать batch
 
 ```sh
-fb-rent photo-batch --limit 25
+rent-assistant photo-batch --limit 25
 ```
 
 Команда печатает путь вида `.../ai/photo-batch-YYYYMMDD-HHMMSS.json`.
@@ -151,7 +151,7 @@ Agent(subagent_type: "general-purpose", model: "sonnet", prompt: <инструк
 ## 5. Применить
 
 ```sh
-fb-rent photo-apply <путь к photo-result-*.json>
+rent-assistant photo-apply <путь к photo-result-*.json>
 ```
 
 При сомнениях сначала `--dry-run`. Команда печатает:
@@ -175,7 +175,7 @@ fb-rent photo-apply <путь к photo-result-*.json>
 Затем:
 
 ```sh
-fb-rent ai-field add --key balcony_view --label "Вид с балкона" \
+rent-assistant ai-field add --key balcony_view --label "Вид с балкона" \
   --type enum --values sea,city,yard,none,unclear --group amenity \
   --source photo --prompt "Что видно с балкона на фото" [--backfill]
 ```
@@ -189,7 +189,7 @@ fb-rent ai-field add --key balcony_view --label "Вид с балкона" \
 ## 7. Экспорт и отчёт
 
 ```sh
-fb-rent export
+rent-assistant export
 ```
 
 Отчитайся коротко:
@@ -200,9 +200,9 @@ fb-rent export
 - `photo_quality: render` / `floorplan` / `other_unit` — по этим
   объявлениям фотографий фактически нет, о них стоит спросить агента;
 - новые автореджекты с причинами;
-- листинги без фото на диске — им нужен `fb-rent photos-fetch` (а если он
-  скажет, что ссылок нет или они протухли — `fb-rent scrape --ids <fb_id>`).
+- листинги без фото на диске — им нужен `rent-assistant photos-fetch` (а если он
+  скажет, что ссылок нет или они протухли — `rent-assistant scrape --ids <fb_id>`).
 
 Решение по конкретному объекту принимает пользователь через
-`fb-rent reject / unreject / shortlist`. Сам эти команды не вызывай, если
+`rent-assistant reject / unreject / shortlist`. Сам эти команды не вызывай, если
 не просили.

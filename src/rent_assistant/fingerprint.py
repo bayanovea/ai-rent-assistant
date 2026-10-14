@@ -15,7 +15,7 @@ Two hashes, because there are two kinds of repost:
 Both are compared exactly, string to string. Hamming distance would need a
 threshold nobody can pick blind, and empty interiors all look alike.
 
-This is not :mod:`fb_rent.photos`: that module is about files on disk for
+This is not :mod:`rent_assistant.photos`: that module is about files on disk for
 the AI pass and about :func:`photos.photos_hash`, the key that re-queues a
 listing. Here nothing is written at all — the bytes are downloaded, hashed
 and dropped. Writing three previews into ``data/photos/<fb_id>/`` would tell

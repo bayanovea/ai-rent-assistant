@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from fb_rent.browser import LoginRequiredError
-from fb_rent.scraper_detail import check_listing_alive, scrape_detail
+from rent_assistant.browser import LoginRequiredError
+from rent_assistant.scraper_detail import check_listing_alive, scrape_detail
 
 
 class _FakePage:

@@ -1,6 +1,6 @@
 ---
 name: analyze
-description: Проанализировать необработанные листинги fb-rent — прогнать цикл ai-batch → анализ описаний → ai-apply → export. Активируется на «проанализировать листинги», «разбери новые объявления», «analyze listings», «/analyze», а также когда пользователь спрашивает, что нового нашлось в аренде на Пхукете.
+description: Проанализировать необработанные листинги rent-assistant — прогнать цикл ai-batch → анализ описаний → ai-apply → export. Активируется на «проанализировать листинги», «разбери новые объявления», «analyze listings», «/analyze», а также когда пользователь спрашивает, что нового нашлось в аренде на Пхукете.
 ---
 
 # Анализ листингов аренды
@@ -15,25 +15,25 @@ description: Проанализировать необработанные ли�
 ## 1. Проверить очередь
 
 ```sh
-fb-rent ai-status
+rent-assistant ai-status
 ```
 
 Смотри строку `No raw data`. Если она больше нуля — у этих листингов нет
 ни описания, ни `text_lines`, анализировать нечего. Скажи пользователю:
 
-> N листингов без сырых данных. Запусти `fb-rent scrape --ids <fb_id>`, потом
+> N листингов без сырых данных. Запусти `rent-assistant scrape --ids <fb_id>`, потом
 > вернёмся к анализу.
 
 и **остановись**. Не выдумывай факты по одному заголовку.
 
 Если `Pending: 0` и `No raw data: 0` — всё уже проанализировано, скажи об
 этом и остановись (разве что пользователь просит переанализировать
-конкретные id — тогда `fb-rent ai-batch --ids <ID> --ids <ID>`).
+конкретные id — тогда `rent-assistant ai-batch --ids <ID> --ids <ID>`).
 
 ## 2. Собрать batch
 
 ```sh
-fb-rent ai-batch --limit 25
+rent-assistant ai-batch --limit 25
 ```
 
 Команда печатает путь вида `.../ai/batch-YYYYMMDD-HHMMSS.json`.
@@ -174,7 +174,7 @@ batch как `requirements_md` — это письмо агенту, крите�
 ## 8. Применить
 
 ```sh
-fb-rent ai-apply <путь к result-*.json>
+rent-assistant ai-apply <путь к result-*.json>
 ```
 
 Команда печатает счётчики, автореджекты с причинами и список
@@ -196,7 +196,7 @@ fb-rent ai-apply <путь к result-*.json>
 Затем:
 
 ```sh
-fb-rent ai-field add --key electricity_rate --label "Свет ฿/kWh" \
+rent-assistant ai-field add --key electricity_rate --label "Свет ฿/kWh" \
   --type text --group amenity --after price_12m_thb \
   --prompt "Тариф за электричество, если указан" [--backfill]
 ```
@@ -210,7 +210,7 @@ fb-rent ai-field add --key electricity_rate --label "Свет ฿/kWh" \
 ## 10. Экспорт и отчёт
 
 ```sh
-fb-rent export
+rent-assistant export
 ```
 
 Отчитайся пользователю коротко:
@@ -219,14 +219,14 @@ fb-rent export
 - каждый автореджект с причиной (`Животные запрещены`, `Сильно вне
   бюджета`, `Студия`);
 - **топ-5 по score** — id, цена, тип, score и одна фраза почему;
-- листинги с `data_quality != good` — им нужен `fb-rent scrape --ids <fb_id>`;
+- листинги с `data_quality != good` — им нужен `rent-assistant scrape --ids <fb_id>`;
 - что стоит уточнить у агента (обычно — животные там, где `unclear`).
 
 Топ-5 удобно достать так:
 
 ```sh
 python -c "
-from fb_rent import config, storage
+from rent_assistant import config, storage
 conn = storage.init_db(config.DB_PATH)
 rows = [i for i in storage.fetch_enriched(conn) if i['analyzed'] and i['status'] != 'rejected']
 for r in sorted(rows, key=lambda i: i['score'] or 0, reverse=True)[:5]:
@@ -234,12 +234,12 @@ for r in sorted(rows, key=lambda i: i['score'] or 0, reverse=True)[:5]:
 "
 ```
 
-Загляни в блок «Фото» в `fb-rent ai-status` и просто назови число:
+Загляни в блок «Фото» в `rent-assistant ai-status` и просто назови число:
 
 > У N объявлений фотографии ещё не смотрели.
 
 **Запускать `/photo-analyze` не предлагай.** Порядок такой: пользователь
-сам просматривает таблицу, отклоняет лишнее через `fb-rent reject`, и
+сам просматривает таблицу, отклоняет лишнее через `rent-assistant reject`, и
 только потом сам просит посмотреть фото у тех, кто остался. Отклонённые
 руками в фото-очередь не попадают, так что каждый реджект до прохода —
 сэкономленные токены.
@@ -250,7 +250,7 @@ for r in sorted(rows, key=lambda i: i['score'] or 0, reverse=True)[:5]:
 запрещены».
 
 Решение по конкретному объекту принимает пользователь — он записывает
-его через `fb-rent reject <ID> --reason "..."`, `unreject`, `shortlist`.
+его через `rent-assistant reject <ID> --reason "..."`, `unreject`, `shortlist`.
 Сам эти команды не вызывай, если тебя об этом не попросили: файл
 `data/decisions.json` — это его слово, а не твоё, и оно переживает
 стирание БД.

@@ -187,7 +187,7 @@ def validate_photo_results(
         listed = ", ".join(sorted(unknown))
         raise BatchError(
             f"unknown field keys not in the registry: {listed}. "
-            "Add them via `fb-rent ai-field add --source photo` or move them "
+            "Add them via `rent-assistant ai-field add --source photo` or move them "
             "to proposed_new_fields."
         )
 
@@ -196,7 +196,7 @@ def validate_photo_results(
             "values outside the registry's vocabulary: "
             + "; ".join(bad_values)
             + ". Use one of the declared values, or widen the field with "
-            "`fb-rent ai-field add`."
+            "`rent-assistant ai-field add`."
         )
 
 

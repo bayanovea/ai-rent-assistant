@@ -1,13 +1,13 @@
 # Scraping
 
-What `fb-rent scrape` does is unremarkable — build a search URL, walk the feed,
+What `rent-assistant scrape` does is unremarkable — build a search URL, walk the feed,
 open detail pages, write rows. What is worth reading is why the flags are
 shaped the way they are, because each one encodes something Facebook does to
 you.
 
 ## The session
 
-`fb-rent login` opens a headed Chromium and waits for you to sign in by hand.
+`rent-assistant login` opens a headed Chromium and waits for you to sign in by hand.
 The cookies land in `data/browser-profile/`, and every later run reuses them
 headlessly. Facebook invalidates the session every 1–4 weeks, or after a
 suspicious-activity check; the symptom is `LoginRequiredError` or a run that
@@ -60,12 +60,12 @@ measured, that is about 7.2–7.6 detail pages per minute, night or day.
 
 Rows are upserted inside the loop, one at a time. A run that dies half way
 through (expired session, checkpoint, timeout) keeps everything up to that
-point; only the CSV and HTML exports are left stale, and `fb-rent export`
+point; only the CSV and HTML exports are left stale, and `rent-assistant export`
 refreshes them.
 
 Two environment variables raise the per-page timeouts for a long unattended
-run: `FB_RENT_PAGE_LOAD_TIMEOUT_MS` (default 30000) and
-`FB_RENT_CONTENT_TIMEOUT_MS` (default 15000). Before they existed, a single
+run: `RENT_ASSISTANT_PAGE_LOAD_TIMEOUT_MS` (default 30000) and
+`RENT_ASSISTANT_CONTENT_TIMEOUT_MS` (default 15000). Before they existed, a single
 slow `goto` killed the whole process — only `LoginRequiredError` was caught.
 
 ## A re-sighting must not clobber
@@ -90,7 +90,7 @@ actually incomplete:
 ```sh
 sqlite3 ../data/rentals.db \
   "select fb_id from listings where description is null limit 150;"
-fb-rent scrape --ids <id> --ids <id> ... --detail-cap 150 --no-photos
+rent-assistant scrape --ids <id> --ids <id> ... --detail-cap 150 --no-photos
 ```
 
 The 2026-08-25 sweep left 594 such rows; how they were caught up — in chunks of
@@ -121,7 +121,7 @@ Worth fixing before any mass re-read.
 
 ## Facebook groups — a second source, one table
 
-`fb-rent scrape-groups` reads rental posts from `config.GROUPS`
+`rent-assistant scrape-groups` reads rental posts from `config.GROUPS`
 (`phuketrentsale`, `Villa.For.Rent.Phuket`, `170117323644873` by default) into
 the same `listings` table, tagged `source = "group:<id>"`. Everything
 downstream — AI pass, photo pass, dedupe, decisions, export — treats a group
@@ -181,8 +181,8 @@ The heuristics are expected to drift with Facebook's markup.
 
 ## Troubleshooting
 
-**"No active Facebook session. Run `fb-rent login` first."**
-Cookies expired or were cleared. Re-run `fb-rent login` and sign in again.
+**"No active Facebook session. Run `rent-assistant login` first."**
+Cookies expired or were cleared. Re-run `rent-assistant login` and sign in again.
 
 **Zero list cards, or `LoginRequiredError` mid-scrape.**
 Either the session died between commands, or Facebook shipped a markup change
@@ -196,5 +196,5 @@ Facebook occasionally leaks results outside its own URL filters. The URL
 builder is doing what it can; filter in the table.
 
 **`data_quality: sidebar_noise` in the export.**
-Amber cell, means *re-scrape this one* — `fb-rent scrape --ids <fb_id>` — and
+Amber cell, means *re-scrape this one* — `rent-assistant scrape --ids <fb_id>` — and
 read the general-category caveat above before assuming it will help.

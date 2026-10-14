@@ -178,7 +178,7 @@ def scrape_list(
 
         if _detect_login_redirect(page):
             raise LoginRequiredError(
-                "Facebook redirected to login. Run `fb-rent login` and retry."
+                "Facebook redirected to login. Run `rent-assistant login` and retry."
             )
 
         try:
@@ -188,13 +188,13 @@ def scrape_list(
         except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
             if _detect_login_redirect(page):
                 raise LoginRequiredError(
-                    "Facebook redirected to login. Run `fb-rent login` and retry."
+                    "Facebook redirected to login. Run `rent-assistant login` and retry."
                 ) from exc
             if allow_empty:
                 return []
             raise LoginRequiredError(
                 "No marketplace cards rendered — session likely expired or "
-                "the marketplace layout changed. Run `fb-rent login` and retry."
+                "the marketplace layout changed. Run `rent-assistant login` and retry."
             ) from exc
 
         seen: dict[str, dict[str, Any]] = {}
@@ -246,7 +246,7 @@ def scrape_list(
                 return []
             raise LoginRequiredError(
                 "Marketplace returned zero listings — likely session expired. "
-                "Run `fb-rent login` and retry."
+                "Run `rent-assistant login` and retry."
             )
 
         return list(seen.values())

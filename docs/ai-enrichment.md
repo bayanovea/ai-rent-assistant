@@ -9,11 +9,11 @@ API client and no extra runtime dependency. The CLI's job is only the contract:
 write a batch out, read a result back.
 
 ```sh
-fb-rent ai-status                 # analysed / pending / stale / unusable
-fb-rent ai-batch --limit 25       # -> ../data/ai/batch-<ts>.json
+rent-assistant ai-status                 # analysed / pending / stale / unusable
+rent-assistant ai-batch --limit 25       # -> ../data/ai/batch-<ts>.json
    # the AI reads the batch + config/requirements.md, writes a result file
-fb-rent ai-apply <result.json>    # store fields, verdicts, auto-rejections
-fb-rent export                    # regenerate CSV + HTML
+rent-assistant ai-apply <result.json>    # store fields, verdicts, auto-rejections
+rent-assistant export                    # regenerate CSV + HTML
 ```
 
 In a Claude Code session `/analyze` drives that whole loop
@@ -114,8 +114,8 @@ When the AI keeps seeing a useful signal that has no column, it proposes one in
 choice of a home or the money). `ai-apply` prints the proposal; you decide.
 
 ```sh
-fb-rent ai-field list
-fb-rent ai-field add --key balcony --label Balcony --type enum \
+rent-assistant ai-field list
+rent-assistant ai-field add --key balcony --label Balcony --type enum \
   --values yes,no,unclear --group amenity --after price_12m_thb \
   --prompt "Есть ли балкон" [--backfill]
 ```

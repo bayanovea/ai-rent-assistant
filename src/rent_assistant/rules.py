@@ -204,7 +204,7 @@ def decide(
     district nobody named is not a rejection either.
 
     ``building_policy`` is what the building's own house rule says about pets,
-    already resolved by :mod:`fb_rent.buildings` — the key normalisation, the
+    already resolved by :mod:`rent_assistant.buildings` — the key normalisation, the
     alias lookup and the ``confirmed`` gate all happen there, so a policy that
     reaches this function is one the user has vetted. Only ``not_allowed``
     rejects: ``negotiable`` is the case the user wants kept and asked about,

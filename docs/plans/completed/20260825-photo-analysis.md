@@ -35,7 +35,7 @@
 **Почему один реестр, а не второй файл `config/photo_fields.json`.** Поля вроде `condition`, `furnished`, `kitchen` заполняются обоими проходами. В двух реестрах они существовали бы в двух копиях, которые немедленно разъедутся по `values` и `added_in`, а `unknown_keys` начал бы ронять результаты одного прохода на полях другого. Измерение `source` внутри единого реестра решает то же самое одним ключом.
 
 **Ловушки, которые стоили бы отладки:**
-- Фикстура `home` (`test_cli.py:20-35`) патчит каждую константу `config` по отдельности — пути вычисляются на импорте, подмены одного `FB_RENT_HOME` недостаточно. Новую `PHOTOS_DIR` нужно добавить туда же, иначе тесты запишут фотографии в настоящий `data/`.
+- Фикстура `home` (`test_cli.py:20-35`) патчит каждую константу `config` по отдельности — пути вычисляются на импорте, подмены одного `RENT_ASSISTANT_HOME` недостаточно. Новую `PHOTOS_DIR` нужно добавить туда же, иначе тесты запишут фотографии в настоящий `data/`.
 - Детерминизм в тестах достигается инъекцией `now=` / `requirements_md=` в сигнатуры, а не `freezegun` и не моками. Новые функции должны принимать те же параметры.
 - `conftest.py` в `tests/` нет; фикстуры живут в своих файлах.
 
@@ -81,7 +81,7 @@
 
 ### Исполнение прохода
 
-`fb-rent photo-batch` пишет JSON, скилл поднимает по сабагенту на объявление:
+`rent-assistant photo-batch` пишет JSON, скилл поднимает по сабагенту на объявление:
 
 ```
 Agent(subagent_type: "general-purpose", model: "sonnet", prompt: <инструкция + пути к 6 файлам>)
@@ -101,7 +101,7 @@ Agent(subagent_type: "general-purpose", model: "sonnet", prompt: <инструк
 Определяет форму всего первого шага. Если ссылки лежат в исходнике страницы, скрейпинг почти не замедляется; если нужен лайтбокс — +10-15 с на объявление.
 
 **Files:**
-- Create: `/private/tmp/claude-501/-Users-bayanovea-AI-fb-rent-scrapper/09e3e7e5-1dae-4916-92f4-844c9f6fba74/scratchpad/probe_gallery.py` (одноразовый, в репозиторий не идёт)
+- Create: `/private/tmp/claude-501/-Users-bayanovea-AI-rent-assistant-scrapper/09e3e7e5-1dae-4916-92f4-844c9f6fba74/scratchpad/probe_gallery.py` (одноразовый, в репозиторий не идёт)
 
 - [x] написать скрипт: открыть 2-3 реальные детальные страницы через `browser.launch_persistent`, сдампить `page.content()` и все `img[src]`
 - [x] грепнуть дамп по `scontent` / `fbcdn`, посчитать сколько уникальных URL-ов видно без кликов и какие у них размеры в имени
@@ -142,14 +142,14 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 ### Task 2: Модуль `photos.py` — скачивание, ресайз, пути, хеш
 
 **Files:**
-- Create: `src/fb_rent/photos.py`
+- Create: `src/rent_assistant/photos.py`
 - Create: `tests/test_photos.py`
 - Modify: `pyproject.toml`
-- Modify: `src/fb_rent/config.py`
+- Modify: `src/rent_assistant/config.py`
 - Modify: `tests/test_cli.py`
 
 - [x] добавить `pillow>=10` в `dependencies` в `pyproject.toml`
-- [x] в `config.py` добавить `PHOTOS_DIR = FB_RENT_HOME / "photos"` (рядом с `AI_DIR`, :52), `PHOTO_MAX_COUNT = 6`, `PHOTO_LONG_EDGE_PX = 1024`, `PHOTO_JPEG_QUALITY = 80`
+- [x] в `config.py` добавить `PHOTOS_DIR = RENT_ASSISTANT_HOME / "photos"` (рядом с `AI_DIR`, :52), `PHOTO_MAX_COUNT = 6`, `PHOTO_LONG_EDGE_PX = 1024`, `PHOTO_JPEG_QUALITY = 80`
 - [x] **добавить `PHOTOS_DIR` в фикстуру `home`** (`tests/test_cli.py:20-35`) — без этого тесты пишут в настоящий `data/`
 - [x] `photos_dir(fb_id) -> Path` — путь `data/photos/<fb_id>/`
 - [x] `pick_photo_urls(urls) -> list[str]` — берёт первый URL плюс 5 равномерно по остатку, максимум `PHOTO_MAX_COUNT`
@@ -163,8 +163,8 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 ### Task 3: Извлечение галереи в скрейпере
 
 **Files:**
-- Modify: `src/fb_rent/scraper_detail.py`
-- Modify: `src/fb_rent/cli.py`
+- Modify: `src/rent_assistant/scraper_detail.py`
+- Modify: `src/rent_assistant/cli.py`
 - Modify: `tests/test_extractors.py`
 
 - [x] в `scraper_detail.py` добавить `extract_gallery_urls(page) -> list[str]` по стратегии из Task 1; best-effort, как остальные селекторы в файле — при неудаче пустой список, не исключение
@@ -179,7 +179,7 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 ### Task 4: Реестр полей — измерение `source`
 
 **Files:**
-- Modify: `src/fb_rent/ai_schema.py`
+- Modify: `src/rent_assistant/ai_schema.py`
 - Modify: `config/ai_fields.json`
 - Modify: `tests/test_ai_schema.py`
 
@@ -194,8 +194,8 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 ### Task 5: Очередь фото-прохода
 
 **Files:**
-- Modify: `src/fb_rent/storage.py`
-- Modify: `src/fb_rent/cli.py`
+- Modify: `src/rent_assistant/storage.py`
+- Modify: `src/rent_assistant/cli.py`
 - Modify: `tests/test_storage.py`
 
 - [x] в `_migrate()` добавить ветку по образцу `content_key` (`storage.py:262-270`): пять колонок в `ai_analysis` — `photo_data_json`, `photos_hash`, `photo_schema_version`, `photos_analyzed_at`, `photo_model` — плюс `photo_comment`
@@ -209,14 +209,14 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 ### Task 6: `photo-batch` — сборка батча
 
 **Files:**
-- Create: `src/fb_rent/photo_batch.py`
+- Create: `src/rent_assistant/photo_batch.py`
 - Create: `tests/test_photo_batch.py`
-- Modify: `src/fb_rent/cli.py`
+- Modify: `src/rent_assistant/cli.py`
 
 - [x] `build_photo_batch(conn, registry, *, limit, ids, now=None) -> dict` — верхний уровень: `schema_version`, `photo_analysis_version`, `generated_at`, `requirements_md`, `fields` (только `fields_for("photo")`), `items`. Параметр `now=` обязателен для детерминизма тестов
 - [x] item: `fb_id`, `url`, `photos_hash`, `photos` (список путей), `current_fields` (текущие значения текстового прохода **только по фотополям** — модель должна видеть, что текст уже наобещал, чтобы поймать расхождение), `listing_title`
 - [x] `write_photo_batch(batch, out_dir=None) -> Path` — по образцу `write_batch` (`ai_batch.py:146`): имя `photo-batch-<ts>.json` из цифр `generated_at`, суффикс `-2` при коллизии
-- [x] команда `fb-rent photo-batch` с флагами `--limit` (дефолт 25), `--all`, `--ids`, `--out` — зеркало `ai-batch` (`cli.py:534`), включая ветку «пусто → echo + return с кодом 0»
+- [x] команда `rent-assistant photo-batch` с флагами `--limit` (дефолт 25), `--all`, `--ids`, `--out` — зеркало `ai-batch` (`cli.py:534`), включая ветку «пусто → echo + return с кодом 0»
 - [x] `validate_photo_results(results, registry)` — обязательны `fb_id` и `photos_hash`; `fields` — объект; незнакомые реестру ключи и enum вне `values` роняют файл целиком (как `_validate_results`, `ai_batch.py:222`); **`verdict` не требуется** — вердикт остаётся за текстовым проходом
 - [x] написать тесты: структура батча, отсечение rejected, `--ids`, попадание только фотополей в `fields`, все ветки валидации
 - [x] прогнать тесты
@@ -224,23 +224,23 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 ### Task 7: `photo-apply` — запись и пересчёт
 
 **Files:**
-- Modify: `src/fb_rent/photo_batch.py`
-- Modify: `src/fb_rent/storage.py`
-- Modify: `src/fb_rent/cli.py`
+- Modify: `src/rent_assistant/photo_batch.py`
+- Modify: `src/rent_assistant/storage.py`
+- Modify: `src/rent_assistant/cli.py`
 - Modify: `tests/test_photo_batch.py`
 
 - [x] `upsert_photo_analysis(conn, row, *, now)` в `storage.py` по образцу `upsert_ai_analysis` (`storage.py:613`)
 - [x] `apply_photo_results(conn, registry, result, *, dry_run, now) -> PhotoApplyReport` — пишет `photo_data_json`, `photo_comment`, `photos_hash`, `photo_schema_version` (версию **из файла результата**, как в `ai_batch.py:347-349`), затем по слитым `{**data_json, **photo_data_json}` пересчитывает `rules.decide` и **`rules.score`** и перезаписывает `verdict`-независимые `status` / `reason` / `score`
 - [x] отдельно считать в отчёте расхождения: поля, где фото перекрыло непустое значение текста — это главный продукт прохода, его надо показывать пользователю
 - [x] несовпадение `photos_hash` в результате с текущим на диске → **пропуск записи** с предупреждением. Это намеренное расхождение с текстовым проходом: `apply_results` при расхождении хеша всё равно пишет и сохраняет репортнутый хеш (`ai_batch.py:351`), потому что текст можно перечитать. Здесь же анализ описывает уже не те картинки, и записывать его — значит присвоить объявлению чужие наблюдения
-- [x] команда `fb-rent photo-apply <path>` с `--dry-run`, печатает: применено, расхождений, новых автореджектов с причинами, пропущено, `proposed_new_fields`
+- [x] команда `rent-assistant photo-apply <path>` с `--dry-run`, печатает: применено, расхождений, новых автореджектов с причинами, пропущено, `proposed_new_fields`
 - [x] написать тесты: фото перекрывает текст; `score` меняется после apply; фото роняет объявление в `rejected` через `size_sqm`/`property_type`; `--dry-run` не пишет; несовпадение хеша пропускается; идемпотентность повторного apply
 - [x] прогнать тесты
 
 ### Task 8: Слияние в экспорте и четвёртая полоса
 
 **Files:**
-- Modify: `src/fb_rent/storage.py`
+- Modify: `src/rent_assistant/storage.py`
 - Modify: `tests/test_storage.py`
 
 - [x] в `fetch_enriched` (`storage.py:732`) парсить `photo_data_json` и класть в `fields` слиянием `{**data_json, **photo_data_json}`; запомнить множество перекрытых ключей в `photo_keys`
@@ -255,8 +255,8 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 ### Task 9: Уборка фотографий
 
 **Files:**
-- Modify: `src/fb_rent/ai_batch.py`
-- Modify: `src/fb_rent/storage.py`
+- Modify: `src/rent_assistant/ai_batch.py`
+- Modify: `src/rent_assistant/storage.py`
 - Modify: `tests/test_storage.py`
 
 - [x] в `apply_results` (`ai_batch.py:260`) после автореджекта звать `photos.purge_photos(fb_id)` — отклонённому фото больше не понадобятся, а снятие через `unreject` всё равно потребует `--refresh`
@@ -282,7 +282,7 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 ### Task 11: `ai-field add --source`
 
 **Files:**
-- Modify: `src/fb_rent/cli.py`
+- Modify: `src/rent_assistant/cli.py`
 - Modify: `tests/test_cli_ai_field.py`
 
 - [x] добавить флаг `--source` к `ai-field add` через `click.Choice(sorted(ai_schema.KNOWN_SOURCES))`, дефолт `text` — ровно как сделан `--type` (`cli.py:734`)
@@ -294,7 +294,7 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 
 ### Task 12: Проверка приёмочных критериев
 
-- [x] `fb-rent scrape --max 5` на живом FB (пропущено — не автоматизируется: нужен живой вход в FB; ограничители покрыты тестами `test_photos.py`)
+- [x] `rent-assistant scrape --max 5` на живом FB (пропущено — не автоматизируется: нужен живой вход в FB; ограничители покрыты тестами `test_photos.py`)
 - [x] полный цикл на 5 объявлениях (пропущено — требует живого скрейпа и веера сабагентов с реальными картинками)
 - [x] осмотр `rentals.html` в браузере (пропущено — ручная проверка; разметка полосы, тултипы и бейдж расхождения покрыты тестами на сырой HTML в `test_storage.py`)
 - [x] rejected не попадают в `photo-batch`, каталоги вычищены — покрыто тестами (`test_storage.py::test_fetch_pending_photos_*`, `test_photo_cleanup.py`)
@@ -312,7 +312,7 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 ## Post-Completion
 
 **Ручная проверка:**
-- Прогнать фото-проход на 46 неотклонённых объявлениях, которые уже в БД. Им нужен `fb-rent scrape --refresh` (детальный кап 60 за прогон, `config.py:37`), то есть ~10-15 минут скрейпа перед первым фото-проходом.
+- Прогнать фото-проход на 46 неотклонённых объявлениях, которые уже в БД. Им нужен `rent-assistant scrape --refresh` (детальный кап 60 за прогон, `config.py:37`), то есть ~10-15 минут скрейпа перед первым фото-проходом.
 - Оценить качество Sonnet на спорных случаях из прошлых сессий — в первую очередь The Origin `9000000000000001` (kitchenette vs full kitchen). Если систематически ошибается — поднять сабагентов до Opus 5 с `effort: medium`, это одна строка в скилле.
 
 **Решения после первого прогона:**

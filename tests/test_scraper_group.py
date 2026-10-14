@@ -10,7 +10,7 @@ what stands in for that filter.
 
 from __future__ import annotations
 
-from fb_rent.scraper_group import (
+from rent_assistant.scraper_group import (
     GROUP_POST_RE,
     _extract_body,
     _extract_price_raw,

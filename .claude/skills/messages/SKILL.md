@@ -1,6 +1,6 @@
 ---
 name: messages
-description: Синк переписки в Messenger с владельцами/агентами, первое сообщение (просмотр + животные), разбор ответов — fb-rent messages sync → classify-batch → classify-apply → export, либо messages send по выбору пользователя. Активируется ТОЛЬКО по явной просьбе: «проверь переписку», «напиши владельцам из shortlist», «что там в мессенджере», «/messages». Непустая очередь в `messages status` сама по себе поводом не является — синк идёт в реальный Messenger пользователя, отправка — реальным людям.
+description: Синк переписки в Messenger с владельцами/агентами, первое сообщение (просмотр + животные), разбор ответов — rent-assistant messages sync → classify-batch → classify-apply → export, либо messages send по выбору пользователя. Активируется ТОЛЬКО по явной просьбе: «проверь переписку», «напиши владельцам из shortlist», «что там в мессенджере», «/messages». Непустая очередь в `messages status` сама по себе поводом не является — синк идёт в реальный Messenger пользователя, отправка — реальным людям.
 ---
 
 # Переписка в Messenger
@@ -27,7 +27,7 @@ batch и пиши результат сама, без `Task`/`Agent`.
 ### 1. Синк
 
 ```sh
-fb-rent messages sync
+rent-assistant messages sync
 ```
 
 Тянет папку Marketplace из реального Messenger (headless), никогда не
@@ -45,7 +45,7 @@ fb-rent messages sync
 ### 2. Собрать батч на классификацию
 
 ```sh
-fb-rent messages classify-batch
+rent-assistant messages classify-batch
 ```
 
 Печатает путь вида `.../ai/messages-batch-YYYYMMDD-HHMMSS.json`. Пусто —
@@ -105,13 +105,13 @@ listing_title, messages}`. `messages` — список `{direction, text}` в
 ### 4. Применить
 
 ```sh
-fb-rent messages classify-apply <путь к результату>
+rent-assistant messages classify-apply <путь к результату>
 ```
 
 ### 5. Экспорт и отчёт
 
 ```sh
-fb-rent export
+rent-assistant export
 ```
 
 Отчитайся коротко: сколько разобрано, и по каждому, что попало в
@@ -121,7 +121,7 @@ needs-action — id, заголовок, причина (`viewing_time` / `pets_
 команду, а не сделай сама:
 
 ```
-fb-rent reject <fb_id> --reason "хозяин: животных нельзя"
+rent-assistant reject <fb_id> --reason "хозяин: животных нельзя"
 ```
 
 Решение отклонять или нет — за пользователем, не за тобой: предложи
@@ -130,7 +130,7 @@ fb-rent reject <fb_id> --reason "хозяин: животных нельзя"
 ## Часть Б — первое сообщение
 
 Пользователь описывает выборку текстом («весь shortlist», «shortlist и
-longlist в Bang Tao», список id). Переведи это в флаги `fb-rent messages
+longlist в Bang Tao», список id). Переведи это в флаги `rent-assistant messages
 send`:
 
 - «весь shortlist» → `--status shortlist`
@@ -141,7 +141,7 @@ send`:
 ### 1. Показать черновики
 
 ```sh
-fb-rent messages send --status shortlist
+rent-assistant messages send --status shortlist
 ```
 
 Без `--apply` команда ничего не отправляет — только печатает все черновики
@@ -158,7 +158,7 @@ fb-rent messages send --status shortlist
 ### 3. Отправить
 
 ```sh
-fb-rent messages send --status shortlist --apply --yes
+rent-assistant messages send --status shortlist --apply --yes
 ```
 
 `--yes` пропускает внутреннее `click.confirm` — подтверждение уже получено
@@ -173,5 +173,5 @@ fb-rent messages send --status shortlist --apply --yes
 Сколько отправлено, сколько не удалось (и что с ними делать — обычно
 просто перезапустить `messages send` тем же выбором, уже отправленные
 сами пропустятся). Стадия «Написал» и колонка «Этап» появляются в
-экспорте автоматически — напомни прогнать `fb-rent export`, если ты его
+экспорте автоматически — напомни прогнать `rent-assistant export`, если ты его
 ещё не запускала на этом шаге.

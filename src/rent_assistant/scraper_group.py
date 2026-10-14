@@ -213,13 +213,13 @@ def scrape_group_post(
         except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
             if _safe_login_redirect(page):
                 raise LoginRequiredError(
-                    "Facebook redirected to login. Run `fb-rent login` and retry."
+                    "Facebook redirected to login. Run `rent-assistant login` and retry."
                 ) from exc
             return None
 
         if _detect_login_redirect(page):
             raise LoginRequiredError(
-                "Facebook redirected to login. Run `fb-rent login` and retry."
+                "Facebook redirected to login. Run `rent-assistant login` and retry."
             )
 
         try:
@@ -227,7 +227,7 @@ def scrape_group_post(
         except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
             if _detect_login_redirect(page):
                 raise LoginRequiredError(
-                    "Facebook redirected to login. Run `fb-rent login` and retry."
+                    "Facebook redirected to login. Run `rent-assistant login` and retry."
                 ) from exc
             return None
 
@@ -344,7 +344,7 @@ def scrape_group_feed(
 
         if _detect_login_redirect(page):
             raise LoginRequiredError(
-                "Facebook redirected to login. Run `fb-rent login` and retry."
+                "Facebook redirected to login. Run `rent-assistant login` and retry."
             )
 
         try:
@@ -354,13 +354,13 @@ def scrape_group_feed(
         except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
             if _detect_login_redirect(page):
                 raise LoginRequiredError(
-                    "Facebook redirected to login. Run `fb-rent login` and retry."
+                    "Facebook redirected to login. Run `rent-assistant login` and retry."
                 ) from exc
             if allow_empty:
                 return []
             raise LoginRequiredError(
                 "No group posts rendered — session likely expired or the "
-                "group layout changed. Run `fb-rent login` and retry."
+                "group layout changed. Run `rent-assistant login` and retry."
             ) from exc
 
         seen: dict[str, str] = {}
@@ -419,7 +419,7 @@ def scrape_group_feed(
                 return []
             raise LoginRequiredError(
                 "Group feed returned zero posts — likely session expired. "
-                "Run `fb-rent login` and retry."
+                "Run `rent-assistant login` and retry."
             )
 
         return [

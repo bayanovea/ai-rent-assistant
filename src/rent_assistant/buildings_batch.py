@@ -13,7 +13,7 @@ every flat in the tower, present and future, so the queue is
 **Apply proposes; it never decides.** Every entry lands as ``status:
 "proposed"``, which :func:`.buildings.policy_for` refuses to hand out — so a
 run of this pass cannot change one listing's status, however confident the
-model was. The user confirms afterwards (``fb-rent buildings set``), and that
+model was. The user confirms afterwards (``rent-assistant buildings set``), and that
 is the only path to a policy that rejects anything. A building the user has
 already confirmed is therefore skipped rather than overwritten: re-proposing
 it would silently retract their word.

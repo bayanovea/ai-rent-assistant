@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from fb_rent.browser import LoginRequiredError
-from fb_rent.scraper_list import scrape_list
+from rent_assistant.browser import LoginRequiredError
+from rent_assistant.scraper_list import scrape_list
 
 
 class _Locator:
@@ -123,7 +123,7 @@ def test_a_card_is_read_in_full_only_once(monkeypatch) -> None:
     card already collected is the same work done twice, and on a long sweep
     it is most of the run.
     """
-    monkeypatch.setattr("fb_rent.scraper_list.time.sleep", lambda _s: None)
+    monkeypatch.setattr("rent_assistant.scraper_list.time.sleep", lambda _s: None)
     reads: list[str] = []
     handles = [_Handle("1", reads), _Handle("2", reads)]
 

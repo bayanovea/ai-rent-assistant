@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from fb_rent import buildings, buildings_batch, storage
+from rent_assistant import buildings, buildings_batch, storage
 
 
 @pytest.fixture()

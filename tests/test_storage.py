@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from fb_rent import (
+from rent_assistant import (
     ai_schema,
     buildings,
     config,
@@ -229,7 +229,7 @@ def test_export_html_empty_db(conn, tmp_path: Path):
     out = tmp_path / "rentals.html"
     storage.export_html(conn, out)
     text = out.read_text(encoding="utf-8")
-    assert "<title>fb-rent listings</title>" in text
+    assert "<title>rent-assistant listings</title>" in text
     assert "const DATA = [];" in text
     # Открывают таблицу ради лучшего, поэтому она сортируется сама.
     assert 'let sorts = [{ key: "score", dir: -1 }];' in text
@@ -299,8 +299,8 @@ def test_export_html_queues_dedupe_by_a_key(conn, tmp_path: Path):
     assert 'if (key === "d") { ev.preventDefault(); toggleDedupeRow(cursorId); return; }' in text
     assert text.index('key === "D"') < text.index("if (!cursorId) return;")
     assert text.index("if (!cursorId) return;") < text.index('key === "d"')
-    assert 'lines.push("fb-rent dedupe " + id)' in text
-    assert 'lines.push("fb-rent dedupe")' in text
+    assert 'lines.push("rent-assistant dedupe " + id)' in text
+    assert 'lines.push("rent-assistant dedupe")' in text
     # Очередь живёт со штампом сборки — иначе она не сбросится сама.
     assert 'const GENERATED_AT = "__GENERATED_AT__"' not in text
     assert "const GENERATED_AT = " in text

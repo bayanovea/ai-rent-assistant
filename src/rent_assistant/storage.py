@@ -1,4 +1,4 @@
-"""SQLite storage layer for fb-rent listings.
+"""SQLite storage layer for rent-assistant listings.
 
 The database is the source of truth; ``rentals.csv`` and ``rentals.html``
 are flat exports regenerated from it. Deduplication is done on ``fb_id``
@@ -2396,7 +2396,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>fb-rent listings</title>
+<title>rent-assistant listings</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 1rem 1.25rem; color: #222; font-size: 12px; }
   /* Шапка — одна карточка из двух полос: «что смотрим» (вкладки) и «чем
@@ -2690,14 +2690,14 @@ const CLIP_AT = 30;
 const openCells = new Set();
 
 /* ---- решения прямо из таблицы -------------------------------------------
-   Записать решение — это `fb-rent rate <id> 4` в терминале, и переключение
+   Записать решение — это `rent-assistant rate <id> 4` в терминале, и переключение
    туда стоит достаточно, чтобы на тысячу активных строк пришлось три десятка
    решений. Клавиши копят решения здесь, в localStorage: он переживает
    `export`, который переписывает этот файл после каждой стадии, — а кнопка
    отдаёт накопленное одним блоком команд. Записывать прямо в decisions.json
    было бы удобнее, но за это пришлось бы отдать главное свойство файла: он
    открывается с диска, без сервера и без сети. */
-const PENDING_KEY = "fb-rent:pending";
+const PENDING_KEY = "rent-assistant:pending";
 let PENDING = {};
 /* Очередь dedupe — рядом с решениями, но не в PENDING: у строки может быть
    и оценка, и «это я уже видел», и одна ячейка PENDING их бы перезаписала.
@@ -2708,7 +2708,7 @@ let PENDING = {};
    и «получилось», и «вы её отклонили руками». Поэтому очередь привязана к
    штампу сборки файла: файл пересобрался — блок команд прогнали, очередь
    пуста. */
-const DEDUPE_KEY = "fb-rent:dedupe";
+const DEDUPE_KEY = "rent-assistant:dedupe";
 let dedupeQueued = false;
 let dedupeIds = new Set();
 // Строка под курсором и то, что сейчас на экране: клавиши ходят по видимому
@@ -3099,14 +3099,14 @@ function commandText() {
   }
   const lines = ids.map(id => {
     const p = PENDING[id];
-    if (p.kind === "rate") return "fb-rent rate " + id + " " + p.v;
-    return (p.kind === "rejected" ? "fb-rent reject " : "fb-rent unreject ") + id;
+    if (p.kind === "rate") return "rent-assistant rate " + id + " " + p.v;
+    return (p.kind === "rejected" ? "rent-assistant reject " : "rent-assistant unreject ") + id;
   });
   // dedupe идёт после решений, а не перед ними: он оставляет ту копию, что
   // несёт больше работы, и ваша оценка — первое, на что он смотрит.
-  dedupeIds.forEach(id => lines.push("fb-rent dedupe " + id));
-  if (dedupeQueued) lines.push("fb-rent dedupe");
-  lines.push("fb-rent export");
+  dedupeIds.forEach(id => lines.push("rent-assistant dedupe " + id));
+  if (dedupeQueued) lines.push("rent-assistant dedupe");
+  lines.push("rent-assistant export");
   return lines.join("\n");
 }
 

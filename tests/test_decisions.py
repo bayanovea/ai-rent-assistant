@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from fb_rent import decisions as dec
-from fb_rent import storage
+from rent_assistant import decisions as dec
+from rent_assistant import storage
 
 
 @pytest.fixture()

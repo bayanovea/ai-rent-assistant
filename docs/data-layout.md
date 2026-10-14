@@ -4,8 +4,8 @@ Two directories matter: `data/` next to the checkout, which holds everything
 the machine produced and can mostly reproduce, and `config/` inside the
 package, which holds the things you edit and version-control.
 
-Override the base path with `FB_RENT_HOME`, e.g.
-`FB_RENT_HOME=/tmp/fb-rent-test fb-rent scrape`.
+Override the base path with `RENT_ASSISTANT_HOME`, e.g.
+`RENT_ASSISTANT_HOME=/tmp/rent-assistant-test rent-assistant scrape`.
 
 ## `data/` — state, not source
 
@@ -13,10 +13,10 @@ Sibling of this `scrapper/` package, i.e. `../data/`.
 
 | Path | What it is | If you delete it |
 |------|------------|------------------|
-| `browser-profile/` | persistent Chromium profile: cookies, localStorage | `fb-rent login` again |
+| `browser-profile/` | persistent Chromium profile: cookies, localStorage | `rent-assistant login` again |
 | `rentals.db` | SQLite, the source of truth for everything scraped and analysed | re-scrape and re-analyse; your decisions survive |
-| `rentals.csv` | flat export of the scraped `listings` columns only | `fb-rent export` |
-| `rentals.html` | the full table — AI fields, verdict, score, decisions | `fb-rent export` |
+| `rentals.csv` | flat export of the scraped `listings` columns only | `rent-assistant export` |
+| `rentals.html` | the full table — AI fields, verdict, score, decisions | `rent-assistant export` |
 | `photos/<fb_id>/` | the listing's whole gallery, `01.jpg`, `02.jpg`, … | downloaded again by `photos-fetch` while the links live |
 | `ai/` | `batch-<ts>.json` / `result-<ts>.json` and the photo pass's pair | nothing — pure transport between CLI and AI |
 | `decisions.json` | your verdicts and marks, with reasons | **irreplaceable** |
@@ -62,7 +62,7 @@ status only for `unreject`, which puts an auto-rejected listing back into that
 queue.
 
 A fifth tab, **В работе**, sits alongside these four but is not one of them:
-it is not driven by `status` at all. `fb-rent contact` / `schedule-viewing` /
+it is not driven by `status` at all. `rent-assistant contact` / `schedule-viewing` /
 `mark-viewed` (see [cli.md](cli.md#after-the-shortlist-contact-viewing-comparison))
 record a *stage* — written, viewing scheduled, viewed and awaiting comparison
 — independently of the listing's status, so a row can be `shortlist` and
@@ -176,7 +176,7 @@ decision back; every key that records something also steps to the next row, so
 a row costs one keystroke. Since every mark moves the row off Разобрать, the
 tab shrinks under the cursor as you go. The mark shows up in
 `Моя оценка` in yellow — принято, но ещё не записано — and the "Решения (N)"
-button opens the queue as a ready block of `fb-rent rate` / `reject` commands
+button opens the queue as a ready block of `rent-assistant rate` / `reject` commands
 to paste into a terminal.
 
 `o` opens the row under the cursor on Facebook in a neighbouring tab — the
@@ -185,10 +185,10 @@ that stayed canonical. It is the one row key that does not move the cursor:
 you come back from the ad to decide about that row, not about its neighbour.
 
 `d` means "I have seen this flat already": it queues
-`fb-rent dedupe <fb_id>`, which searches for the copy you decided on earlier
-and merges this row into it. `Shift`+`D` queues the whole-base `fb-rent dedupe`
+`rent-assistant dedupe <fb_id>`, which searches for the copy you decided on earlier
+and merges this row into it. `Shift`+`D` queues the whole-base `rent-assistant dedupe`
 instead — the one key that is not about the row under the cursor. Both go into
-the same block, after the marks and before `fb-rent export`, because dedupe
+the same block, after the marks and before `rent-assistant export`, because dedupe
 keeps the copy carrying the most work and your decision is the first thing it
 looks at. Pressing the key again takes it back out; the queued row wears
 `склеить` in its ID cell.
@@ -232,7 +232,7 @@ Version-controlled inside the package, because they are inputs, not state.
 
 Both are read from the checkout through a path relative to the package source,
 which is why `pip install -e .` is required and a plain `pip install .` breaks
-every `ai-*` command and `fb-rent export`.
+every `ai-*` command and `rent-assistant export`.
 
 ## The database
 
@@ -253,7 +253,7 @@ The tables that carry the work:
   JSON file is the original; this table exists so the exporter can join. Next
   to `status`/`reason`/`rating` it also carries `stage`/`stage_fb_id`/
   `stage_at`/`stage_note` — the post-shortlist pipeline, written by
-  `fb-rent contact` / `schedule-viewing` / `mark-viewed` and independent of
+  `rent-assistant contact` / `schedule-viewing` / `mark-viewed` and independent of
   `status` (see the «В работе» tab above and
   [cli.md](cli.md#after-the-shortlist-contact-viewing-comparison)).
 - `buildings` — a mirror of `buildings.json`, refreshed on every `export` and

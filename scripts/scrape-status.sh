@@ -3,7 +3,7 @@
 # the run's log (which bands were asked, and what they answered) and the DB
 # (which rows have landed since it started).
 #
-# There is no per-listing progress to read. `fb-rent scrape` shows a click
+# There is no per-listing progress to read. `rent-assistant scrape` shows a click
 # progressbar, and click prints only the label when stdout is not a tty — so
 # a redirected run leaves nothing behind between "Collected N list cards" and
 # "Done." Rows are upserted one at a time inside the detail loop, which makes
@@ -13,7 +13,7 @@
 
 set -uo pipefail
 
-DATA=~/AI/fb-rent/data
+DATA=~/AI/rent-assistant/data
 DB="$DATA/rentals.db"
 LOG=${1:-$DATA/sweep/fresh.log}
 

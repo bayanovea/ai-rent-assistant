@@ -1,16 +1,16 @@
-"""Command-line entry point for fb-rent.
+"""Command-line entry point for rent-assistant.
 
 Wires the browser, list scraper, detail scraper, extractors and SQLite
 storage layers into three commands:
 
-- ``fb-rent login`` — opens a headed Chromium via a persistent profile so
+- ``rent-assistant login`` — opens a headed Chromium via a persistent profile so
   the user can log into Facebook once. Cookies live in the profile and
   are reused by later headless scrape runs.
-- ``fb-rent scrape`` — orchestrator: builds the marketplace search URL,
+- ``rent-assistant scrape`` — orchestrator: builds the marketplace search URL,
   scrapes the list, walks each item's detail page with a random 3–7 s
   jitter, extracts structured fields and upserts them into SQLite. Ends
   by regenerating the CSV and HTML exports.
-- ``fb-rent export`` — regenerates the CSV and HTML exports from the
+- ``rent-assistant export`` — regenerates the CSV and HTML exports from the
   current DB without touching the network. Useful for verification.
 
 The ``ai-*`` commands drive the enrichment loop: ``ai-status`` reports what
@@ -143,12 +143,12 @@ def _enrich(listing: dict[str, Any]) -> dict[str, Any]:
 
 
 @click.group()
-@click.version_option(package_name="fb-rent")
+@click.version_option(package_name="rent-assistant")
 def main() -> None:
     """FB Marketplace Phuket rentals scraper (MVP).
 
-    Run ``fb-rent login`` once to authenticate, then use
-    ``fb-rent scrape`` to pull fresh listings into the local SQLite DB.
+    Run ``rent-assistant login`` once to authenticate, then use
+    ``rent-assistant scrape`` to pull fresh listings into the local SQLite DB.
     """
 
 
@@ -181,7 +181,7 @@ def login_cmd(profile: str | None) -> None:
         if ok:
             click.echo("Login detected. Session saved to persistent profile.")
         else:
-            _echo_err("Timed out waiting for login. Re-run `fb-rent login`.")
+            _echo_err("Timed out waiting for login. Re-run `rent-assistant login`.")
             sys.exit(1)
     finally:
         try:
@@ -351,8 +351,8 @@ def _process_cards(
                     _echo_err(
                         f"Stopped after {inserted + updated + duplicates} "
                         "listing(s) — those are already in the DB. Run "
-                        "`fb-rent export` to refresh the exports, then "
-                        "`fb-rent login` and scrape again."
+                        "`rent-assistant export` to refresh the exports, then "
+                        "`rent-assistant login` and scrape again."
                     )
                     sys.exit(3)
                 if detail is None:
@@ -585,7 +585,7 @@ def scrape_cmd(
 
             if not is_logged_in(context):
                 _echo_err(
-                    "No active Facebook session. Run `fb-rent login` first."
+                    "No active Facebook session. Run `rent-assistant login` first."
                 )
                 sys.exit(3)
 
@@ -630,7 +630,7 @@ def scrape_cmd(
                 if not cards:
                     _echo_err(
                         "Every band came back empty — the session has likely "
-                        "expired. Run `fb-rent login` and retry."
+                        "expired. Run `rent-assistant login` and retry."
                     )
                     sys.exit(3)
 
@@ -802,7 +802,7 @@ def scrape_groups_cmd(
                 sys.exit(2)
 
             if not is_logged_in(context):
-                _echo_err("No active Facebook session. Run `fb-rent login` first.")
+                _echo_err("No active Facebook session. Run `rent-assistant login` first.")
                 sys.exit(3)
 
             if targeted:
@@ -828,7 +828,7 @@ def scrape_groups_cmd(
                 if not cards:
                     _echo_err(
                         "Every group came back empty — the session has likely "
-                        "expired. Run `fb-rent login` and retry."
+                        "expired. Run `rent-assistant login` and retry."
                     )
                     sys.exit(3)
 
@@ -859,7 +859,7 @@ def _dedupe_one_cmd(
     """`dedupe <fb_id>`: merge one row, or print what it could be merged with.
 
     No export at the end, unlike the whole-base pass: this runs from the
-    table's block of commands, which already ends in `fb-rent export`, and
+    table's block of commands, which already ends in `rent-assistant export`, and
     a block with a dozen merges in it would otherwise rebuild the file a
     dozen times.
     """
@@ -877,14 +877,14 @@ def _dedupe_one_cmd(
             f"  [{result.reason}]"
         )
         if not dry_run:
-            click.echo("Run `fb-rent export` to refresh the table.")
+            click.echo("Run `rent-assistant export` to refresh the table.")
         return
 
     click.echo(f"Nothing merged: no signal ties {fb_id} to another listing.")
     if not result.candidates:
         click.echo(
             "Nor is any other row close enough to suggest — find it in the "
-            f"table and merge by hand: fb-rent dedupe {fb_id} --into <fb_id>"
+            f"table and merge by hand: rent-assistant dedupe {fb_id} --into <fb_id>"
         )
         return
     click.echo("Closest rows — run one of these if it is the same flat:")
@@ -896,7 +896,7 @@ def _dedupe_one_cmd(
         if cand["contradicts"]:
             why += "; но этаж, корпус или площадь расходятся"
         price = f"{cand['price']} THB" if cand["price"] is not None else "цена не названа"
-        click.echo(f"  fb-rent dedupe {fb_id} --into {cand['fb_id']}")
+        click.echo(f"  rent-assistant dedupe {fb_id} --into {cand['fb_id']}")
         click.echo(f"      {cand['title'][:60]} — {price} [{mark}] — {why}")
 
 
@@ -1157,7 +1157,7 @@ def ai_status_cmd() -> None:
     if no_raw:
         click.echo(
             "  These listings have neither a description nor text lines — "
-            "re-read their pages with `fb-rent scrape --ids <fb_id>` before "
+            "re-read their pages with `rent-assistant scrape --ids <fb_id>` before "
             "analysing them:"
         )
         for row in no_raw[:10]:
@@ -1184,7 +1184,7 @@ def ai_status_cmd() -> None:
     if no_photos:
         click.echo(
             "  These listings have no photos on disk — "
-            "run `fb-rent photos-fetch` to download them:"
+            "run `rent-assistant photos-fetch` to download them:"
         )
         for row in no_photos[:10]:
             click.echo(f"    - {row['fb_id']} {row.get('url') or ''}")
@@ -1204,7 +1204,7 @@ def ai_status_cmd() -> None:
         rows = sum(len(c["listings"]) for c in conflicts)
         click.echo(
             f"  Расхождения:    {len(conflicts)} "
-            f"(объявлений: {rows}) — `fb-rent buildings conflicts`"
+            f"(объявлений: {rows}) — `rent-assistant buildings conflicts`"
         )
 
 
@@ -1273,7 +1273,7 @@ def ai_batch_cmd(
                     selected.append(dict(row))
             if unusable:
                 click.echo(
-                    "No raw text to analyse (run `fb-rent scrape --ids` "
+                    "No raw text to analyse (run `rent-assistant scrape --ids` "
                     f"first): {', '.join(unusable)}"
                 )
             if missing_ids:
@@ -1282,7 +1282,7 @@ def ai_batch_cmd(
         if no_raw and not ids:
             click.echo(
                 f"{len(no_raw)} listing(s) have no raw text — "
-                "run `fb-rent scrape --ids <fb_id>` to make them analysable."
+                "run `rent-assistant scrape --ids <fb_id>` to make them analysable."
             )
         if stale and not ids:
             click.echo(
@@ -1350,7 +1350,7 @@ def photos_fetch_cmd(limit: int, fetch_all: bool, ids: tuple[str, ...]) -> None:
     What makes that possible is that the detail page's gallery links are
     stored with the listing. They are signed and expire in about a week; past
     that only the page itself can hand them out again
-    (`fb-rent scrape --ids <fb_id>`).
+    (`rent-assistant scrape --ids <fb_id>`).
     """
     if limit <= 0 and not fetch_all:
         raise click.ClickException("--limit must be a positive number")
@@ -1414,7 +1414,7 @@ def photos_fetch_cmd(limit: int, fetch_all: bool, ids: tuple[str, ...]) -> None:
         # The CDN links are signed for this account: they resolve through the
         # logged-in context's request client and nowhere else.
         if not is_logged_in(context):
-            _echo_err("No active Facebook session. Run `fb-rent login` first.")
+            _echo_err("No active Facebook session. Run `rent-assistant login` first.")
             sys.exit(3)
 
         with click.progressbar(
@@ -1449,13 +1449,13 @@ def photos_fetch_cmd(limit: int, fetch_all: bool, ids: tuple[str, ...]) -> None:
         click.echo(
             f"No stored gallery links for {len(no_urls)} listing(s) — their "
             "detail page was read before photos were collected. Re-read it: "
-            f"fb-rent scrape --ids {' --ids '.join(no_urls[:5])}"
+            f"rent-assistant scrape --ids {' --ids '.join(no_urls[:5])}"
             + (" ..." if len(no_urls) > 5 else "")
         )
     if failed:
         click.echo(
             f"Every link expired for {len(failed)} listing(s) — re-read the "
-            f"page: fb-rent scrape --ids {' --ids '.join(failed[:5])}"
+            f"page: rent-assistant scrape --ids {' --ids '.join(failed[:5])}"
             + (" ..." if len(failed) > 5 else "")
         )
 
@@ -1487,7 +1487,7 @@ def photo_hash_cmd(limit: int, hash_all: bool, ids: tuple[str, ...]) -> None:
     hashes are the duplicate signal, not the photo pass. The stored gallery
     links are signed and expire in about a week, so a row whose every link
     is gone is past that edge and only its detail page can help
-    (`fb-rent scrape --ids <fb_id>`).
+    (`rent-assistant scrape --ids <fb_id>`).
     """
     if limit <= 0 and not hash_all:
         raise click.ClickException("--limit must be a positive number")
@@ -1534,7 +1534,7 @@ def photo_hash_cmd(limit: int, hash_all: bool, ids: tuple[str, ...]) -> None:
             # The CDN links are signed for this account: they resolve through
             # the logged-in context's request client and nowhere else.
             if not is_logged_in(context):
-                _echo_err("No active Facebook session. Run `fb-rent login` first.")
+                _echo_err("No active Facebook session. Run `rent-assistant login` first.")
                 sys.exit(3)
 
             with click.progressbar(
@@ -1573,13 +1573,13 @@ def photo_hash_cmd(limit: int, hash_all: bool, ids: tuple[str, ...]) -> None:
         click.echo(
             f"No stored gallery links for {len(no_urls)} listing(s) — their "
             "detail page was read before photos were collected. Re-read it: "
-            f"fb-rent scrape --ids {' --ids '.join(no_urls[:5])}"
+            f"rent-assistant scrape --ids {' --ids '.join(no_urls[:5])}"
             + (" ..." if len(no_urls) > 5 else "")
         )
     if failed:
         click.echo(
             f"Every link expired for {len(failed)} listing(s) — re-read the "
-            f"page: fb-rent scrape --ids {' --ids '.join(failed[:5])}"
+            f"page: rent-assistant scrape --ids {' --ids '.join(failed[:5])}"
             + (" ..." if len(failed) > 5 else "")
         )
 
@@ -1658,7 +1658,7 @@ def photo_batch_cmd(
                     selected.append(dict(row))
             if unusable:
                 click.echo(
-                    "No photos on disk (run `fb-rent photos-fetch` first): "
+                    "No photos on disk (run `rent-assistant photos-fetch` first): "
                     f"{', '.join(unusable)}"
                 )
             if missing_ids:
@@ -1667,7 +1667,7 @@ def photo_batch_cmd(
         if no_photos and not ids:
             click.echo(
                 f"{len(no_photos)} listing(s) have no photos on disk — "
-                "run `fb-rent photos-fetch` to download them."
+                "run `rent-assistant photos-fetch` to download them."
             )
 
         if not selected:
@@ -1753,7 +1753,7 @@ def ai_apply_cmd(path: Path, dry_run: bool) -> None:
                 f"  - {proposal.get('key')} ({proposal.get('type', 'text')}): "
                 f"{proposal.get('label', '')}" + (f" — {why}" if why else "")
             )
-        click.echo("  Add one with `fb-rent ai-field add --key ... [--backfill]`.")
+        click.echo("  Add one with `rent-assistant ai-field add --key ... [--backfill]`.")
 
     for warning in report.warnings:
         _echo_err(f"warning: {warning}")
@@ -1815,7 +1815,7 @@ def photo_apply_cmd(path: Path, dry_run: bool) -> None:
                 f"{proposal.get('label', '')}" + (f" — {why}" if why else "")
             )
         click.echo(
-            "  Add one with `fb-rent ai-field add --key ... --source photo "
+            "  Add one with `rent-assistant ai-field add --key ... --source photo "
             "[--backfill]`."
         )
 
@@ -1944,7 +1944,7 @@ def buildings_apply_cmd(path: Path, dry_run: bool) -> None:
     """Store a research result file as proposals awaiting confirmation.
 
     Nothing this command writes can reject a listing: every entry lands as
-    `proposed`, and only `fb-rent buildings set` makes a policy act.
+    `proposed`, and only `rent-assistant buildings set` makes a policy act.
     """
     try:
         result = json.loads(path.read_text(encoding="utf-8"))
@@ -1984,7 +1984,7 @@ def buildings_apply_cmd(path: Path, dry_run: bool) -> None:
     if report.proposed and not dry_run:
         click.echo(
             "These are proposals and change nothing yet — confirm one with "
-            "`fb-rent buildings set <key> --policy <policy>`."
+            "`rent-assistant buildings set <key> --policy <policy>`."
         )
 
 
@@ -2122,7 +2122,7 @@ def buildings_set_cmd(
     stored_key, entry = _find_building(store, key)
     if entry is None:
         raise click.ClickException(
-            f"unknown building {key!r} — `fb-rent buildings list` shows what "
+            f"unknown building {key!r} — `rent-assistant buildings list` shows what "
             "research proposed"
         )
 
@@ -2163,10 +2163,10 @@ def buildings_set_cmd(
         if kept:
             click.echo(
                 f"  Останутся: {kept} — объявления обещают животных вопреки "
-                "правилу дома, `fb-rent buildings conflicts`"
+                "правилу дома, `rent-assistant buildings conflicts`"
             )
     click.echo(
-        f"Saved to {config.BUILDINGS_PATH}. Run `fb-rent export` to refresh "
+        f"Saved to {config.BUILDINGS_PATH}. Run `rent-assistant export` to refresh "
         "the table."
     )
 
@@ -2328,9 +2328,9 @@ def ai_field_add_cmd(
     if backfill:
         commands = []
         if moves_text:
-            commands.append("`fb-rent ai-batch`")
+            commands.append("`rent-assistant ai-batch`")
         if moves_photo:
-            commands.append("`fb-rent photo-batch`")
+            commands.append("`rent-assistant photo-batch`")
         click.echo(
             "Backfill requested: already-analysed listings are pending again — "
             f"run {' and '.join(commands)}."
@@ -2384,7 +2384,7 @@ def _record_decision(
     mark = f" [{entry['rating']:g}]" if entry.get("rating") is not None else ""
     suffix = f" — {entry['reason']}" if entry.get("reason") else ""
     click.echo(f"{fb_id}: {status}{mark}{suffix}")
-    click.echo(f"Saved to {config.DECISIONS_PATH}. Run `fb-rent export` to refresh the table.")
+    click.echo(f"Saved to {config.DECISIONS_PATH}. Run `rent-assistant export` to refresh the table.")
 
 
 @main.command("check-alive")
@@ -2444,7 +2444,7 @@ def check_alive_cmd(statuses: tuple[str, ...], do_apply: bool, reason: str) -> N
             sys.exit(2)
 
         if not is_logged_in(context):
-            _echo_err("No active Facebook session. Run `fb-rent login` first.")
+            _echo_err("No active Facebook session. Run `rent-assistant login` first.")
             sys.exit(3)
 
         for idx, row in enumerate(rows):
@@ -2462,7 +2462,7 @@ def check_alive_cmd(statuses: tuple[str, ...], do_apply: bool, reason: str) -> N
             except LoginRequiredError as exc:
                 _echo_err(str(exc))
                 _echo_err(
-                    f"Stopped after {idx} of {len(rows)} — run `fb-rent login` "
+                    f"Stopped after {idx} of {len(rows)} — run `rent-assistant login` "
                     "and retry for the rest."
                 )
                 break
@@ -2502,7 +2502,7 @@ def check_alive_cmd(statuses: tuple[str, ...], do_apply: bool, reason: str) -> N
     finally:
         conn.close()
     click.echo(
-        f"Auto-rejected {len(dead)} listing(s). Run `fb-rent export` to refresh the table."
+        f"Auto-rejected {len(dead)} listing(s). Run `rent-assistant export` to refresh the table."
     )
 
 
@@ -2557,7 +2557,7 @@ def _resolve_posting(
     ``mark-viewed`` do not need ``--posting`` repeated once ``contact`` set
     it), and beyond that to ``fb_id`` itself.
 
-    Each id must be ``fb_id`` itself or one of the postings ``fb-rent
+    Each id must be ``fb_id`` itself or one of the postings ``rent-assistant
     dedupe`` has already merged into it — the same ids the table's ID cell
     lists — so a typo cannot silently point the stage at some other listing
     entirely. A merged-away posting need not have its own row in ``listings``
@@ -2623,7 +2623,7 @@ def _record_stage(
     note_suffix = f" ({note})" if note else ""
     postings_word = "объявление" if "," not in target else "объявления"
     click.echo(f"{fb_id}: {label}, {postings_word} {target}{when}{note_suffix}")
-    click.echo(f"Saved to {config.DECISIONS_PATH}. Run `fb-rent export` to refresh the table.")
+    click.echo(f"Saved to {config.DECISIONS_PATH}. Run `rent-assistant export` to refresh the table.")
 
 
 @main.command("contact")
@@ -2688,7 +2688,7 @@ def clear_stage_cmd(fb_id: str) -> None:
     finally:
         conn.close()
     click.echo(f"{fb_id}: stage cleared")
-    click.echo(f"Saved to {config.DECISIONS_PATH}. Run `fb-rent export` to refresh the table.")
+    click.echo(f"Saved to {config.DECISIONS_PATH}. Run `rent-assistant export` to refresh the table.")
 
 
 @main.group("messages")
@@ -2741,7 +2741,7 @@ def messages_sync_cmd(since: str | None, limit: int | None, profile: str | None)
             sys.exit(2)
 
         if not is_logged_in(context):
-            login_hint = f"fb-rent login --profile {profile}" if profile else "fb-rent login"
+            login_hint = f"rent-assistant login --profile {profile}" if profile else "rent-assistant login"
             _echo_err(f"No active Facebook session. Run `{login_hint}` first.")
             sys.exit(3)
 
@@ -2791,7 +2791,7 @@ def messages_sync_cmd(since: str | None, limit: int | None, profile: str | None)
                     _echo_err(str(exc))
                     _echo_err(
                         f"Stopped after {idx} of {len(candidates)} — run "
-                        "`fb-rent login` and retry for the rest."
+                        "`rent-assistant login` and retry for the rest."
                     )
                     break
                 except MessengerPinRequiredError as exc:
@@ -2851,7 +2851,7 @@ def messages_sync_cmd(since: str | None, limit: int | None, profile: str | None)
         f"{unmatched} not matched to a listing."
     )
     if new_replies:
-        click.echo("Run `fb-rent messages classify-batch` to read the new replies.")
+        click.echo("Run `rent-assistant messages classify-batch` to read the new replies.")
 
 
 def _selection_rows(
@@ -2985,7 +2985,7 @@ def messages_send_cmd(
             sys.exit(2)
 
         if not is_logged_in(context):
-            login_hint = f"fb-rent login --profile {profile}" if profile else "fb-rent login"
+            login_hint = f"rent-assistant login --profile {profile}" if profile else "rent-assistant login"
             _echo_err(f"No active Facebook session. Run `{login_hint}` first.")
             sys.exit(3)
 
@@ -3053,7 +3053,7 @@ def messages_send_cmd(
 
     click.echo(f"\nSent {sent} of {len(drafts)}, {len(failed)} failed.")
     if sent:
-        click.echo("Run `fb-rent export` to refresh the table.")
+        click.echo("Run `rent-assistant export` to refresh the table.")
 
 
 @messages_group.command("status")
@@ -3153,7 +3153,7 @@ def messages_classify_apply_cmd(result_path: Path, dry_run: bool) -> None:
         return
     click.echo(f"Applied {applied}, skipped {stale} stale.")
     if applied:
-        click.echo("Run `fb-rent export` to refresh the table.")
+        click.echo("Run `rent-assistant export` to refresh the table.")
 
 
 if __name__ == "__main__":

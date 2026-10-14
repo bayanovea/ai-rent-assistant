@@ -11,7 +11,7 @@ from io import BytesIO
 
 from PIL import Image
 
-from fb_rent import config, fingerprint
+from rent_assistant import config, fingerprint
 
 
 def _gradient(width: int = 240, height: int = 180, shift: int = 0) -> Image.Image:

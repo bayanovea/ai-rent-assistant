@@ -12,7 +12,7 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
-from fb_rent import config, photos
+from rent_assistant import config, photos
 
 
 @pytest.fixture()

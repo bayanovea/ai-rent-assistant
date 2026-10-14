@@ -6,13 +6,13 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from fb_rent.config import (
+from rent_assistant.config import (
     DEFAULT_CATEGORY_ID,
     DEFAULT_DAYS_SINCE_LISTED,
     DEFAULT_MAX_PRICE,
     DEFAULT_MIN_PRICE,
 )
-from fb_rent.url_builder import build_marketplace_url, price_bands
+from rent_assistant.url_builder import build_marketplace_url, price_bands
 
 
 def _parse(url: str) -> tuple[urlparse, dict[str, list[str]]]:

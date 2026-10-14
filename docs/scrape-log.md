@@ -37,7 +37,7 @@ there.
 ### 2026-08-25, 15:26–15:48 UTC
 
 ```sh
-fb-rent scrape --bands 6 --max 150 --days 7 --detail-cap 150 --no-photos
+rent-assistant scrape --bands 6 --max 150 --days 7 --detail-cap 150 --no-photos
 ```
 
 | Band, THB | Cards | Hit `--max` |
@@ -62,13 +62,13 @@ next run is `--days 7` again, with a larger `--max`.
 #### What was left to do after that run
 
 1. **Catch up the 594 cards** in batches of 150:
-   `fb-rent scrape --ids <150 ids> --detail-cap 150 --no-photos`. Four batches,
+   `rent-assistant scrape --ids <150 ids> --detail-cap 150 --no-photos`. Four batches,
    ~20 minutes each, an hour or so between them. Distribution across the bands
    as of 25 August: 95 / 115 / 116 / 36 / 116 / 116.
 2. **The text pass** over the 205 listings that have text (`/analyze`, 9
    batches). It never touches Facebook, so it can run alongside the catch-up.
 3. Galleries were not downloaded (`--no-photos`). The links in `gallery_urls`
-   live about a week — `fb-rent photos-fetch` had to happen before
+   live about a week — `rent-assistant photos-fetch` had to happen before
    1 September 2026, after that only via `scrape --ids`.
 
 ### 2026-08-26 — the overnight catch-up of 594 cards
@@ -82,7 +82,7 @@ Facebook session expired) stops the whole run rather than spinning through
 useless attempts.
 
 Timeouts were raised through the new environment variables —
-`FB_RENT_PAGE_LOAD_TIMEOUT_MS=90000`, `FB_RENT_CONTENT_TIMEOUT_MS=45000`
+`RENT_ASSISTANT_PAGE_LOAD_TIMEOUT_MS=90000`, `RENT_ASSISTANT_CONTENT_TIMEOUT_MS=45000`
 (`scraper_detail.py`; the 30 000 / 15 000 defaults are untouched). Before that,
 a single slow `goto` threw out of `scrape_detail` and killed the whole process:
 only `LoginRequiredError` was being caught.
@@ -119,8 +119,8 @@ in `description_from_text_lines` — not the data.
 
 ```sh
 BANDS=6 MAXITEMS=200 DAYS=7 bash data/sweep/run.sh
-# → fb-rent scrape --bands 6 --max 200 --days 7 --detail-cap 99999 --no-photos
-#   FB_RENT_PAGE_LOAD_TIMEOUT_MS=90000 FB_RENT_CONTENT_TIMEOUT_MS=45000
+# → rent-assistant scrape --bands 6 --max 200 --days 7 --detail-cap 99999 --no-photos
+#   RENT_ASSISTANT_PAGE_LOAD_TIMEOUT_MS=90000 RENT_ASSISTANT_CONTENT_TIMEOUT_MS=45000
 ```
 
 | Band, THB | Cards | Hit `--max` | Same band on 25 Aug (`--max 150`) |

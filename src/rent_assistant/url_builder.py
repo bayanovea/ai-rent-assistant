@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
-from fb_rent.config import (
+from rent_assistant.config import (
     DEFAULT_CATEGORY_ID,
     DEFAULT_DAYS_SINCE_LISTED,
     DEFAULT_MAX_PRICE,

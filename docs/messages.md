@@ -8,7 +8,7 @@ break.
 
 Last checked against the live account: **22 September 2026** (Phase 0 recon
 and Phase 1 implementation, same day — `messages.py`, `messenger.py`,
-`storage.py` conversations tables, `fb-rent messages sync`).
+`storage.py` conversations tables, `rent-assistant messages sync`).
 
 ## What the pass is for
 
@@ -302,8 +302,8 @@ account to its own persistent-context directory
 (`data/browser-profile-<name>`, e.g. `browser-profile-partner`), completely
 separate cookies/localStorage from the default profile — `login`, `messages
 sync` and `messages send` all take `--profile NAME`. The second person in the household runs
-`fb-rent login --profile partner` once, headed, to sign into her own account,
-exactly like the primary `fb-rent login` flow.
+`rent-assistant login --profile partner` once, headed, to sign into her own account,
+exactly like the primary `rent-assistant login` flow.
 
 **What deliberately was not built: automatic failover between accounts on
 a rate limit.** A tool that catches `MessagingLimitReachedError` on

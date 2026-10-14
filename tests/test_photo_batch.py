@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from fb_rent import ai_schema, config, photo_batch, photos, rules, storage
+from rent_assistant import ai_schema, config, photo_batch, photos, rules, storage
 
 
 @pytest.fixture()

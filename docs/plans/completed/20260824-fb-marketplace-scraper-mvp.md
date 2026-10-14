@@ -10,7 +10,7 @@
 
 ## Context (from discovery)
 
-- **Проект**: пустая директория `~/AI/fb-rent`, только `.claude/`. Стартуем с нуля.
+- **Проект**: пустая директория `~/AI/rent-assistant`, только `.claude/`. Стартуем с нуля.
 - **Целевой URL**: `https://www.facebook.com/marketplace/110729412288885/propertyrentals` — ID 110729412288885 закрепляет локацию за Пхукетом.
 - **FB URL-параметры** (проверены на marketplace): `minPrice`, `maxPrice`, `sortBy=creation_time_descend`, `daysSinceListed=1|7|30`, `exact=false`. Используем их, чтобы не бороться с пагинацией — свежее всегда сверху.
 - **Известные ограничения FB**: агрессивный антибот, публичного API для marketplace нет, listing detail страница требует авторизации.
@@ -42,7 +42,7 @@
 - **unit tests**: обязательны для чистых функций — `parse_price`, `extract_bedrooms`, `extract_property_type`, `build_marketplace_url`, БД insert/upsert/export.
 - **integration tests**: НЕ пишем для Playwright-скраперов (сеть + живой FB = хрупко). Валидация через ручной прогон.
 - **e2e**: не применимо (нет UI на этой итерации).
-- **manual verification**: после Task 7 — ручной запуск `fb-rent scrape` и осмотр `rentals.csv` в Numbers.
+- **manual verification**: после Task 7 — ручной запуск `rent-assistant scrape` и осмотр `rentals.csv` в Numbers.
 
 ## Progress Tracking
 
@@ -59,9 +59,9 @@
 ```
 ┌─────────────────────────────────────────┐
 │  CLI (click)                            │
-│    fb-rent login    ─┐                  │
-│    fb-rent scrape   ─┼─→ orchestrator   │
-│    fb-rent export   ─┘                  │
+│    rent-assistant login    ─┐                  │
+│    rent-assistant scrape   ─┼─→ orchestrator   │
+│    rent-assistant export   ─┘                  │
 └──────────────┬──────────────────────────┘
                │
        ┌───────┴────────┐
@@ -85,7 +85,7 @@
 
 Ключевые решения:
 
-1. **Playwright + persistent context**. Один раз логинишься руками через `fb-rent login`, cookies/localStorage сохраняются в `~/.fb-rent/browser-profile/`. Дальше скрапер стартует headless и переиспользует сессию. Cookies FB живут 1–4 недели — при 401/redirect на логин показываем понятную ошибку с инструкцией.
+1. **Playwright + persistent context**. Один раз логинишься руками через `rent-assistant login`, cookies/localStorage сохраняются в `~/.rent-assistant/browser-profile/`. Дальше скрапер стартует headless и переиспользует сессию. Cookies FB живут 1–4 недели — при 401/redirect на логин показываем понятную ошибку с инструкцией.
 2. **URL-параметры вместо пагинации**. `sortBy=creation_time_descend` + `minPrice=15000&maxPrice=30000` + `daysSinceListed=7`. Скроллим список до ~N карточек (по умолчанию 40), не гоняемся за всеми страницами. При регулярных запусках новых карточек < 10 — всё умещается в первую «страницу».
 3. **SQLite как source of truth**, CSV — плоский экспорт для просмотра. AI-агенту дальше работать через `sqlite3 rentals.db "SELECT..."`, а глазами смотреть `rentals.csv` в Numbers/Excel.
 4. **Дедупликация по FB listing ID** (URL-slug типа `/marketplace/item/1234567890`). Upsert по этому ключу: если ID уже есть — обновляем `last_seen_at`, `price` (может меняться) и `description`; если нет — insert с `first_seen_at`.
@@ -132,18 +132,18 @@ def build_marketplace_url(
 
 ### CLI команды
 
-- `fb-rent login` — открывает headed браузер, ждёт когда пользователь залогинится, сохраняет сессию, выходит.
-- `fb-rent scrape [--max 40] [--days 7] [--dry-run]` — основная команда, парсит список + детали, пишет в БД, регенерирует CSV.
-- `fb-rent export [--path rentals.csv]` — только регенерация CSV из БД без парсинга (полезно для проверок).
+- `rent-assistant login` — открывает headed браузер, ждёт когда пользователь залогинится, сохраняет сессию, выходит.
+- `rent-assistant scrape [--max 40] [--days 7] [--dry-run]` — основная команда, парсит список + детали, пишет в БД, регенерирует CSV.
+- `rent-assistant export [--path rentals.csv]` — только регенерация CSV из БД без парсинга (полезно для проверок).
 
 ### Структура проекта
 
 ```
-fb-rent/
+rent-assistant/
 ├── pyproject.toml
 ├── README.md
 ├── .gitignore
-├── src/fb_rent/
+├── src/rent_assistant/
 │   ├── __init__.py
 │   ├── cli.py              # click CLI
 │   ├── config.py           # константы, пути, defaults
@@ -173,23 +173,23 @@ fb-rent/
 **Files:**
 - Create: `pyproject.toml`
 - Create: `.gitignore`
-- Create: `src/fb_rent/__init__.py`
-- Create: `src/fb_rent/config.py`
+- Create: `src/rent_assistant/__init__.py`
+- Create: `src/rent_assistant/config.py`
 - Create: `README.md` (минимальный)
 
 - [x] создать `pyproject.toml` с зависимостями: `playwright`, `click`, `python-dateutil`; dev: `pytest`
-- [x] создать `src/fb_rent/config.py` с константами: `DB_PATH`, `CSV_PATH`, `BROWSER_PROFILE_DIR` (все под `~/.fb-rent/` для локального стора, с override через env `FB_RENT_HOME`)
-- [x] создать `.gitignore` (`.venv/`, `__pycache__/`, `*.db`, `*.csv`, `~/.fb-rent/`, `.pytest_cache/`)
+- [x] создать `src/rent_assistant/config.py` с константами: `DB_PATH`, `CSV_PATH`, `BROWSER_PROFILE_DIR` (все под `~/.rent-assistant/` для локального стора, с override через env `RENT_ASSISTANT_HOME`)
+- [x] создать `.gitignore` (`.venv/`, `__pycache__/`, `*.db`, `*.csv`, `~/.rent-assistant/`, `.pytest_cache/`)
 - [x] создать минимальный `README.md` с командой установки (`pip install -e . && playwright install chromium`)
-- [x] прогнать `python -c "import fb_rent.config; print(fb_rent.config.DB_PATH)"` — должно работать
+- [x] прогнать `python -c "import rent_assistant.config; print(rent_assistant.config.DB_PATH)"` — должно работать
 
 ### Task 2: URL builder
 
 **Files:**
-- Create: `src/fb_rent/url_builder.py`
+- Create: `src/rent_assistant/url_builder.py`
 - Create: `tests/test_url_builder.py`
 
-- [x] реализовать `build_marketplace_url(category_id, min_price, max_price, days_since_listed) -> str` в `src/fb_rent/url_builder.py` с дефолтами из config
+- [x] реализовать `build_marketplace_url(category_id, min_price, max_price, days_since_listed) -> str` в `src/rent_assistant/url_builder.py` с дефолтами из config
 - [x] URL-параметры: `minPrice`, `maxPrice`, `daysSinceListed`, `sortBy=creation_time_descend`, `exact=false`
 - [x] написать `tests/test_url_builder.py`: дефолтный URL для Пхукета 15k-30k, кастомные диапазоны, крайние значения
 - [x] тест на неверные аргументы (min > max — должно бросить `ValueError`)
@@ -198,7 +198,7 @@ fb-rent/
 ### Task 3: Text extractors (price, bedrooms, property type)
 
 **Files:**
-- Create: `src/fb_rent/extractors.py`
+- Create: `src/rent_assistant/extractors.py`
 - Create: `tests/test_extractors.py`
 
 - [x] `parse_price(raw: str) -> int | None` — парсит строки типа `"THB25,000"`, `"฿15 000/month"`, `"20K THB"`, возвращает целое в THB или None
@@ -211,7 +211,7 @@ fb-rent/
 ### Task 4: SQLite storage layer
 
 **Files:**
-- Create: `src/fb_rent/storage.py`
+- Create: `src/rent_assistant/storage.py`
 - Create: `tests/test_storage.py`
 
 - [x] `init_db(path: Path)` — создаёт таблицу и индексы из схемы выше, идемпотентно
@@ -224,18 +224,18 @@ fb-rent/
 ### Task 5: Browser/session helper (Playwright)
 
 **Files:**
-- Create: `src/fb_rent/browser.py`
+- Create: `src/rent_assistant/browser.py`
 
 - [x] `launch_persistent(headless: bool) -> BrowserContext` — использует `chromium.launch_persistent_context(user_data_dir=BROWSER_PROFILE_DIR)`, реалистичный `user_agent` (последний stable Chrome на macOS), `viewport 1280x900`, `locale='en-US'`
 - [x] `is_logged_in(context) -> bool` — открывает `https://www.facebook.com/`, проверяет наличие селектора профиля / отсутствие форм логина
 - [x] `login_flow(context)` — открывает `facebook.com/login` в headed режиме, ждёт event ручного логина (polling `is_logged_in` каждые 3 сек до 5 минут), выходит
 - [x] DESIGN: тесты для этого модуля НЕ пишем осознанно — интеграция с живым браузером; проверяем руками через CLI в Task 8
-- [x] MANUAL: `fb-rent login` открывает браузер, залогиниться руками, вторая команда работает headless (skipped — requires live FB / human action)
+- [x] MANUAL: `rent-assistant login` открывает браузер, залогиниться руками, вторая команда работает headless (skipped — requires live FB / human action)
 
 ### Task 6: List scraper
 
 **Files:**
-- Create: `src/fb_rent/scraper_list.py`
+- Create: `src/rent_assistant/scraper_list.py`
 
 - [x] `scrape_list(context, url: str, max_items: int) -> list[dict]` — открывает `url`, ждёт загрузки карточек, скроллит вниз пока не наберёт `max_items` уникальных или не перестанут появляться новые (2 попытки без прироста → стоп)
 - [x] для каждой карточки на списке извлекает: `fb_id` (из ссылки `/marketplace/item/{id}`), `url`, `title`, `price_raw`, `district` (обычно вторая строка на карточке), `cover_image_url`
@@ -248,7 +248,7 @@ fb-rent/
 ### Task 7: Detail scraper
 
 **Files:**
-- Create: `src/fb_rent/scraper_detail.py`
+- Create: `src/rent_assistant/scraper_detail.py`
 
 - [x] `scrape_detail(context, url: str) -> dict` — открывает URL листинга, ждёт загрузки, кликает «See more» на описании если есть, извлекает: `description` (полное), `published_at` (сырой текст FB типа "Listed 3 days ago" — сохраняем как есть в первой итерации), `price_raw` (может отличаться от списка), `raw_json` (всё что смогли достать в dict)
 - [x] rate limit: `random.uniform(3, 7)` сек перед каждым вызовом (не внутри — контролирует orchestrator)
@@ -259,46 +259,46 @@ fb-rent/
 ### Task 8: CLI orchestration
 
 **Files:**
-- Create: `src/fb_rent/cli.py`
-- Modify: `pyproject.toml` (добавить entry-point `fb-rent = fb_rent.cli:main`)
+- Create: `src/rent_assistant/cli.py`
+- Modify: `pyproject.toml` (добавить entry-point `rent-assistant = rent_assistant.cli:main`)
 
-- [x] `fb-rent login` — вызывает `browser.login_flow`, печатает статус
-- [x] `fb-rent scrape [--max 40] [--days 7] [--dry-run] [--skip-details]` — orchestrator:
+- [x] `rent-assistant login` — вызывает `browser.login_flow`, печатает статус
+- [x] `rent-assistant scrape [--max 40] [--days 7] [--dry-run] [--skip-details]` — orchestrator:
   - открывает persistent context (headless)
-  - проверяет `is_logged_in`, при False — понятная ошибка «run `fb-rent login`»
+  - проверяет `is_logged_in`, при False — понятная ошибка «run `rent-assistant login`»
   - строит URL через `url_builder`
   - `scrape_list` → для каждого listing (лимит на прогон 60): `scrape_detail` с задержкой, extract полей, upsert в БД
   - `--dry-run`: печатает что бы сделал, не пишет БД
   - `--skip-details`: только список без захода на карточки (быстрая инкрементальная проверка)
   - в конце: `export_csv`, печатает summary «inserted: X, updated: Y, csv: /path/to/rentals.csv»
-- [x] `fb-rent export [--path]` — только регенерация CSV
-- [x] `fb-rent --help` печатает все команды с описанием
+- [x] `rent-assistant export [--path]` — только регенерация CSV
+- [x] `rent-assistant --help` печатает все команды с описанием
 - [x] DESIGN: тесты на CLI НЕ пишем (тонкая обёртка); логика уже покрыта юнит-тестами нижних слоёв
-- [x] прогнать `pip install -e .` и `fb-rent --help` — команды видны
+- [x] прогнать `pip install -e .` и `rent-assistant --help` — команды видны
 
 ### Task 9: Verify acceptance criteria
 
 **Автоматизируемое** (агент выполняет):
 - [x] `pytest tests/ -v` — все юнит-тесты зелёные (67 passed)
-- [x] `fb-rent --help` — команды видны, `fb-rent scrape --help` показывает все флаги
-- [x] `fb-rent scrape --max 5 --dry-run` без залогиненной сессии — печатает понятную ошибку «run `fb-rent login`», не крашится stacktrace'ом (exit=3, friendly message)
-- [x] `fb-rent export --path /tmp/empty.csv` на пустой БД — создаёт CSV с заголовком, без строк, exit code 0
+- [x] `rent-assistant --help` — команды видны, `rent-assistant scrape --help` показывает все флаги
+- [x] `rent-assistant scrape --max 5 --dry-run` без залогиненной сессии — печатает понятную ошибку «run `rent-assistant login`», не крашится stacktrace'ом (exit=3, friendly message)
+- [x] `rent-assistant export --path /tmp/empty.csv` на пустой БД — создаёт CSV с заголовком, без строк, exit code 0
 
 **Требует ручных действий** (агент помечает как skipped):
-- [x] MANUAL: `fb-rent login` — залогиниться руками, увидеть success сообщение (skipped — requires live FB / human action)
-- [x] MANUAL: `fb-rent scrape --max 5 --dry-run` — печатает список из 5 листингов без записи (skipped — requires live FB / human action)
-- [x] MANUAL: `fb-rent scrape --max 10` — реальный запуск, в БД ~10 записей, CSV сгенерирован (skipped — requires live FB / human action)
+- [x] MANUAL: `rent-assistant login` — залогиниться руками, увидеть success сообщение (skipped — requires live FB / human action)
+- [x] MANUAL: `rent-assistant scrape --max 5 --dry-run` — печатает список из 5 листингов без записи (skipped — requires live FB / human action)
+- [x] MANUAL: `rent-assistant scrape --max 10` — реальный запуск, в БД ~10 записей, CSV сгенерирован (skipped — requires live FB / human action)
 - [x] MANUAL: открыть `rentals.csv` в Numbers/Excel — колонки читаемы, поля заполнены (NULL допустим для heuristic-полей) (skipped — requires live FB / human action)
 - [x] MANUAL: цены всех записей в диапазоне 15000-30000 THB (или NULL если не распарсили) (skipped — requires live FB / human action)
-- [x] MANUAL: повторный `fb-rent scrape --max 10` — `updated > 0`, `inserted` может быть 0, дубликатов нет (skipped — requires live FB / human action)
-- [x] MANUAL: `fb-rent scrape --max 60` — прогон на большем объёме, замерить время; не должно быть банов/капчи (skipped — requires live FB / human action)
+- [x] MANUAL: повторный `rent-assistant scrape --max 10` — `updated > 0`, `inserted` может быть 0, дубликатов нет (skipped — requires live FB / human action)
+- [x] MANUAL: `rent-assistant scrape --max 60` — прогон на большем объёме, замерить время; не должно быть банов/капчи (skipped — requires live FB / human action)
 
 ### Task 10: [Final] Update documentation
 
 **Files:**
 - Modify: `README.md`
 
-- [x] в `README.md` добавить: установку (venv, pip install, playwright install chromium), quickstart (login → scrape → csv), описание всех CLI команд с примерами, где живёт БД (`~/.fb-rent/rentals.db`), troubleshooting (session expired → re-login)
+- [x] в `README.md` добавить: установку (venv, pip install, playwright install chromium), quickstart (login → scrape → csv), описание всех CLI команд с примерами, где живёт БД (`~/.rent-assistant/rentals.db`), troubleshooting (session expired → re-login)
 - [x] отметить в README что это iteration 1 и линкануть на этот plan файл для контекста будущих итераций
 - [x] переместить этот plan файл: `mkdir -p docs/plans/completed && mv docs/plans/20260824-fb-marketplace-scraper-mvp.md docs/plans/completed/`
 
@@ -307,12 +307,12 @@ fb-rent/
 *Требует ручных действий или относится к будущим итерациям.*
 
 **Что нужно сделать руками после автономного прогона** (собрано из всех `MANUAL:` пунктов выше):
-1. `fb-rent login` — залогиниться в открывшемся браузере (2FA, если включена, вводится тоже там); подтвердить что headless-режим потом видит сессию
-2. `fb-rent scrape --max 5 --dry-run` — smoke-check, что список карточек парсится
-3. `fb-rent scrape --max 10` — реальный прогон, проверить что БД и CSV заполнились
+1. `rent-assistant login` — залогиниться в открывшемся браузере (2FA, если включена, вводится тоже там); подтвердить что headless-режим потом видит сессию
+2. `rent-assistant scrape --max 5 --dry-run` — smoke-check, что список карточек парсится
+3. `rent-assistant scrape --max 10` — реальный прогон, проверить что БД и CSV заполнились
 4. Открыть `rentals.csv` в Numbers/Excel — визуально проверить цены (15000-30000 THB), поля, локации (Rawai/Chalong/Kata/Patong/…)
-5. Повторный `fb-rent scrape --max 10` — убедиться в дедупликации (updated > 0)
-6. `fb-rent scrape --max 60` — прогон на большем объёме, замерить время для планирования Hermes-интервала
+5. Повторный `rent-assistant scrape --max 10` — убедиться в дедупликации (updated > 0)
+6. `rent-assistant scrape --max 60` — прогон на большем объёме, замерить время для планирования Hermes-интервала
 7. Если селекторы в `scraper_list.py` / `scraper_detail.py` не сработали — итерация на живых данных (ожидаемая часть работы, не «баг»)
 
 **Известные ограничения этой итерации** (fix в следующих):

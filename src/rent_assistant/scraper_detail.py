@@ -53,8 +53,8 @@ def _timeout_ms(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
-PAGE_LOAD_TIMEOUT_MS: int = _timeout_ms("FB_RENT_PAGE_LOAD_TIMEOUT_MS", 30_000)
-CONTENT_TIMEOUT_MS: int = _timeout_ms("FB_RENT_CONTENT_TIMEOUT_MS", 15_000)
+PAGE_LOAD_TIMEOUT_MS: int = _timeout_ms("RENT_ASSISTANT_PAGE_LOAD_TIMEOUT_MS", 30_000)
+CONTENT_TIMEOUT_MS: int = _timeout_ms("RENT_ASSISTANT_CONTENT_TIMEOUT_MS", 15_000)
 SEE_MORE_TIMEOUT_MS: int = 2_000
 
 # Text FB shows when a listing has been removed or is not visible to the
@@ -368,13 +368,13 @@ def scrape_detail(
             # catch-up driver repairs it by `--ids`.
             if _safe_login_redirect(page):
                 raise LoginRequiredError(
-                    "Facebook redirected to login. Run `fb-rent login` and retry."
+                    "Facebook redirected to login. Run `rent-assistant login` and retry."
                 ) from exc
             return None
 
         if _detect_login_redirect(page):
             raise LoginRequiredError(
-                "Facebook redirected to login. Run `fb-rent login` and retry."
+                "Facebook redirected to login. Run `rent-assistant login` and retry."
             )
 
         try:
@@ -382,7 +382,7 @@ def scrape_detail(
         except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
             if _detect_login_redirect(page):
                 raise LoginRequiredError(
-                    "Facebook redirected to login. Run `fb-rent login` and retry."
+                    "Facebook redirected to login. Run `rent-assistant login` and retry."
                 ) from exc
             if _is_gone(page, url):
                 return None
@@ -446,13 +446,13 @@ def check_listing_alive(context: "BrowserContext", url: str) -> bool | None:
         except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
             if _safe_login_redirect(page):
                 raise LoginRequiredError(
-                    "Facebook redirected to login. Run `fb-rent login` and retry."
+                    "Facebook redirected to login. Run `rent-assistant login` and retry."
                 ) from exc
             return None
 
         if _detect_login_redirect(page):
             raise LoginRequiredError(
-                "Facebook redirected to login. Run `fb-rent login` and retry."
+                "Facebook redirected to login. Run `rent-assistant login` and retry."
             )
 
         if _is_gone(page, url):
@@ -463,7 +463,7 @@ def check_listing_alive(context: "BrowserContext", url: str) -> bool | None:
         except Exception as exc:  # noqa: BLE001 — Playwright's TimeoutError
             if _detect_login_redirect(page):
                 raise LoginRequiredError(
-                    "Facebook redirected to login. Run `fb-rent login` and retry."
+                    "Facebook redirected to login. Run `rent-assistant login` and retry."
                 ) from exc
             return False if _is_gone(page, url) else None
 
