@@ -31,3 +31,15 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# Local settings and agent state
+.claude/settings.local.json
+.ralphex/
+.env
+.env.*
+!.env.example
+
+# Backups
+*.bak
+*.bak-*
+*.backup
