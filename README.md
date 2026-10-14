@@ -55,8 +55,8 @@ the one you rated; Rejected shows the four with "Reason" and "Decided by"
 filled. Hover any AI-filled cell to see the quote it came from. Press `?` on
 the page for the keys: `1`–`5` rate the row under the cursor, `r` rejects,
 `d` merges it into a row you already reviewed, and the "Decisions" button
-hands back the commands to run. `pytest -q` runs 855 tests in about three
-seconds; none of them opens a browser.
+hands back the commands to run. `pip install -e '.[dev]' && pytest -q` runs
+855 tests in about three seconds; none of them opens a browser.
 
 To use it for real: `rent-assistant login` opens a browser for a one-time
 sign-in, `rent-assistant scrape --bands 4` sweeps the price range,
