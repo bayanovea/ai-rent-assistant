@@ -7,7 +7,7 @@ not have: the flags a run used, and whether a band hit our own cap.
 ## A snapshot (ask the DB, do not trust this file)
 
 ```sh
-sqlite3 ../data/rentals.db "
+sqlite3 ~/.rent-assistant/rentals.db "
 select 'total', count(*) from listings
 union all select 'with text', count(*) from listings where description is not null
 union all select 'card only', count(*) from listings where description is null
@@ -17,7 +17,7 @@ union all select 'duplicates', count(*) from duplicates;"
 The catch-up queue is the same text-less rows, as a list of ids:
 
 ```sh
-sqlite3 ../data/rentals.db \
+sqlite3 ~/.rent-assistant/rentals.db \
   "select fb_id from listings where description is null limit 150;"
 ```
 
@@ -73,10 +73,10 @@ next run is `--days 7` again, with a larger `--max`.
 
 ### 2026-08-26 — the overnight catch-up of 594 cards
 
-Driver script: `data/catchup/run.sh` (log in `data/catchup/catchup.log`). Not
+Driver script: `$RENT_ASSISTANT_HOME/catchup/run.sh` (log in `$RENT_ASSISTANT_HOME/catchup/catchup.log`). Not
 batches of 150 but **chunks of 20**: after every chunk the list of missing rows
 is re-queried from the DB, so a chunk that dies does not take the rest with it.
-Every id carries an attempt counter (`data/catchup/attempts.tsv`); after three
+Every id carries an attempt counter (`$RENT_ASSISTANT_HOME/catchup/attempts.tsv`); after three
 failures it goes to a poison list and is not picked up again. `exit 3` (the
 Facebook session expired) stops the whole run rather than spinning through
 useless attempts.
@@ -97,15 +97,15 @@ rejected (215 under 35 m², 191 pets forbidden, 25 studios, 6 Patong).
 
 #### The sidebar instead of the description: 19 rows, a re-scrape does not fix it
 
-`data/catchup/rescrape_noise.sh` re-read the 22 rows whose `description` held
-the "Выбор дня" block. Success was defined as the description **changing**, not
+A one-off script in the data home (`catchup/rescrape_noise.sh`) re-read the 22 rows whose `description` held
+the "Выбор дня" ("Pick of the day") sidebar block. Success was defined as the description **changing**, not
 merely existing — otherwise the script would have happily counted the very same
 sidebar.
 
 Nine were fixed, thirteen were not, and here is why: those are items in the
 **general** Marketplace category, not the property one. Their detail page has
-neither an "Информация о недвижимости" block nor an "Описание" heading — the ad
-text starts right after "Подробнее". `_extract_description` does not know that
+neither an "Информация о недвижимости" ("Property information") block nor an "Описание" ("Description") heading — the ad
+text starts right after "Подробнее" ("See details"). `_extract_description` does not know that
 anchor, falls back to "the longest text block" and brings back the sidebar. A
 repeated scrape is powerless here by construction: the page is the same every
 time.
@@ -118,7 +118,7 @@ in `description_from_text_lines` — not the data.
 ### 2026-08-26, 15:43–18:08 — the sweep with no detail budget
 
 ```sh
-BANDS=6 MAXITEMS=200 DAYS=7 bash data/sweep/run.sh
+BANDS=6 MAXITEMS=200 DAYS=7 bash $RENT_ASSISTANT_HOME/sweep/run.sh
 # → rent-assistant scrape --bands 6 --max 200 --days 7 --detail-cap 99999 --no-photos
 #   RENT_ASSISTANT_PAGE_LOAD_TIMEOUT_MS=90000 RENT_ASSISTANT_CONTENT_TIMEOUT_MS=45000
 ```
@@ -145,8 +145,8 @@ run. The rate held at 6–7 pages per minute for 145 minutes with no browser
 restart and no `LoginRequiredError`, at the same 3–7 s jitter: there is still
 no evidence of Facebook throttling detail pages.
 
-The driver (`data/sweep/run.sh`) re-queries the DB after the sweep and hands
-whatever is left without a description to `data/catchup/run.sh`. On this run
+The driver (`$RENT_ASSISTANT_HOME/sweep/run.sh`) re-queries the DB after the sweep and hands
+whatever is left without a description to `$RENT_ASSISTANT_HOME/catchup/run.sh`. On this run
 the hand-off was a no-op, which is the point — the safety net is for a crash,
 not for a budget we set too low ourselves.
 
@@ -177,7 +177,7 @@ Facebook's own ceiling, and the honest answer is then to split it in two.
 ### 2026-08-26, 18:30–20:52 — the top-up of the three capped bands
 
 ```sh
-MAXITEMS=400 bash data/sweep/topup.sh   # one band per query, cap doubled
+MAXITEMS=400 bash $RENT_ASSISTANT_HOME/sweep/topup.sh   # one band per query, cap doubled
 ```
 
 | Band, THB | Cards (cap 400) | New rows | Known among the cards |
@@ -219,7 +219,7 @@ The band was re-run afterwards on the fixed code.
 
 #### The re-run on the fixed code, 20:53–21:52
 
-`BANDS_TO_REDO="25000:27499" bash data/sweep/topup.sh` — 262 cards, `+173`
+`BANDS_TO_REDO="25000:27499" bash $RENT_ASSISTANT_HOME/sweep/topup.sh` — 262 cards, `+173`
 rows, exit 0. No crash where the same band had died an hour earlier.
 
 Two listings answered `detail unavailable, keeping list-card data`, which is

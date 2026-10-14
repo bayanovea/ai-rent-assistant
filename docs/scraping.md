@@ -8,7 +8,7 @@ you.
 ## The session
 
 `rent-assistant login` opens a headed Chromium and waits for you to sign in by hand.
-The cookies land in `data/browser-profile/`, and every later run reuses them
+The cookies land in `$RENT_ASSISTANT_HOME/browser-profile/`, and every later run reuses them
 headlessly. Facebook invalidates the session every 1–4 weeks, or after a
 suspicious-activity check; the symptom is `LoginRequiredError` or a run that
 collects zero cards.
@@ -88,7 +88,7 @@ burning the budget on them. The right fix is `--ids` over the rows that are
 actually incomplete:
 
 ```sh
-sqlite3 ../data/rentals.db \
+sqlite3 ~/.rent-assistant/rentals.db \
   "select fb_id from listings where description is null limit 150;"
 rent-assistant scrape --ids <id> --ids <id> ... --detail-cap 150 --no-photos
 ```
@@ -125,7 +125,7 @@ Worth fixing before any mass re-read.
 (`phuketrentsale`, `Villa.For.Rent.Phuket`, `170117323644873` by default) into
 the same `listings` table, tagged `source = "group:<id>"`. Everything
 downstream — AI pass, photo pass, dedupe, decisions, export — treats a group
-row exactly like a marketplace one; the `Источник` column in the export is
+row exactly like a marketplace one; the `Source` column in the export is
 the only place the two are told apart, and it filters like any other chip.
 
 **The feed only discovers post ids — it never reads a post's content.** A
@@ -153,8 +153,8 @@ neighbouring post's images structurally, not by a caption heuristic.
 **A post has no title and no relative "N days ago" timestamp.** The title is
 synthesized from the page `<title>` (`"(N) <group name> | <first line of the
 post>"` — only the part after the `|` is kept) or, failing that, the post's
-own first line. The timestamp is FB's compact feed form (`"6 ч."`, `"вчера в
-10:11"`), parsed by `extractors.parse_feed_timestamp` — a marketplace detail
+own first line. The timestamp is FB's compact feed form (`"6 ч."` — "6 h", `"вчера в
+10:11"` — "yesterday at 10:11"), parsed by `extractors.parse_feed_timestamp` — a marketplace detail
 page never shows this form, only groups do, which is why it is a separate
 function from `parse_published_at` rather than a loosened version of it.
 
@@ -168,9 +168,9 @@ deciding how to re-fetch it, so naming a group post's id never opens a dead
 The heuristics are expected to drift with Facebook's markup.
 
 - `description` is taken from `raw_json.text_lines`, sliced after the
-  `Описание` anchor. Listings posted to the *general* Marketplace category
+  `Описание` ("Description") anchor. Listings posted to the *general* Marketplace category
   rather than the property one have no such anchor and no "Информация о
-  недвижимости" block; the fallback picks the longest text block and brings
+  недвижимости" ("Property information") block; the fallback picks the longest text block and brings
   back the sidebar. Re-scraping cannot help — the page is the same every time.
   The ad text is still in `text_lines`, so the analysis can be done from there.
 - `price_thb`, `bedrooms`, `property_type` are heuristic. When they give up,

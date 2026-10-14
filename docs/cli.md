@@ -4,8 +4,8 @@ Every command is a subcommand of `rent-assistant`. The two AI passes are not com
 — they are Claude Code skills (`/analyze`, `/photo-analyze`) that drive the
 commands below; see [pipeline.md](pipeline.md).
 
-Paths default to the sibling `data/` directory; override the base with
-`RENT_ASSISTANT_HOME` (see [data-layout.md](data-layout.md)).
+Paths default to `$RENT_ASSISTANT_HOME` (`~/.rent-assistant` unless the
+variable says otherwise; see [data-layout.md](data-layout.md)).
 
 ## `rent-assistant login`
 
@@ -82,7 +82,7 @@ rent-assistant scrape-groups                                     # every group, 
 rent-assistant scrape-groups --group phuketrentsale --max 20
 
 # repair path: open one post whatever the DB already holds
-rent-assistant scrape-groups --group phuketrentsale --ids 9000000000000003
+rent-assistant scrape-groups --group phuketrentsale --ids 9000000000000001
 ```
 
 `scrape --ids` on an id already in the DB also works for a group post — it
@@ -102,8 +102,8 @@ page. See [dedupe.md](dedupe.md).
 
 ```sh
 rent-assistant dedupe                          # the whole base — Shift+D in the table
-rent-assistant dedupe 9000000000000004         # one row — d in the table
-rent-assistant dedupe 9000000000000004 --into 9000000000000005
+rent-assistant dedupe 9000000000000001         # one row — d in the table
+rent-assistant dedupe 9000000000000001 --into 9000000000000002
 ```
 
 With an id it answers the other question — "I have seen this flat before,
@@ -119,7 +119,7 @@ Regenerates the CSV and HTML from the current DB, and mirrors `decisions.json`
 into it on the way.
 
 ```sh
-rent-assistant export                               # writes ../data/rentals.{csv,html}
+rent-assistant export                               # writes $RENT_ASSISTANT_HOME/rentals.{csv,html}
 rent-assistant export --path /tmp/rentals.csv       # custom CSV destination
 rent-assistant export --html-path /tmp/rentals.html # custom HTML destination
 ```
@@ -130,8 +130,8 @@ The dashboard for both passes. Prints the registry version and field count,
 then the text queue — analysed, pending (with the reason: never analysed,
 description changed, registry grew), stale, and how many listings have no raw
 text at all — then the photo blocks: the photo queue, listings with no pictures
-on disk, and the photo-hash backfill queue (`Фото-хэши: N из M`). It ends with
-the `Здания:` block — how many buildings the pets pass has never researched,
+on disk, and the photo-hash backfill queue (`Photo hashes: N of M`). It ends with
+the `Buildings:` block — how many buildings the pets pass has never researched,
 how many are proposed and how many you confirmed. A non-empty queue there is
 not an invitation: that pass runs when you ask for it.
 
@@ -148,7 +148,7 @@ registry and the raw text of each pending listing.
 | `--limit`  | `25`    | Maximum number of listings in the batch.                |
 | `--all`    | off     | Include every pending listing, ignoring `--limit`.      |
 | `--ids`    | —       | Analyse only these `fb_id`s (repeatable).               |
-| `--out`    | —       | Write elsewhere (default `../data/ai/batch-<ts>.json`). |
+| `--out`    | —       | Write elsewhere (default `$RENT_ASSISTANT_HOME/ai/batch-<ts>.json`). |
 
 Listings already analysed against the current registry are not returned again —
 the loop is idempotent, so re-running `ai-batch` right after `ai-apply` yields
@@ -162,8 +162,8 @@ into `ai_analysis`, applies `rules.py` and reports what happened: applied,
 auto-rejected and why, skipped, and any new fields the AI proposed.
 
 ```sh
-rent-assistant ai-apply ../data/ai/result-20260825-141500.json --dry-run
-rent-assistant ai-apply ../data/ai/result-20260825-141500.json
+rent-assistant ai-apply ~/.rent-assistant/ai/result-20260825-141500.json --dry-run
+rent-assistant ai-apply ~/.rent-assistant/ai/result-20260825-141500.json
 ```
 
 ## `rent-assistant ai-field`
@@ -203,7 +203,7 @@ command exists for the wide-sweep order of work.
 | `--all`   | off     | Fetch the whole queue, ignoring `--limit`.           |
 | `--ids`   | —       | Fetch these `fb_id`s instead of the queue.           |
 
-The queue is what `ai-status` prints under "Фото / No photos": listings the
+The queue is what `ai-status` prints under "Photos / No photos": listings the
 text pass has read, that neither the rules nor you have rejected, and that have
 no pictures on disk. A directory that already holds photos is left alone —
 re-downloading would change `photos_hash` and push an analysed listing back
@@ -250,7 +250,7 @@ The pets pass, keyed by building rather than by listing — one house rule
 answers for every flat in the tower. Full story in
 [pets-policy.md](pets-policy.md).
 
-`buildings-batch` writes `../data/ai/buildings-batch-<ts>.json`: one entry per
+`buildings-batch` writes `$RENT_ASSISTANT_HOME/ai/buildings-batch-<ts>.json`: one entry per
 distinct building over the **active** listings that name a `project_name`,
 ordered by how many listings it covers, together with the `pets` values those
 ads claimed so a contradiction is visible up front.
@@ -282,7 +282,7 @@ The review side of the same pass.
 rent-assistant buildings list --status proposed      # policy, evidence, affected rows
 rent-assistant buildings list --policy not_allowed
 rent-assistant buildings set the-base-central --policy not_allowed \
-    --note "УК: no pets" --alias "base central"
+    --note "juristic office: no pets" --alias "base central"
 rent-assistant buildings conflicts                   # ads that argue with the rule
 rent-assistant export
 ```
@@ -306,18 +306,18 @@ saying the opposite — two or more of them claiming `pets: allowed`
 outright yes in the ad survives the building's rule, because it is the more
 specific claim about that flat. A pile of them in one tower is the signal that
 the research read the wrong building, and this is where it surfaces —
-`ai-status` shows the count on its «Расхождения» line. Nothing here changes a
+`ai-status` shows the count on its `Conflicts:` line. Nothing here changes a
 status; it is a queue for your eyes.
 
 ## Your own decisions
 
 The AI's verdict is a suggestion. Yours wins, and unlike everything else it
-survives a DB wipe — it lives in `../data/decisions.json`.
+survives a DB wipe — it lives in `$RENT_ASSISTANT_HOME/decisions.json`.
 
 ```sh
-rent-assistant reject 1234567890 --reason "агент не отвечает"
-rent-assistant unreject 1234567890 --reason "перезвонили, животные ок"
-rent-assistant shortlist 1234567890 --reason "поехать смотреть в четверг"
+rent-assistant reject 1234567890 --reason "agent does not answer"
+rent-assistant unreject 1234567890 --reason "they called back, pets are fine"
+rent-assistant shortlist 1234567890 --reason "go and see it on Thursday"
 rent-assistant rate 1234567890 4.5          # a 1-5 mark that sets the status itself
 rent-assistant export                       # refresh the table
 ```
@@ -331,7 +331,7 @@ middle drawer, kept to hand. From the keyboard that reads 1–3 out, 4 to the
 longlist, 5 to the shortlist.
 
 No mark ever leaves a listing in the active set, and that is the point: the
-Разобрать tab is the queue of what has not been looked at, so a row still on
+Review tab is the queue of what has not been looked at, so a row still on
 it is a row still waiting for you. Nothing has to be sorted or filtered to
 see what is left.
 
@@ -341,16 +341,16 @@ A second, independent set of commands tracks what happens once you start
 acting on a candidate — contacted the landlord, agreed on a viewing, viewed
 it and not yet decided. This is a **stage**, not a status: it rides alongside
 `shortlist`/`longlist`/whatever the listing's status is, and rejecting the
-listing later does not erase it. A row carrying a stage moves to the «В
-работе» tab instead of sitting in Shortlist among candidates nobody has
-contacted yet — unless it is rejected, in which case it drops out of «В
-работе» the same way a rejected row already drops out of every other tab but
+listing later does not erase it. A row carrying a stage moves to the **In progress**
+tab instead of sitting in Shortlist among candidates nobody has
+contacted yet — unless it is rejected, in which case it drops out of In
+progress the same way a rejected row already drops out of every other tab but
 Rejected.
 
 ```sh
-rent-assistant contact 1234567890 --note "написал в вотсапе"
-rent-assistant schedule-viewing 1234567890 "2026-09-25 14:00" --note "встречает партнёр"
-rent-assistant mark-viewed 1234567890 --note "тесновато, но фото не врали"
+rent-assistant contact 1234567890 --note "messaged on WhatsApp"
+rent-assistant schedule-viewing 1234567890 "2026-09-25 14:00" --note "second person meets them"
+rent-assistant mark-viewed 1234567890 --note "a bit cramped, but the photos did not lie"
 rent-assistant clear-stage 1234567890       # back to nothing — a mistake, or done comparing
 rent-assistant export                       # refresh the table
 ```
@@ -392,9 +392,9 @@ already known from a previous sync (see `CLAUDE.md`).
 known `allowed`) and sends nothing until `--apply`, which asks for one
 confirmation covering the whole batch (`--yes` skips it, for the skill's
 own use once the user has already confirmed). A successful send records
-the `written` stage exactly the way `rent-assistant contact` would — «В работе»
+the `written` stage exactly the way `rent-assistant contact` would — In progress
 and the `--posting` semantics above apply unchanged — plus an entry in
-`data/messages_sent.json`, a send log kept for the same reason
+`$RENT_ASSISTANT_HOME/messages_sent.json`, a send log kept for the same reason
 `decisions.json` is a file and not only a DB row: a send cannot be
 re-scraped back if the DB is wiped between sending and the next sync.
 
@@ -410,11 +410,11 @@ was written.
 
 `--profile NAME` (on `login`, `sync` and `send`) points the persistent
 browser context at its own directory —
-`config.browser_profile_dir(name)`, e.g. `data/browser-profile-partner` —
+`config.browser_profile_dir(name)`, e.g. `$RENT_ASSISTANT_HOME/browser-profile-partner` —
 instead of the default account's. `rent-assistant login --profile partner` opens a
 headed window for that person to sign into *their own* Facebook account
 once; every later `--profile partner` call reuses those cookies headlessly,
 exactly like the default profile does. This exists for a genuine second
-person (see `docs/messages.md` "Two accounts") — it is not a queue with
+person in the household (see `docs/messages.md` "Two accounts") — it is not a queue with
 automatic failover, and nothing decides which account messages which
 listing except the `--ids`/`--status` you pass by hand each time.

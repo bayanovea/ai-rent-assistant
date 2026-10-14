@@ -68,10 +68,10 @@ start one on its own just because the queue is not empty.
 
 ```sh
 rent-assistant scrape                  # the gallery is downloaded here, whole
-rent-assistant ai-status               # the "Фото" block: analysed / pending / no photos
+rent-assistant ai-status               # the "Photos" block: analysed / pending / no photos
    # /analyze, then you read the table and cut what is wrong
 rent-assistant photos-fetch            # galleries for the survivors
-rent-assistant photo-batch --limit 25  # -> ../data/ai/photo-batch-<ts>.json
+rent-assistant photo-batch --limit 25  # -> $RENT_ASSISTANT_HOME/ai/photo-batch-<ts>.json
    # /photo-analyze: subagent fan-out, result in photo-result-<ts>.json
 rent-assistant photo-apply <result>    # merge fields, recompute decide and score
 rent-assistant export
@@ -161,7 +161,7 @@ absent gallery yields an empty list.
 
 Waiting and scrolling were tried first and changed nothing — those pages have no
 gallery in the DOM at any point, so there is nothing to wait for. The run's bad
-directories are in `data/photos-bogus-20260828/`; they were moved rather than
+directories are in `$RENT_ASSISTANT_HOME/photos-bogus-20260828/`; they were moved rather than
 deleted because a non-empty photo directory is never refetched
 (`_download_photos`), so leaving them in place would have frozen six listings as
 "photographed" for good.
@@ -206,7 +206,7 @@ the top is the failure mode, see `CLAUDE.md`.
 asymmetry predates the photo pass, but forgetting it would leave the photo
 signals out of the sorting.
 
-**The `ev` format for photo fields is `"фото N: what is visible"`.** A picture
+**The `ev` format for photo fields is `"photo N: what is visible"`.** A picture
 has no verbatim quote, but verifiability survives: you open the Nth file and
 look. The tooltip rendering did not change.
 
@@ -240,7 +240,7 @@ for a given listing can be had like this — but only while it is still in the
 feed:
 
 ```sh
-rm -rf ../data/photos/<fb_id>
+rm -rf ~/.rent-assistant/photos/<fb_id>
 rent-assistant scrape --refresh
 ```
 

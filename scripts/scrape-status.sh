@@ -9,11 +9,11 @@
 # "Done." Rows are upserted one at a time inside the detail loop, which makes
 # the DB the live counter: new rows per minute is the real rate.
 #
-# Usage: scripts/scrape-status.sh [logfile]   (default: data/sweep/fresh.log)
+# Usage: scripts/scrape-status.sh [logfile]   (default: $RENT_ASSISTANT_HOME/sweep/fresh.log)
 
 set -uo pipefail
 
-DATA=~/AI/rent-assistant/data
+DATA="${RENT_ASSISTANT_HOME:-$HOME/.rent-assistant}"
 DB="$DATA/rentals.db"
 LOG=${1:-$DATA/sweep/fresh.log}
 
@@ -26,7 +26,7 @@ started_line=$(echo "$run" | grep -m1 '=== .* start:')
 started=$(echo "$started_line" | sed -n 's/^\[\([^]]*\)\].*/\1/p')
 rows_at_start=$(echo "$started_line" | sed -n 's/.*start: \([0-9]*\) rows.*/\1/p')
 
-if pgrep -f "[f]b-rent scrape" > /dev/null; then
+if pgrep -f "[r]ent-assistant scrape" > /dev/null; then
   state="running"
 elif echo "$run" | grep -q '=== done:'; then
   state="finished"

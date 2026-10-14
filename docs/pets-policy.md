@@ -10,7 +10,7 @@ Where the rest is:
   pipeline; it runs beside it);
 - [cli.md](cli.md#rent-assistant-buildings-batch--rent-assistant-buildings-apply) —
   `buildings-batch`, `buildings-apply`, `buildings list`, `buildings set`;
-- [data-layout.md](data-layout.md) — `data/buildings.json` and the mirror table;
+- [data-layout.md](data-layout.md) — `buildings.json` in the data home and the mirror table;
 - `CLAUDE.md` — the traps (a proposal is inert, the policy carries no score
   weight, `building_key` does not fuzzy-match);
 - `.claude/skills/pets-policy/SKILL.md` — the procedure itself;
@@ -41,7 +41,7 @@ a building that forbids dogs is a fact worth seeing.
 
 | Policy | What it means | What it does |
 |--------|---------------|--------------|
-| `not_allowed` | a verbatim quote says animals are forbidden | rejects the building's listings, reason «Кондо запрещает животных» — except the ads that say `pets: allowed` outright |
+| `not_allowed` | a verbatim quote says animals are forbidden | rejects the building's listings, reason "Building forbids pets" — except the ads that say `pets: allowed` outright |
 | `negotiable` | animals do live there, and the limit is about which one | **nothing** — the listing stays, the badge says to ask |
 | `allowed` | animals are permitted | nothing |
 | `unknown` | research found no source | nothing |
@@ -67,7 +67,7 @@ evidence at all.
 ## The ad that says yes anyway
 
 A `not_allowed` building does not reject the listing whose own `pets` field is
-`allowed`. The rule is about the tower; "с животными можно" is about this flat,
+`allowed`. The rule is about the tower; "pets are welcome" in the ad is about this flat,
 and it is usually a landlord who already holds the permission the rule talks
 about. Rejecting those rows would throw away the only listings in a forbidding
 building worth opening. Only an outright yes counts — `unclear`, the value most
@@ -76,7 +76,7 @@ ads carry, is not consent, or the building rule would reject nothing.
 Several such ads in one building are a different claim: that the research read
 the wrong tower, or the wrong chain member. `storage.fetch_pets_conflicts`
 collects those (two or more by default) and `rent-assistant buildings conflicts`
-prints them with their URLs; `ai-status` carries the count on a «Расхождения»
+prints them with their URLs; `ai-status` carries the count on a `Conflicts:`
 line. Nothing in that path changes a status — it is a queue for the user's own
 eyes, and it keeps `proposed` buildings too, since a contradiction is exactly
 what should be seen *before* a policy is confirmed.
@@ -115,10 +115,10 @@ reads the policy, and that is deliberate.
 ## The loop
 
 ```sh
-rent-assistant ai-status                      # «Здания:» — unresearched / proposed / confirmed
-rent-assistant buildings-batch --limit 5      # writes ../data/ai/buildings-batch-<ts>.json
+rent-assistant ai-status                      # the "Buildings:" block — unresearched / proposed / confirmed
+rent-assistant buildings-batch --limit 5      # writes $RENT_ASSISTANT_HOME/ai/buildings-batch-<ts>.json
 # /pets-policy  — one subagent per building, WebSearch + WebFetch
-rent-assistant buildings-apply ../data/ai/buildings-result-<ts>.json
+rent-assistant buildings-apply ~/.rent-assistant/ai/buildings-result-<ts>.json
 rent-assistant buildings list --status proposed
 rent-assistant buildings set the-base-central --policy not_allowed
 rent-assistant export
@@ -147,7 +147,7 @@ where it should be.
 
 ## The store, and why it is a file
 
-`data/buildings.json` is the source of truth; the `buildings` table is a mirror
+`$RENT_ASSISTANT_HOME/buildings.json` is the source of truth; the `buildings` table is a mirror
 refreshed on every `export` and every `scrape`. Exactly the `decisions.json`
 argument: a scrape can be repeated and an AI pass re-run, but a web search the
 user then vetted cannot be reconstructed by any command. The file survives
@@ -162,14 +162,14 @@ listings.
 
 ## On the table
 
-The policy rides as a badge on the existing «Проект/посёлок» cell, not as a
+The policy rides as a badge on the existing "Project/village" cell, not as a
 column of its own — the `data_quality` precedent, and for the same reason a
 column would spend a full width on a word that is blank for every unresearched
 building.
 
 - `not_allowed` red, `negotiable` amber, `allowed` green, `unknown` neutral;
-- a `proposed` entry gets its own class and reads «предложение, не
-  подтверждено», so an unvetted proposal never looks like a decision;
+- a `proposed` entry gets its own class and reads "proposed, not
+  confirmed", so an unvetted proposal never looks like a decision;
 - the tooltip carries the verbatim quotes and their URLs, so a rejection can be
   **checked** from the table rather than trusted.
 
@@ -211,8 +211,7 @@ projects under any recognisable name**, and no amount of better matching will
 find them.
 
 Final state of the pass: **143 buildings confirmed** — 62 `not_allowed`,
-44 `allowed`, 32 `unknown`, 5 `negotiable`. 382 rows carry «Кондо запрещает
-животных»; the active set is 530 of 1401. The conflicts pile is empty.
+44 `allowed`, 32 `unknown`, 5 `negotiable`. 382 rows carry "Building forbids pets"; the active set is 530 of 1401. The conflicts pile is empty.
 
 The 56 left are one listing each and mostly informal names («NBC», «Solin
 Stay», «Moji Minimal House», «The Firsts Samkong»). They are queued, not
@@ -255,7 +254,7 @@ checkable later without re-running anything.
 Result: 41 more buildings answered — 22 `allowed`, 19 `not_allowed` — and 12
 recorded as `unknown` because their card exists and is silent. 130 buildings
 confirmed in total: 54 `not_allowed`, 39 `allowed`, 32 `unknown`,
-5 `negotiable`. 372 rows carry «Кондо запрещает животных»; the active set is
+5 `negotiable`. 372 rows carry "Building forbids pets"; the active set is
 539 of 1401. The conflicts pile is still empty.
 
 **70 buildings remain, one listing each, and they are the genuinely hard ones**
@@ -316,7 +315,7 @@ Findings worth keeping:
   independent confirmation for Supalai Park @ Downtown and Citygate Kamala.
   They are about short-let operators rather than the house rule, so they
   corroborate; they do not decide alone.
-- 343 rows across the DB now carry «Кондо запрещает животных»; the active set
+- 343 rows across the DB now carry "Building forbids pets"; the active set
   is 562 of 1401. 77 buildings confirmed: 35 `not_allowed`, 17 `allowed`,
   5 `negotiable`, 20 `unknown`. The `conflicts` pile is still empty.
 
@@ -360,8 +359,7 @@ the first run written into every prompt.
   to the condo towers; the houses at the same address are allowed by the same
   feed. Confirmed `not_allowed` because both listings on hand are condos — the
   note carries the warning for the day a house shows up.
-- 41 active rows rejected. Across the DB 245 rows now carry «Кондо запрещает
-  животных»; the active set is 637 of 1401. 224 buildings left unresearched,
+- 41 active rows rejected. Across the DB 245 rows now carry "Building forbids pets"; the active set is 637 of 1401. 224 buildings left unresearched,
   17 confirmed.
 - The `conflicts` pile is empty: not one ad claiming `pets: allowed` sits in a
   forbidding building right now.
@@ -395,7 +393,7 @@ Bukit, Phanason Green Place, The Base Central, The Base Uptown.
   policy table above. All five are now confirmed `not_allowed`.
 - **130 active rows left the table**: DCondo Reef 40, The Base Bukit 31, The
   Base Central 22, The Base Uptown 19, Phanason Green Place 18. Across the
-  whole DB 327 rows now carry «Кондо запрещает животных» as their reason — the
+  whole DB 327 rows now carry "Building forbids pets" as their reason — the
   building check runs early, so it also takes over rows that another rule had
   already rejected. The active set stands at 999 of 2235.
 - Aliases earned their keep immediately: `base central` and `the base bukit
@@ -417,7 +415,7 @@ it is enough to say the first five paid for themselves.
 ### 27 August 2026 — implemented, not yet run
 
 The code and the skill are in; no research has happened, and
-`../data/buildings.json` does not exist yet. What the active set looks like
+`buildings.json` does not exist yet in the data home. What the active set looks like
 going in, measured on the live DB (2235 rows, 1122 active):
 
 - **299 distinct buildings** cover **729 active listings** — mean 2.4 listings

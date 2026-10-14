@@ -21,14 +21,17 @@ replace it.
 
 | # | Step | Who runs it | Reads | Writes |
 |---|------|-------------|-------|--------|
-| — | `rent-assistant login` | you, once every 1–4 weeks | — | `data/browser-profile/` |
+| — | `rent-assistant login` | you, once every 1–4 weeks | — | `$RENT_ASSISTANT_HOME/browser-profile/` |
 | 1 | `rent-assistant scrape` (and/or `rent-assistant scrape-groups`), then `rent-assistant dedupe` | you / cron | Facebook | `listings`, `photo_hashes`, `duplicates`, `photos/<fb_id>/` |
-| 2 | `/analyze` skill | Claude Code (Opus) | `listings.description`, `config/requirements.md`, `config/ai_fields.json` | `ai_analysis.data_json`, auto-rejections |
-| 3 | reading the table | **you** | `data/rentals.html` | `data/decisions.json` |
+| 2 | `/analyze` skill | Claude Code (Opus) | `listings.description`, the requirements letter (`$RENT_ASSISTANT_HOME/requirements.md`, or the sample in `config/`), `config/ai_fields.json` | `ai_analysis.data_json`, auto-rejections |
+| 3 | reading the table | **you** | `rentals.html` | `decisions.json` |
 | 4 | `rent-assistant photos-fetch`, then `/photo-analyze` | you, then Claude Code (Sonnet subagents) | stored gallery URLs, then the photo files | `photos/<fb_id>/`, `ai_analysis.photo_data_json` |
-| 5 | reading the table again | **you** | `data/rentals.html` | `data/decisions.json` |
-| — | `/pets-policy` skill | you ask for it, occasionally | the web, one search per building | `data/buildings.json` (proposals), then your confirmations |
+| 5 | reading the table again | **you** | `rentals.html` | `decisions.json` |
+| — | `/pets-policy` skill | you ask for it, occasionally | the web, one search per building | `buildings.json` (proposals), then your confirmations |
 | — | `rent-assistant export` | after anything above | the DB + `decisions.json` + `buildings.json` | `rentals.csv`, `rentals.html` |
+
+Unqualified file names in the table live in `$RENT_ASSISTANT_HOME` (default
+`~/.rent-assistant`), see [data-layout.md](data-layout.md).
 
 Stage 3 is not a formality. The photo queue skips everything you rejected, so
 every listing you throw out by hand before stage 4 is tokens not spent. Neither

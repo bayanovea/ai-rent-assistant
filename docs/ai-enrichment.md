@@ -10,8 +10,8 @@ write a batch out, read a result back.
 
 ```sh
 rent-assistant ai-status                 # analysed / pending / stale / unusable
-rent-assistant ai-batch --limit 25       # -> ../data/ai/batch-<ts>.json
-   # the AI reads the batch + config/requirements.md, writes a result file
+rent-assistant ai-batch --limit 25       # -> $RENT_ASSISTANT_HOME/ai/batch-<ts>.json
+   # the AI reads the batch (the requirements letter is inside it), writes a result file
 rent-assistant ai-apply <result.json>    # store fields, verdicts, auto-rejections
 rent-assistant export                    # regenerate CSV + HTML
 ```
@@ -19,16 +19,22 @@ rent-assistant export                    # regenerate CSV + HTML
 In a Claude Code session `/analyze` drives that whole loop
 (`.claude/skills/analyze/SKILL.md`).
 
+The requirements letter the batch carries is `$RENT_ASSISTANT_HOME/requirements.md`
+when that file exists — your own, private — and otherwise the tracked sample
+`config/requirements.md` (`config.requirements_path`). The district scale,
+the budget and the automatic rejections the AI is told about all come from
+that letter.
+
 ## What the AI is allowed to produce
 
 Two texts per listing and a bag of fields:
 
 - **`verdict`** — one short recommendation line, what you see in the table
-  without hovering: "Стоит посмотреть — дом с гостиной в бюджете", "Отказ:
-  животные запрещены".
+  without hovering: "View — a house with a living room, inside the budget",
+  "Reject: pets forbidden".
 - **`comment`** — one to three sentences of reasoning, and the only place facts
-  that have no column yet are visible at all ("депозит 3 месяца", "до школы
-  10 минут").
+  that have no column yet are visible at all ("deposit 3 months", "10 minutes
+  to the school").
 - **fields**, each as `{"v": …, "conf": "high|med|low", "ev": "quote"}`. Every
   non-empty value carries a verbatim quote from the listing, which the export
   shows as a tooltip: any claim can be traced back to the ad.
@@ -44,7 +50,7 @@ decision is not.
 ## `data_quality`
 
 Alongside the fields the AI records how usable the text was: `good` (it read
-the ad itself), `sidebar_noise` (Facebook's "Выбор дня" block landed in the
+the ad itself), `sidebar_noise` (Facebook's "Выбор дня" ("Pick of the day") sidebar block landed in the
 text instead of the ad), or `missing` (no ad text at all).
 
 Anything other than `good` is amber in the export, means *re-scrape this one*,
@@ -72,7 +78,7 @@ internet — is a remark in the verdict, never a rejection.
 The score starts from a baseline of 50 and moves on evidence only. Fields the
 ad never mentions leave it untouched, which is the whole design: silence must
 not rank a listing below one that spoke. The district is worth up to ±9 (the
-1–5 scale in `config/requirements.md`, pivoting at 3.5, three points per half
+1–5 scale in the requirements letter, pivoting at 3.5, three points per half
 step), pets `allowed` +14 against `not_allowed` −30, and the rest are the
 smaller weights in `rules.py`.
 
@@ -92,7 +98,7 @@ sort quietly stops working.
 Two details about districts that are easy to get wrong:
 
 - **The first named area wins.** `area` is free text and the AI often names two
-  places at once ("Cherngtalay, Thalang", "Kathu, 10 мин до Patong"). The
+  places at once ("Cherngtalay, Thalang", "Kathu, 10 min to Patong"). The
   rating takes the *earliest* match by position in the string, not the best or
   the worst one: the flat is where the ad put it, everything after is a
   landmark. Taking the maximum would turn a Thalang townhouse into Bang Tao;
@@ -117,7 +123,7 @@ choice of a home or the money). `ai-apply` prints the proposal; you decide.
 rent-assistant ai-field list
 rent-assistant ai-field add --key balcony --label Balcony --type enum \
   --values yes,no,unclear --group amenity --after price_12m_thb \
-  --prompt "Есть ли балкон" [--backfill]
+  --prompt "Is there a balcony" [--backfill]
 ```
 
 Every `add` bumps `schema_version`. What `--backfill` changes is

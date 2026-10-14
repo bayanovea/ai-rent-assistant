@@ -7,7 +7,7 @@ and points at the rest.
 |------|----------------|
 | [pipeline.md](pipeline.md) | The flow from a Facebook card to a phone call: who runs each step, what it writes, and who decides what. |
 | [cli.md](cli.md) | Every command and every flag. |
-| [data-layout.md](data-layout.md) | What lives in `data/` and `config/`, what is disposable, what is irreplaceable, and the DB tables. |
+| [data-layout.md](data-layout.md) | What lives in `$RENT_ASSISTANT_HOME` and `config/`, what is disposable, what is irreplaceable, and the DB tables. |
 | [scraping.md](scraping.md) | Price bands, the detail budget, repairing single listings, troubleshooting. |
 | [ai-enrichment.md](ai-enrichment.md) | The text pass: the extraction contract, the six auto-rejections, the score, growing the field registry. |
 | [photo-analysis.md](photo-analysis.md) | The photo pass: live measurements, decisions worth not undoing, open gaps. **Read before touching photos.** |

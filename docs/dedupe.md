@@ -48,12 +48,12 @@ the ones you have already decided on first, since that is the memory the key
 runs on — each with the `--into` that merges it:
 
 ```
-Nothing merged: no signal ties 9000000000000006 to another listing.
+Nothing merged: no signal ties 9000000000000001 to another listing.
 Closest rows — run one of these if it is the same flat:
-  rent-assistant dedupe 9000000000000006 --into 9000000000000005
-      1 bed 1 bathroom – Flat — 25000 THB [active] — тот же проект,
-      текст совпадает на 62%, столько же спален, та же цена;
-      но этаж, корпус или площадь расходятся
+  rent-assistant dedupe 9000000000000001 --into 9000000000000002
+      1 bed 1 bathroom – Flat — 25000 THB [active] — same project,
+      text overlap 62%, same bedrooms, same price;
+      but the floor, the block or the size differ
 ```
 
 That shortlist stays silent unless the **project name or the ad text** match.
@@ -135,7 +135,7 @@ and stores two hashes per shot in `photo_hashes`: the MD5 of the CDN bytes (a
 literal repost) and a perceptual dHash (a re-upload through someone else's
 phone, or a resize). Two shots matching out of three merges the pair.
 
-Nothing lands on disk. A preview left in `data/photos/<fb_id>/` would convince
+Nothing lands on disk. A preview left in `$RENT_ASSISTANT_HOME/photos/<fb_id>/` would convince
 the photo pass forever that the gallery is already downloaded — see
 [photo-analysis.md](photo-analysis.md).
 
@@ -230,7 +230,7 @@ in the same order) plus two more shots. The downloaded pictures were the
 studio and bedroom of the condo, nothing to do with the townhouse.
 
 The cause is not the hashes. The townhouse's page no longer opens, and a
-re-read with `scrape --ids` returned the "Выбор дня" sidebar instead of the
+re-read with `scrape --ids` returned the "Выбор дня" ("Pick of the day") sidebar instead of the
 description and an empty gallery. So at the moment of the first scrape the page
 was already serving someone else's content, and `extract_gallery_urls` honestly
 took the largest `alt` group of what was on screen. The row was repaired by
@@ -251,7 +251,7 @@ Two consequences:
 
 The user pointed at six ids that were one Pruksa Ville Kathu–Samkong
 townhouse. They were already two groups of three — the pair of survivors,
-`9000000000000010` and `9000000000000009`, differed by one line
+`9000000000000003` and `9000000000000004`, differed by one line
 («Co-agents welcome»), which is a 0.95 word overlap and a `text` match.
 Nothing was wrong with the signal: `dedupe` simply had not been run since
 those rows were analysed, and the fuzzy rules read the AI's fields.
@@ -272,7 +272,7 @@ runs until the signal is dry.
 
 ### The 2026-08-30 repair: three houses taken back apart
 
-The user pointed at `9000000000000007` and `9000000000000008` — merged on
+The user pointed at `9000000000000005` and `9000000000000006` — merged on
 27 August, and not one flat. Tracing it produced the removal of `facts`
 [above](#the-signal-that-was-removed-facts); this is what the repair cost.
 
@@ -288,7 +288,7 @@ Two things the repair confirmed:
 
 - **All three galleries are different pictures.** Six hashes, no collisions.
   The photo signal would have said "different flats" — it just had nothing to
-  say, because the keeper `9000000000000007` is one of the 272 rows whose page
+  say, because the keeper `9000000000000005` is one of the 272 rows whose page
   renders no gallery at all. That is the shape of the hole: the signal that
   identifies is silent on a fifth of the base, and the signals that describe
   filled the silence with a guess.

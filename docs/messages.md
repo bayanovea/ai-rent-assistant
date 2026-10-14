@@ -21,10 +21,11 @@ negotiate viewing times — that is iteration 2.
 
 The very first time the persistent browser profile (`BROWSER_PROFILE_DIR`,
 shared with scraping) opens *any* `/messages/` URL, Facebook shows a modal:
-"Введите PIN-код, чтобы восстановить чаты" (secret-conversation history
-recovery). Closing it without the PIN surfaces a second, harsher dialog —
-"Продолжить без восстановления?" — whose "Не восстанавливать сообщения"
-button **permanently drops this device's access to the encrypted chat
+"Введите PIN-код, чтобы восстановить чаты" ("Enter your PIN to restore
+your chats" — secret-conversation history recovery). Closing it without the
+PIN surfaces a second, harsher dialog — "Продолжить без восстановления?"
+("Continue without restoring?") — whose "Не восстанавливать сообщения"
+("Don't restore messages") button **permanently drops this device's access to the encrypted chat
 history**. Pressing `Escape` on the first dialog opens the second one; it
 does not dismiss anything.
 
@@ -45,7 +46,7 @@ the Marketplace folder — Messenger ignores the query param and just opens
 whatever thread was last open (`page.url` after `goto` stays on
 `/messages/t/<last-thread-id>/`). The folder only opens by **clicking the
 "Marketplace" chip** in the left rail (the one showing "N новых сообщений ·
-М мин." under "Чаты"). No stable `href`/`role`/`aria-label` was found on
+М мин." — "N new messages · M min" — under "Чаты", "Chats"). No stable `href`/`role`/`aria-label` was found on
 that chip in the HTML; it is a bare nested `<div>` React click target. The
 one selector that worked reliably: `page.get_by_text("Marketplace",
 exact=True).first.click(force=True)` — `force=True` because the PIN dialog
@@ -58,8 +59,8 @@ returns 0 threads.
 After the click, `page.eval_on_selector_all('a[href*="/messages/t/"]', ...)`
 picks up **both** the Marketplace threads and stale entries from whatever
 folder was open before (same href, empty `innerText`, no `aria-label`) —
-filter on **`aria-label` starting with `"Групповой чат: "`** (or `"Chat: "`
-in English?), not on the href pattern alone, or the old folder's dead rows
+filter on **`aria-label` starting with `"Групповой чат: "`** ("Group chat: ";
+or `"Chat: "` in English?), not on the href pattern alone, or the old folder's dead rows
 come along.
 
 ## Thread list row anatomy (Marketplace folder, one row per thread)
@@ -72,7 +73,8 @@ href       = "/messages/t/<thread_id>/"
 
 `<age> <unit>` is a **relative, minute-granular** timestamp in this account's
 Russian locale: `14 мин.`, `46 мин.`, `1 ч.`, `4 ч.`, `14 ч.`, `1 г.`
-(≈ minutes/hours/years; days as `N д.` presumably, not observed yet). This is
+(`мин.` = minutes, `ч.` = hours, `г.` = years; days as `N д.` presumably,
+not observed yet). This is
 precise enough to apply the 2026-09-20 cutoff without ambiguity — the
 "skip if the age can't be dated" fallback in the plan turned out not to be
 needed, at least on this account. **Still parse defensively** (English
@@ -115,9 +117,10 @@ Take the first match, strip query params, extract `fb_id` via
 `[data-scope="messages_table"]` node with:
 
 ```
-aria-label = "В <HH:MM>, от <sender>: <text>"          — sender == "Вы" for our own messages
+aria-label = "В <HH:MM>, от <sender>: <text>"          — "At <HH:MM>, from <sender>: <text>";
+                                                        sender == "Вы" ("You") for our own messages
 data-message-id = "mid.$<opaque>"
-aria-roledescription = "сообщение"
+aria-roledescription = "сообщение"                    — "message"
 ```
 
 Direction is unambiguous: `от Вы:` = outbound, anything else = inbound
@@ -133,7 +136,7 @@ marker; skip it when extracting message text.
 `<input>`:
 
 ```
-div[role="textbox"][contenteditable="true"], aria-label="Написать в <peer> · <listing_title>"
+div[role="textbox"][contenteditable="true"], aria-label="Написать в <peer> · <listing_title>"   — "Write to <peer> · <listing_title>"
 ```
 
 No dedicated "send" button was found in the static DOM for typed text (only
@@ -149,9 +152,9 @@ the message landed.
 ## First-contact composer (marketplace item detail page)
 
 **Confirmed live 2026-09-22** with the first real send (fb_id
-`9000000000000011`, delivered and verified in the actual thread).
+`9000000000000001`, delivered and verified in the actual thread).
 `https://www.facebook.com/marketplace/item/<fb_id>/` — clicking "Отправить
-сообщение" (top-right icon or the lower CTA) opens a **modal dialog**, not
+сообщение" ("Send message" — the top-right icon or the lower CTA) opens a **modal dialog**, not
 the thread page's composer:
 
 ```
@@ -232,7 +235,8 @@ is instinctive there.
 **One inbound message is Facebook's own text, not the seller's**:
 "Meta может использовать технологии, чтобы проверять сообщения в
 Marketplace. Это помогает выявлять и сокращать случаи мошенничества и
-обмана." — an automated fraud-notice that appears verbatim as an inbound
+обмана." ("Meta may use technology to review messages in Marketplace. This
+helps detect and reduce fraud and scams.") — an automated fraud-notice that appears verbatim as an inbound
 message on threads Marketplace's safety system flags. `messenger.py`
 filters it out by exact text match (`_META_SAFETY_NOTICE`) alongside the
 "Вы создали этот чат." system row, so it never reaches `reply_hash` or a
@@ -291,18 +295,18 @@ path when it works.
 ## Two accounts
 
 Hitting the daily send limit above, the user asked to message from a
-second Facebook account — their partner's, a genuine second person also
-house-hunting, not a fake/duplicate account meant to look like more people
+second Facebook account — that of a second person in the household, a
+genuine second person also house-hunting, not a fake/duplicate account meant to look like more people
 than there are. That distinction matters: Meta's terms prohibit exactly
 the latter (multiple accounts operated by one person to evade
 enforcement), not two real people each using their own login.
 
 What got built: `config.browser_profile_dir(name)` resolves a named
 account to its own persistent-context directory
-(`data/browser-profile-<name>`, e.g. `browser-profile-partner`), completely
-separate cookies/localStorage from the default profile — `login`, `messages
-sync` and `messages send` all take `--profile NAME`. The second person in the household runs
-`rent-assistant login --profile partner` once, headed, to sign into her own account,
+(`$RENT_ASSISTANT_HOME/browser-profile-<name>`, e.g. `browser-profile-partner`),
+completely separate cookies/localStorage from the default profile — `login`,
+`messages sync` and `messages send` all take `--profile NAME`. That person runs
+`rent-assistant login --profile partner` once, headed, to sign into their own account,
 exactly like the primary `rent-assistant login` flow.
 
 **What deliberately was not built: automatic failover between accounts on
@@ -329,7 +333,7 @@ day's actual ceiling; the answer is to wait, not to add a third profile.
   (previous) folder's threads.
 - **The E2E PIN dialog is a one-time, per-profile, human-only step.** Code
   must detect it (presence of the "Введите PIN-код" dialog / the
-  "Закрыть"/"Не восстанавливать" buttons) and fail loudly asking the user to
+  "Закрыть" ("Close") / "Не восстанавливать" ("Don't restore") buttons) and fail loudly asking the user to
   run a headed session — never dismiss it automatically.
 - **Thread → listing matching goes through the item-card link inside the
   thread**, never through the folder row's title text, because the same
