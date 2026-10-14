@@ -1,282 +1,293 @@
 ---
 name: pets-policy
-description: Третий проход по листингам rent-assistant — правило дома о животных, по одному разу на здание: buildings-batch → веер сабагентов с веб-поиском → buildings-apply → подтверждение пользователем → buildings set → export. Активируется ТОЛЬКО по явной просьбе: «исследуй правила о животных», «узнай, где можно с котом», «pets policy», «/pets-policy». Непустая очередь зданий в `ai-status` сама по себе поводом не является — проход стоит веб-поиска на каждое здание и запускается, когда пользователь этого просит.
+description: Third pass over the rent-assistant listings — the building's house rule on pets, once per building: buildings-batch → a fan-out of subagents with web search → buildings-apply → confirmation by the user → buildings set → export. Triggers ONLY on an explicit request: "research the pets rules", "find out where a cat is allowed", "pets policy", "/pets-policy". A non-empty building queue in `ai-status` is not a reason by itself — the pass costs a web search per building and runs when the user asks for it.
 ---
 
-# Правило дома о животных — по зданию, а не по объявлению
+# The house rule on pets — per building, not per listing
 
-Объявления врут умолчанием: `pets` в таблице почти везде `unclear`, и это
-честно — арендодатель и правда часто не решает. Решает кондо: у здания есть
-house rule, он опубликован у управляющей компании и повторяется в листингах
-агентств и отзывах, и он один на все квартиры в башне.
+Ads lie by omission: `pets` in the table is `unclear` almost everywhere,
+and that is honest — the landlord often really does not decide. The condo
+decides: the building has a house rule, it is published by the management
+company and repeated in agency listings and reviews, and it is one rule
+for every flat in the tower.
 
-Отсюда весь дизайн прохода:
+The whole design of the pass follows from this:
 
-- **Единица работы — здание, а не объявление.** Один поиск отвечает за все
-  квартиры в доме — и за те, что заскрейпятся завтра.
-- **Исследование предлагает, решает пользователь.** Всё, что приносит этот
-  проход, ложится в `data/buildings.json` со статусом `proposed` и не
-  меняет ни одной строки. Отклоняет объявления только политика, которую
-  пользователь подтвердил руками (`rent-assistant buildings set`). Это одно
-  подтверждение на N объявлений — оно дёшево, и оно единственное, что стоит
-  между неудачным веб-поиском и вычеркнутым зданием.
+- **The unit of work is a building, not a listing.** One search answers for
+  every flat in the building — including the ones scraped tomorrow.
+- **Research proposes, the user decides.** Everything this pass brings
+  lands in `buildings.json` with the status `proposed` and changes not a
+  single row. Only a policy the user has confirmed by hand
+  (`rent-assistant buildings set`) rejects listings. That is one
+  confirmation per N listings — it is cheap, and it is the only thing
+  standing between a bad web search and a crossed-out building.
 
-Ты здесь оркестратор: результаты поиска и страницы сайтов в твой контекст не
-попадают. Их читают сабагенты — по одному на здание. Ты собираешь их JSON,
-применяешь и приносишь пользователю вопросы.
+You are the orchestrator here: search results and web pages never enter
+your context. The subagents read them — one per building. You collect
+their JSON, apply it and bring the questions to the user.
 
-Вердикт, `score` и `status` объявлений — не твоё и не сабагентов дело: их
-считает `rules.py` из полей. Поле `pets` самого объявления этот проход **не
-трогает никогда**: это два независимых источника, и расхождение между ними
-(«pet friendly» в здании, где нельзя) — находка, а не конфликт, который надо
-усреднить. У этой находки два следствия, и оба уже в коде:
+The listings' verdict, `score` and `status` are neither your business nor
+the subagents': `rules.py` computes them from the fields. This pass
+**never touches** the listing's own `pets` field: they are two independent
+sources, and a mismatch between them ("pet friendly" in a building where
+pets are banned) is a finding, not a conflict to average out. The finding
+has two consequences, and both are already in the code:
 
-- объявление, которое **прямо** говорит «с животными можно», переживает
-  запрет здания и остаётся в таблице. Правило дома — про башню, а «можно» —
-  про эту квартиру, и обычно это владелец, у которого разрешение УК уже есть;
-- когда таких объявлений в одном доме **несколько**, это уже не шум, а знак,
-  что исследование прочитало не тот дом. Их собирает
-  `rent-assistant buildings conflicts` — разбирает пользователь руками.
+- a listing that says **outright** "pets allowed" survives the building's
+  ban and stays in the table. The house rule is about the tower, the
+  "allowed" is about this flat, and it is usually an owner who already has
+  the management's permission;
+- when there are **several** such listings in one building, that is no
+  longer noise but a sign that the research read the wrong building.
+  `rent-assistant buildings conflicts` collects them — the user sorts them
+  out by hand.
 
-Ничего, кроме файла с результатами, ты сам не пишешь: и store, и таблица
-меняются только через CLI.
+You write nothing yourself except the results file: both the store and the
+table change only through the CLI.
 
-## 1. Проверить очередь
+## 1. Check the queue
 
 ```sh
 rent-assistant ai-status
 ```
 
-Смотри блок «Здания»:
+Look at the "Buildings" block:
 
-- `Не исследованы: 0` — искать нечего, скажи об этом и остановись (разве что
-  просят пересмотреть конкретное здание — тогда
-  `rent-assistant buildings-batch --key "<название>" --refresh`);
-- `Предложены: N` — N предложений ждут ответа пользователя. Это очередь
-  вопросов, а не сделанной работы: если она непустая, начни с шага 6 —
-  сперва добей их (`rent-assistant buildings list --status proposed`), потом ищи
-  новое;
-- `Подтверждены: N` — эти политики уже работают.
+- `Unresearched: 0` — nothing to search, say so and stop (unless the user
+  asks to re-check a specific building — then
+  `rent-assistant buildings-batch --key "<name>" --refresh`);
+- `Proposed: N` — N proposals are waiting for the user's answer. This is a
+  queue of questions, not of finished work: if it is non-empty, start with
+  step 6 — finish those first (`rent-assistant buildings list --status
+  proposed`), then search for new ones;
+- `Confirmed: N` — these policies are already in effect.
 
-Считается только активный набор: здания, все объявления которых пользователь
-отклонил (или отклонил `rules.py`), в очередь не попадают, и объявления без
-`project_name` — тоже.
+Only the active set counts: buildings whose every listing the user has
+rejected (or `rules.py` has) do not enter the queue, and neither do
+listings without a `project_name`.
 
-## 2. Собрать batch
+## 2. Build the batch
 
 ```sh
 rent-assistant buildings-batch --limit 5
 ```
 
-**Первый прогон — именно `--limit 5`, не вся очередь.** Смысл в том, чтобы
-прочитать пять предложений внимательно и понять, где у сабагента планка
-доказательства, прежде чем доверять ему на объёме.
+**The first run is exactly `--limit 5`, not the whole queue.** The point is
+to read five proposals carefully and understand where the subagent sets its
+bar of evidence before trusting it at volume.
 
-Команда печатает путь вида `.../ai/buildings-batch-YYYYMMDD-HHMMSS.json`.
-Флаги: `--limit N`, `--key "<название или ключ>"` (повторяемый, достаёт
-здание мимо очереди), `--refresh` (включить уже исследованные — иначе они
-пропускаются).
+The command prints a path like `.../ai/buildings-batch-YYYYMMDD-HHMMSS.json`.
+Flags: `--limit N`, `--key "<name or key>"` (repeatable, pulls a building
+past the queue), `--refresh` (include buildings already researched —
+otherwise they are skipped).
 
-Прочитай batch целиком, он маленький. В нём:
+Read the whole batch, it is small. It contains:
 
-- `research_prompt` — контракт с сабагентом дословно; его и клади в промпт;
-- `policies` — четыре допустимых значения;
-- `buildings[]` — по зданию: `key` (нормализованный, его же вернуть),
-  `name` (написание, которым пользуется большинство объявлений), `area`,
-  `listings` (сколько объявлений закрывает), `fb_ids` (примеры),
-  `pets` (что успели сказать сами объявления).
+- `research_prompt` — the contract with the subagent, verbatim; put it in
+  the prompt as it is;
+- `policies` — the four allowed values;
+- `buildings[]` — per building: `key` (normalized, return the same one),
+  `name` (the spelling most listings use), `area`, `listings` (how many
+  listings it covers), `fb_ids` (examples), `pets` (what the listings
+  themselves managed to say).
 
-Очередь отсортирована по числу объявлений убыванием: `--limit` тратит бюджет
-на здания, закрывающие больше квартир.
+The queue is sorted by the number of listings, descending: `--limit` spends
+the budget on buildings that cover more flats.
 
-## 3. Веер сабагентов — по одному на здание
+## 3. Fan out the subagents — one per building
 
-На каждый элемент `buildings` — свой сабагент. Все запускай **одним
-сообщением**, чтобы шли параллельно:
+For every element of `buildings` — its own subagent. Launch all of them
+**in a single message** so they run in parallel:
 
 ```
-Agent(subagent_type: "general-purpose", prompt: <инструкция ниже>)
+Agent(subagent_type: "general-purpose", prompt: <instruction below>)
 ```
 
-В промпт каждому положи:
+Put into each prompt:
 
-- `research_prompt` из batch дословно;
-- `key`, `name`, `area`, `listings`, `pets` этого здания;
-- требование вернуть **только JSON**, без пояснений вокруг;
-- требование искать через `WebSearch` и читать найденное через `WebFetch`.
+- `research_prompt` from the batch, verbatim;
+- `key`, `name`, `area`, `listings`, `pets` of this building;
+- the requirement to return **JSON only**, with no explanation around it;
+- the requirement to search with `WebSearch` and read what was found with
+  `WebFetch`.
 
-Где искать, по убыванию веса:
+Where to search, by decreasing weight:
 
-1. сайт управляющей компании или застройщика — раздел house rules / condo
-   rules / regulations;
-2. страницы агентств с этим кондо (FazWaz, Hipflat, Thailand-Property,
-   DDproperty и подобные) — у них обычно есть строка про животных;
-3. отзывы Google Maps и Facebook, ветки форумов экспатов про этот дом.
+1. the management company's or the developer's site — the house rules /
+   condo rules / regulations section;
+2. agency pages for this condo (FazWaz, Hipflat, Thailand-Property,
+   DDproperty and the like) — they usually have a line about pets;
+3. Google Maps and Facebook reviews, expat forum threads about this
+   building.
 
-Правила исследования — перенеси в промпт дословно, это то, ради чего проход
-вообще имеет смысл:
+The research rules — copy them into the prompt verbatim, they are what
+makes the pass worth running at all:
 
-- **Есть предпосылки к запрету — значит `not_allowed`.** Решать смело:
-  одного источника, который прямо пишет, что животных в доме держать нельзя,
-  достаточно; ждать второго подтверждения и смягчать находку не надо.
-- **Оговорка про разрешение УК запрета не отменяет.** «No pets unless
-  specifically permitted by the juristic office» — это `not_allowed`: идти в
-  юридический офис кондо ради одной съёмной квартиры пользователь не будет,
-  так что для него это «нельзя».
-- **`not_allowed` — всё равно только с дословной цитатой** из источника.
-  Пересказ, вывод из молчания и «обычно в кондо нельзя» не годятся: apply
-  отклонит **весь файл**, а не одну запись. Смелость — про то, как читать
-  найденное, а не про то, чтобы обойтись без него.
-- **`negotiable` — это дом, где животные живут,** и вопрос только в том,
-  какие: «собаки до 10 кг», «только маленькие породы», «кошки можно, собак
-  нет», отдельная плата или депозит за животное, «на усмотрение владельца
-  квартиры». Дом, где базовое правило — запрет, сюда не относится.
-- **Молчание — это `unknown`, а не `allowed`.** Отсутствие правила на сайте
-  не значит, что животных пускают.
-- **Источники, говорящие обратное, политику не меняют, но записываются.**
-  Гид называет дом пет-френдли, жильцы в отзывах пишут про своих собак —
-  положи такой источник в `sources` и скажи о нём в `note`: расхождения
-  пользователь разбирает руками.
+- **Grounds for a ban means `not_allowed`.** Decide boldly: one source that
+  says outright that pets may not be kept in the building is enough; there
+  is no need to wait for a second confirmation or to soften the finding.
+- **The management-office caveat does not cancel the ban.** "No pets unless
+  specifically permitted by the juristic office" is `not_allowed`: the user
+  will not go to the condo's juristic office for one rented flat, so for
+  them it means "no", not negotiation.
+- **`not_allowed` still only with a verbatim quote** from the source. A
+  retelling, an inference from silence and "condos usually do not allow
+  it" do not qualify: apply rejects **the whole file**, not one entry.
+  Boldness is about how to read what was found, not about doing without
+  it.
+- **`negotiable` is a building where animals already live,** and the only
+  question is which: "dogs up to 10 kg", "small breeds only", "cats yes,
+  dogs no", a separate fee or deposit per animal, "at the unit owner's
+  discretion". A building whose base rule is a ban does not belong here.
+- **Silence is `unknown`, not `allowed`.** The absence of a rule on the
+  site does not mean pets are let in.
+- **Sources saying the opposite do not change the policy, but are
+  recorded.** A guide calls the building pet-friendly, residents write
+  about their dogs in reviews — put such a source into `sources` and
+  mention it in `note`: the user sorts out discrepancies by hand.
 
-Что считать одним источником — измерено на двух прогонах, клади это в промпт
-сабагенту дословно:
+What counts as one source — measured on two runs; put this into the
+subagent's prompt verbatim:
 
 - **fazwaz.com, fazwaz.co.th, kaibaanthai.com, livephuket.com,
-  thaigerproperty.com, homes-thailand.com, samuitimes.com, asia.villas — это
-  один фид FazWaz.** Они перепечатывают друг друга слово в слово. Четыре
-  таких сайта выглядят как четыре подтверждения, пока не прочитаешь URL;
-  если правило нашлось только у них, `confidence` не выше `med`.
-- **Фраза PropertyScout «X does not allow pets unless permitted by the
-  juristic office» — их site-wide шаблон,** она стоит даже на посёлках
-  пул-вилл. Как независимое подтверждение не годится.
-- Само поле FazWaz при этом **не** шаблон: у соседних объектов оно бывает
-  противоположным (Phuket Villa Suanluang — «all kind of pets are allowed»,
-  The View Condo Suanluang — запрет). Так что фид читать стоит, просто не
-  считать его четырьмя голосами.
-- Независимым подтверждением считается: сайт застройщика или УК, Hipflat,
-  Thailand-Property, тайские порталы (propertyhub, condonayoo, zmyhome),
-  отзывы жильцов, карточки этого же дома на Trip.com / Booking / TripAdvisor.
+  thaigerproperty.com, homes-thailand.com, samuitimes.com, asia.villas are
+  one FazWaz feed.** They reprint each other word for word. Four such sites
+  look like four confirmations until you read the URLs; if the rule was
+  found only there, `confidence` is no higher than `med`.
+- **The PropertyScout sentence "X does not allow pets unless permitted by
+  the juristic office" is their site-wide template;** it appears even on
+  pool-villa estates. It does not qualify as an independent confirmation.
+- The FazWaz field itself is **not** a template: neighbouring properties
+  can carry opposite values (Phuket Villa Suanluang — "all kind of pets are
+  allowed", The View Condo Suanluang — a ban). So the feed is worth
+  reading, just not as four votes.
+- Independent confirmation means: the developer's or management company's
+  site, Hipflat, Thailand-Property, Thai portals (propertyhub, condonayoo,
+  zmyhome), residents' reviews, this building's cards on Trip.com /
+  Booking / TripAdvisor.
 
-**Посёлок домов — не кондо.** Moo baan, таунхаусы, виллы: правила кондо к ним
-не применяются, регламента нитибукон в сети обычно нет, и решает владелец
-дома. Честный ответ там — `unknown` или `negotiable`, а не перенесённый
-откуда-то запрет. Отдельный случай — комплекс, где есть и корпуса, и дома
-(Supalai Lagoon): правило кондо-части на дома не распространяется, а
-`building_key` их не различает — скажи об этом в `note`, это решение
-пользователя.
-- **Источник про другое здание той же сети — не доказательство.** The Base
-  Downtown вместо The Base Central, «Laguna» вообще — это `unknown`. Название
-  в цитате должно совпадать со зданием из батча.
-- `confidence`: `high` — правило у управляющей компании; `med` — сходятся
-  два агентства или агентство и отзывы; `low` — один пересказ.
-- Статус сабагент **не ставит**, файлы **не пишет**, объявления **не
-  трогает**. Максимум — `note` в 1–2 предложения: кто источник и в чём
-  сомнение.
+**A housing estate is not a condo.** Moo baan, townhouses, villas: condo
+rules do not apply to them, there is usually no juristic regulation
+online, and the house owner decides. The honest answer there is `unknown`
+or `negotiable`, not a ban carried over from somewhere else. A separate
+case is a complex with both towers and houses (Supalai Lagoon): the rule of
+the condo part does not extend to the houses, and `building_key` does not
+tell them apart — say so in `note`, it is the user's decision.
+- **A source about another building of the same chain is not evidence.**
+  The Base Downtown instead of The Base Central, "Laguna" in general — that
+  is `unknown`. The name in the quote must match the building from the
+  batch.
+- `confidence`: `high` — the rule from the management company; `med` — two
+  agencies agree, or an agency and reviews; `low` — a single retelling.
+- The subagent **does not set** the status, **does not write** files,
+  **does not touch** listings. At most a `note` of 1–2 sentences: who the
+  source is and what the doubt is.
 
-Каждый сабагент возвращает один объект:
+Each subagent returns one object:
 
 ```json
 { "key": "the-base-central-phuket",
   "name": "The Base Central Phuket",
   "policy": "not_allowed",
   "confidence": "high",
-  "note": "Правила дома у УК: животных нельзя. Два агентства подтверждают.",
+  "note": "House rules from the management company: no pets. Two agencies confirm.",
   "sources": [
     {"url": "https://...", "title": "The Base Central — House Rules",
      "quote": "Pets are not allowed in the building."}
   ] }
 ```
 
-`key` копируй из batch дословно — по нему запись ложится в store.
+Copy `key` from the batch verbatim — the entry lands in the store under it.
 
-## 4. Собрать результат
+## 4. Collect the result
 
-Сложи объекты сабагентов в файл рядом с batch:
-`<AI_DIR>/buildings-result-<тот же ts>.json`.
+Put the subagents' objects into a file next to the batch:
+`<AI_DIR>/buildings-result-<same ts>.json`.
 
 ```json
 { "model": "claude-opus-5 (claude-code subagents)",
-  "results": [ <объекты из шага 3> ] }
+  "results": [ <objects from step 3> ] }
 ```
 
-## 5. Применить
+## 5. Apply
 
 ```sh
-rent-assistant buildings-apply <путь к buildings-result-*.json>
+rent-assistant buildings-apply <path to buildings-result-*.json>
 ```
 
-При сомнениях сначала `--dry-run`. Команда печатает по предложению: имя,
-ключ, политику, `confidence` и **сколько объявлений оно закроет** — это
-число и пойдёт в вопрос пользователю.
+When in doubt, `--dry-run` first. The command prints per proposal: name,
+key, policy, `confidence` and **how many listings it will cover** — that
+number goes into the question to the user.
 
-Что она сделает и чего не сделает:
+What it does and does not do:
 
-- всё пишется как `status: "proposed"` — **ни одно объявление не меняет
-  статус**, сколько бы `not_allowed` ни пришло;
-- здание, которое пользователь уже подтвердил, **пропускается** с
-  предупреждением: предложение поверх подтверждения молча отменило бы его
-  слово. Перепроверить такое здание — осознанное действие: удалить запись из
-  `data/buildings.json` руками или подтвердить новый ответ через
+- everything is written as `status: "proposed"` — **no listing changes its
+  status**, however many `not_allowed` come in;
+- a building the user has already confirmed **is skipped** with a warning:
+  a proposal on top of a confirmation would silently cancel their word.
+  Re-checking such a building is a deliberate action: delete the entry
+  from `buildings.json` by hand, or confirm the new answer through
   `buildings set`;
-- неизвестная политика, пустой `key` или `not_allowed` без источника с
-  URL **и** цитатой роняют весь файл. Не «чини» это, ослабляя проверку —
-  вернись к сабагенту за цитатой или поставь `unknown`.
+- an unknown policy, an empty `key`, or `not_allowed` without a source
+  carrying a URL **and** a quote fail the whole file. Do not "fix" this by
+  weakening the check — go back to the subagent for the quote, or set
+  `unknown`.
 
-## 6. Подтверждение — по одному вопросу на предложение
+## 6. Confirmation — one question per proposal
 
 ```sh
 rent-assistant buildings list --status proposed
 ```
 
-На каждое предложение — свой `AskUserQuestion`. Покажи в нём:
+For each proposal — its own `AskUserQuestion`. Show in it:
 
-- название здания и район;
-- политику и `confidence`;
-- цитаты и URL источников — целиком, это то, что пользователь проверяет;
-- сколько активных объявлений затронет и что именно случится
-  (`not_allowed` — столько-то строк уедут в отклонённые);
-- если объявления сами утверждали обратное (`pets` из батча спорит с
-  находкой) — скажи об этом прямо.
+- the building's name and district;
+- the policy and `confidence`;
+- the sources' quotes and URLs — in full, this is what the user checks;
+- how many active listings are affected and what exactly will happen
+  (`not_allowed` — so many rows move to rejected);
+- if the listings themselves claimed the opposite (`pets` from the batch
+  argues with the finding) — say so plainly.
 
-Вариант «оставить как есть» должен быть всегда: непринятое предложение
-просто остаётся `proposed` и продолжает ничего не делать.
+The option "leave as is" must always be there: an unaccepted proposal
+simply stays `proposed` and keeps doing nothing.
 
-Что пользователь подтвердил — записывай:
+Record what the user confirmed:
 
 ```sh
 rent-assistant buildings set the-base-central-phuket --policy not_allowed \
-  --note "УК: no pets" --alias "base central"
+  --note "management: no pets" --alias "base central"
 ```
 
-`--policy` — одно из четырёх (пользователь может подтвердить не то, что
-предложено). `--alias` повторяем: добавляй его, когда видно, что то же
-здание пишут иначе. Ключи **не сливаются автоматически** и не должны:
-неверное слияние отклонит объявления чужого дома.
+`--policy` is one of the four (the user may confirm something other than
+what was proposed). `--alias` is repeatable: add it when you see the same
+building spelled differently. Keys **are not merged automatically** and
+must not be: a wrong merge would reject another building's listings.
 
-`buildings set` — единственная команда, после которой политика начинает
-работать.
+`buildings set` is the only command after which a policy starts to work.
 
-## 7. Экспорт и отчёт
+## 7. Export and report
 
 ```sh
 rent-assistant export
 rent-assistant buildings conflicts
 ```
 
-Отчитайся коротко:
+Report briefly:
 
-- какие здания подтверждены и сколько строк они отклонили с причиной
-  «Кондо запрещает животных»;
-- `negotiable` — здания, где вопрос решается: эти объявления остаются, и по
-  ним есть о чём спросить агента;
-- расхождения из `rent-assistant buildings conflicts` — дома, где несколько
-  объявлений обещают животных вопреки правилу: перечисли их со ссылками,
-  это очередь ручного разбора, а не сделанная работа;
-- какие предложения пользователь отклонил или отложил (остались `proposed`);
-- здания, вернувшиеся с `unknown` — веб-поиск на них ничего не дал, ответ
-  есть только у агента; перечисли их с числом объявлений;
-- сколько зданий осталось в очереди.
+- which buildings were confirmed and how many rows they rejected with the
+  reason "Building forbids pets";
+- `negotiable` — buildings where the question is open: these listings
+  stay, and there is something to ask the agent about;
+- discrepancies from `rent-assistant buildings conflicts` — buildings where
+  several listings promise pets against the rule: list them with links,
+  this is a queue for manual review, not finished work;
+- which proposals the user declined or postponed (still `proposed`);
+- buildings that came back `unknown` — the web search found nothing for
+  them, only the agent has the answer; list them with the number of
+  listings;
+- how many buildings remain in the queue.
 
-Решение по конкретному объявлению принимает пользователь через
-`rent-assistant reject / unreject / shortlist`. Сам эти команды не вызывай, если не
-просили.
+The decision on a specific listing is the user's, through
+`rent-assistant reject / unreject / shortlist`. Do not call these commands
+yourself unless asked.

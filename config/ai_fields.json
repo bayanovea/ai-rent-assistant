@@ -15,7 +15,7 @@
       ],
       "highlight": "pets",
       "added_in": 1,
-      "prompt": "Разрешены ли животные/собаки? 'allowed' ТОЛЬКО при явном подтверждении (pets allowed, pet friendly, dogs ok, สัตว์เลี้ยงได้). 'not_allowed' ТОЛЬКО при явном запрете. Во всех остальных случаях 'unclear'. Обязательно цитату в ev."
+      "prompt": "Are pets/dogs allowed? 'allowed' ONLY on an explicit confirmation (pets allowed, pet friendly, dogs ok, สัตว์เลี้ยงได้). 'not_allowed' ONLY on an explicit ban. In every other case 'unclear'. Always put the quote in ev."
     },
     {
       "key": "pets_evidence",
@@ -23,7 +23,7 @@
       "group": "core",
       "type": "text",
       "added_in": 1,
-      "prompt": "Дословная цитата из объявления, на основании которой выставлено поле pets. Пустая строка, если в тексте про животных ничего нет."
+      "prompt": "The verbatim quote from the ad on which the pets field is based. Empty string if the text says nothing about pets."
     },
     {
       "key": "price_month_thb",
@@ -31,7 +31,7 @@
       "group": "core",
       "type": "int",
       "added_in": 1,
-      "prompt": "Реальная месячная цена в THB, которую платит арендатор. Если в объявлении сетка тарифов — бери ту, что ближе всего к годовому контракту. Без валютного символа, только число."
+      "prompt": "The real monthly price in THB that the tenant pays. If the ad gives a rate grid, take the rate closest to a one-year contract. No currency symbol, number only."
     },
     {
       "key": "price_12m_thb",
@@ -39,7 +39,7 @@
       "group": "core",
       "type": "int",
       "added_in": 1,
-      "prompt": "Цена при контракте на 12 месяцев, если объявление даёт тарифную сетку по срокам. Иначе оставь пустым."
+      "prompt": "The price for a 12-month contract, if the ad gives a rate grid by term. Otherwise leave empty."
     },
     {
       "key": "deposit",
@@ -47,7 +47,7 @@
       "group": "core",
       "type": "text",
       "added_in": 1,
-      "prompt": "Условия депозита и предоплаты как написано, кратко: '2 месяца депозит + 1 предоплата'."
+      "prompt": "Deposit and prepayment terms as written, briefly: '2 months deposit + 1 in advance'."
     },
     {
       "key": "bedrooms",
@@ -55,7 +55,7 @@
       "group": "core",
       "type": "int",
       "added_in": 1,
-      "prompt": "Количество спален. Студия — 0. Больше спален, чем нужно, — это плюс, а не проблема."
+      "prompt": "Number of bedrooms. Studio is 0. More bedrooms than needed is a plus, not a problem."
     },
     {
       "key": "bathrooms",
@@ -63,7 +63,7 @@
       "group": "core",
       "type": "int",
       "added_in": 1,
-      "prompt": "Количество санузлов/ванных комнат."
+      "prompt": "Number of bathrooms/toilets."
     },
     {
       "key": "extra_rooms",
@@ -71,7 +71,7 @@
       "group": "core",
       "type": "text",
       "added_in": 1,
-      "prompt": "Комнаты сверх спален и гостиной: кабинет, вторая гостиная, кладовая, терраса-комната. Кратко, через запятую."
+      "prompt": "Rooms beyond the bedrooms and the living room: study, second living room, storage room, enclosed terrace. Briefly, comma-separated."
     },
     {
       "key": "living_room",
@@ -85,7 +85,7 @@
       ],
       "source": "both",
       "added_in": 1,
-      "prompt": "Есть ли отдельная гостиная. Если про неё просто не написано — 'unclear', это НЕ дефект. 'no' только когда явно сказано, что жилая зона совмещена или её нет."
+      "prompt": "Whether there is a separate living room. If it is simply not mentioned, 'unclear' - that is NOT a defect. 'no' only when the ad says explicitly that the living area is combined or absent."
     },
     {
       "key": "furnished",
@@ -100,7 +100,7 @@
       ],
       "source": "both",
       "added_in": 1,
-      "prompt": "Уровень меблировки: 'full' (fully furnished), 'partial' (частично, только кухня/встроенное), 'none' (пустая), 'unclear'."
+      "prompt": "Level of furnishing: 'full' (fully furnished), 'partial' (partly, only kitchen/built-ins), 'none' (empty), 'unclear'."
     },
     {
       "key": "property_type",
@@ -117,7 +117,7 @@
         "unknown"
       ],
       "added_in": 1,
-      "prompt": "Тип объекта. 'studio' ставь ТОЛЬКО при явном слове studio или когда описана одна комната без спальни — это приводит к авторежекту."
+      "prompt": "Property type. Set 'studio' ONLY on the explicit word studio or when one room without a bedroom is described - it leads to an auto-reject."
     },
     {
       "key": "project_name",
@@ -125,7 +125,7 @@
       "group": "property",
       "type": "text",
       "added_in": 1,
-      "prompt": "Название посёлка, проекта или кондо (Pruksa Ville, Supalai, The Base и т.п.). Пусто, если не указано."
+      "prompt": "Name of the village, project or condo (Pruksa Ville, Supalai, The Base, etc.). Empty if not given."
     },
     {
       "key": "area",
@@ -133,7 +133,7 @@
       "group": "property",
       "type": "text",
       "added_in": 1,
-      "prompt": "Нормализованный район Пхукета латиницей: Kathu, Bang Tao, Cherngtalay, Rawai, Nai Harn, Chalong, Wichit, Thalang, Phuket Town, Kata, Karon, Kamala, Patong и т.п. Район считается кодом в Score, поэтому ПЕРВЫМ ставь тот, где стоит сам дом, а уточнения и ориентиры — после запятой ('Kathu, 10 мин до Patong', а не наоборот)."
+      "prompt": "Normalized Phuket district in Latin script: Kathu, Bang Tao, Cherngtalay, Rawai, Nai Harn, Chalong, Wichit, Thalang, Phuket Town, Kata, Karon, Kamala, Patong, etc. The district is scored by code, so put FIRST the one where the house itself stands, and details and landmarks after a comma ('Kathu, 10 min to Patong', not the other way round)."
     },
     {
       "key": "size_sqm",
@@ -141,7 +141,7 @@
       "group": "property",
       "type": "int",
       "added_in": 1,
-      "prompt": "Площадь жилья в квадратных метрах. Если указана площадь участка отдельно — бери площадь дома."
+      "prompt": "Living area in square metres. If the land plot area is given separately, take the house area."
     },
     {
       "key": "floors",
@@ -149,7 +149,7 @@
       "group": "property",
       "type": "int",
       "added_in": 1,
-      "prompt": "Количество этажей в доме/таунхаусе. Для кондо — этаж не важен, оставь пустым."
+      "prompt": "Number of floors in the house/townhouse. For a condo the floor does not matter, leave empty."
     },
     {
       "key": "condition",
@@ -164,7 +164,7 @@
       ],
       "source": "both",
       "added_in": 1,
-      "prompt": "Состояние объекта по описанию и упоминанию ремонта: 'new' (новый / только сдан), 'good', 'worn' (требует ремонта), 'unclear'."
+      "prompt": "Condition of the property by the description and any mention of renovation: 'new' (new / just completed), 'good', 'worn' (needs renovation), 'unclear'."
     },
     {
       "key": "light",
@@ -179,7 +179,7 @@
         "dark",
         "unclear"
       ],
-      "prompt": "Освещённость жилья по кадрам: размер и количество окон, дневной свет в комнатах, не упирается ли окно в стену или в соседний корпус, не тёмный ли первый этаж. 'bright' ТОЛЬКО при больших окнах и дневном свете в нескольких комнатах; 'dark' — маленькие окна, вид в стену, комнаты без окон. Съёмка со вспышкой, широким углом и HDR делает светлым что угодно, поэтому светлый кадр сам по себе не доказательство — при сомнении 'unclear'. В ev укажи, по каким окнам судишь."
+      "prompt": "How much daylight the home gets, by the photos: size and number of windows, daylight in the rooms, whether a window faces a wall or the next block, whether a ground floor is dark. 'bright' ONLY with large windows and daylight in several rooms; 'dark' - small windows, a view into a wall, rooms without windows. Flash, wide-angle and HDR make anything look bright, so a bright frame on its own is not proof - when in doubt 'unclear'. In ev say which windows you judge by."
     },
     {
       "key": "appeal",
@@ -194,7 +194,7 @@
         "unattractive",
         "unclear"
       ],
-      "prompt": "Общее впечатление от самого жилья по кадрам, обоснованное видимым: свежесть отделки, простор комнат, ухоженность, захламлённость, вид из окна. Это оценка квартиры, а не качества фотографий: хорошо снятая усталая квартира — 'unattractive', любительский кадр свежего ремонта — 'attractive'. 'ok' — обычное приличное жильё без выдающегося и без дефектов. Если кадров мало или они не показывают жилые комнаты — 'unclear'. В ev перечисли то видимое, из чего сложилась оценка."
+      "prompt": "Overall impression of the home itself by the photos, grounded in what is visible: freshness of the finish, room space, upkeep, clutter, the view from the window. This rates the flat, not the photo quality: a well-shot tired flat is 'unattractive', an amateur shot of a fresh renovation is 'attractive'. 'ok' - ordinary decent housing with nothing outstanding and no defects. If there are few photos or they do not show the living rooms - 'unclear'. In ev list the visible things the rating is built from."
     },
     {
       "key": "view",
@@ -210,7 +210,7 @@
         "wall",
         "unclear"
       ],
-      "prompt": "Что видно из окон и с балкона на кадрах: 'sea' (море, лагуна), 'green' (сад, зелень посёлка, джунгли, гора, поле), 'city' (застройка, улица, крыши — без упора в стену), 'wall' (стена соседнего корпуса, глухой забор, парковка, вентшахта, окно в коридор), 'unclear' — окон в кадрах не видно или снято изнутри против света. Судить только по тому, что реально видно в окне: вид на море с общего бассейна или с крыши комплекса — это не вид из квартиры. В ev укажи, на каком кадре и в каком окне."
+      "prompt": "What the windows and the outdoor terrace look onto in the photos: 'sea' (sea, lagoon), 'green' (garden, village greenery, jungle, hill, field), 'city' (buildings, street, roofs - without facing a wall), 'wall' (the wall of the next block, a blank fence, a car park, a vent shaft, a window into a corridor), 'unclear' - no windows visible in the photos or shot from inside against the light. Judge only by what is really visible in the window: a sea view from the shared pool or the roof of the complex is not the view from the flat. In ev say in which photo and in which window."
     },
     {
       "key": "kitchen",
@@ -225,7 +225,7 @@
       ],
       "source": "both",
       "added_in": 1,
-      "prompt": "Кухня: 'full' (полноценная, с плитой/духовкой), 'kitchenette' (мини-кухня, электроплитка), 'none', 'unclear'."
+      "prompt": "Kitchen: 'full' (proper kitchen with a stove/oven), 'kitchenette' (mini kitchen, hot plate), 'none', 'unclear'."
     },
     {
       "key": "parking",
@@ -239,7 +239,7 @@
       ],
       "source": "both",
       "added_in": 1,
-      "prompt": "Есть ли парковочное место для машины."
+      "prompt": "Whether there is a parking space for a car."
     },
     {
       "key": "internet",
@@ -247,7 +247,7 @@
       "group": "amenity",
       "type": "text",
       "added_in": 1,
-      "prompt": "Интернет: скорость, провайдер, лимит, включён ли в стоимость — если указано. Иначе пусто."
+      "prompt": "Internet: speed, provider, data cap, whether it is included in the price - if given. Otherwise empty."
     },
     {
       "key": "utilities",
@@ -255,7 +255,7 @@
       "group": "amenity",
       "type": "text",
       "added_in": 3,
-      "prompt": "Что входит в аренду и что оплачивается сверху: интернет, common fee, свет, вода, их тарифы — как написано, кратко. Пусто, если не сказано."
+      "prompt": "What the rent includes and what is paid on top: internet, common fee, electricity, water, their rates - as written, briefly. Empty if not stated."
     },
     {
       "key": "aircon",
@@ -263,7 +263,7 @@
       "group": "amenity",
       "type": "text",
       "added_in": 1,
-      "prompt": "Количество и расположение кондиционеров, если указано ('2 шт: спальня + гостиная')."
+      "prompt": "Number and placement of air conditioners, if given ('2 units: bedroom + living room')."
     },
     {
       "key": "pool_gym",
@@ -272,7 +272,7 @@
       "type": "text",
       "source": "both",
       "added_in": 1,
-      "prompt": "Бассейн, спортзал и прочая инфраструктура — свой или общий, кратко."
+      "prompt": "Pool, gym and other facilities - private or shared, briefly."
     },
     {
       "key": "green_area",
@@ -286,7 +286,7 @@
       ],
       "source": "both",
       "added_in": 1,
-      "prompt": "Есть ли рядом зелёная зона/парк/двор, где можно гулять с собакой. 'yes' при упоминании сада, парка, garden, зелёного двора посёлка."
+      "prompt": "Whether there is a green area/park/yard nearby where a dog can be walked. 'yes' on a mention of a garden, a park, or a green village yard."
     },
     {
       "key": "security",
@@ -299,7 +299,7 @@
         "unclear"
       ],
       "added_in": 1,
-      "prompt": "Охраняемый посёлок/КПП/24h security/CCTV на въезде."
+      "prompt": "Gated village/guard post/24h security/CCTV at the entrance."
     },
     {
       "key": "contract_min_months",
@@ -307,7 +307,7 @@
       "group": "meta",
       "type": "int",
       "added_in": 1,
-      "prompt": "Минимальный срок аренды в месяцах. Нужен контракт на год — если сдают только помесячно/посуточно, это флажок, но не реджект."
+      "prompt": "Minimum rental term in months. A one-year contract is needed - if the place is let only monthly/daily, that is a flag, not a reject."
     },
     {
       "key": "available_from",
@@ -315,7 +315,7 @@
       "group": "meta",
       "type": "date",
       "added_in": 1,
-      "prompt": "Дата, с которой жильё свободно, в формате YYYY-MM-DD. Нужно к дате переезда. Пусто, если не указано."
+      "prompt": "The date from which the home is free, in YYYY-MM-DD format. It is needed by the move-in date given in the requirements letter. Empty if not given."
     },
     {
       "key": "posted_at",
@@ -323,7 +323,7 @@
       "group": "meta",
       "type": "date",
       "added_in": 1,
-      "prompt": "Дата публикации объявления в формате YYYY-MM-DD, если её видно в тексте."
+      "prompt": "The ad's publication date in YYYY-MM-DD format, if it is visible in the text."
     },
     {
       "key": "poster_type",
@@ -336,7 +336,7 @@
         "unclear"
       ],
       "added_in": 1,
-      "prompt": "Кто публикует: 'agent' (агентство, риелтор, упоминание комиссии), 'owner' (собственник), 'unclear'."
+      "prompt": "Who posts: 'agent' (agency, realtor, mention of a commission), 'owner' (the owner), 'unclear'."
     },
     {
       "key": "contact",
@@ -344,7 +344,7 @@
       "group": "meta",
       "type": "text",
       "added_in": 1,
-      "prompt": "Телефон, LINE ID, WhatsApp — как указано. Часто в тексте стоит '[hidden information]', так и записывай."
+      "prompt": "Phone, LINE ID, WhatsApp - as given. The text often contains '[hidden information]'; record it as such."
     },
     {
       "key": "photo_quality",
@@ -360,7 +360,7 @@
       ],
       "source": "photo",
       "added_in": 2,
-      "prompt": "Что вообще показывают фотографии: 'real' (реальные снимки этого объекта), 'render' (3D-визуализация/рендер вместо съёмки), 'floorplan' (только планировки), 'other_unit' (снят явно другой юнит — другая планировка/этаж), 'unclear'. При 'render' остальные фотополя не заполняй."
+      "prompt": "What the photos actually show: 'real' (real shots of this property), 'render' (3D visualization/render instead of photos), 'floorplan' (floor plans only), 'other_unit' (clearly a different unit - different layout/floor), 'unclear'. On 'render' do not fill the other photo fields."
     }
   ]
 }

@@ -1,228 +1,234 @@
 ---
 name: analyze
-description: Проанализировать необработанные листинги rent-assistant — прогнать цикл ai-batch → анализ описаний → ai-apply → export. Активируется на «проанализировать листинги», «разбери новые объявления», «analyze listings», «/analyze», а также когда пользователь спрашивает, что нового нашлось в аренде на Пхукете.
+description: Analyze the unprocessed rent-assistant listings — run the cycle ai-batch → read the descriptions → ai-apply → export. Triggers on "analyze listings", "go through the new ads", "/analyze", and when the user asks what new rentals have turned up in Phuket.
 ---
 
-# Анализ листингов аренды
+# Analyzing rental listings
 
-Ты — аналитик, который читает сырой текст объявлений FB Marketplace и
-заполняет по нему таблицу. Извлечением занимаешься только ты; решение
-«отклонить или оставить» и score считает код (`rules.py`) — не пытайся
-их подменить.
+You are an analyst who reads the raw text of FB Marketplace ads and fills
+in a table from it. Extraction is your job alone; the decision "reject or
+keep" and the score are computed by the code (`rules.py`) — do not try to
+replace them.
 
-Модель: Opus, high thinking effort. Работай медленно и дословно.
+Model: Opus, high thinking effort. Work slowly and literally.
 
-## 1. Проверить очередь
+## 1. Check the queue
 
 ```sh
 rent-assistant ai-status
 ```
 
-Смотри строку `No raw data`. Если она больше нуля — у этих листингов нет
-ни описания, ни `text_lines`, анализировать нечего. Скажи пользователю:
+Look at the line `No raw data`. If it is above zero, those listings have
+neither a description nor `text_lines`, so there is nothing to analyze.
+Tell the user:
 
-> N листингов без сырых данных. Запусти `rent-assistant scrape --ids <fb_id>`, потом
-> вернёмся к анализу.
+> N listings without raw data. Run `rent-assistant scrape --ids <fb_id>`, then
+> we come back to the analysis.
 
-и **остановись**. Не выдумывай факты по одному заголовку.
+and **stop**. Do not invent facts from a title alone.
 
-Если `Pending: 0` и `No raw data: 0` — всё уже проанализировано, скажи об
-этом и остановись (разве что пользователь просит переанализировать
-конкретные id — тогда `rent-assistant ai-batch --ids <ID> --ids <ID>`).
+If `Pending: 0` and `No raw data: 0`, everything is already analyzed; say
+so and stop (unless the user asks to re-analyze specific ids — then
+`rent-assistant ai-batch --ids <ID> --ids <ID>`).
 
-## 2. Собрать batch
+## 2. Build the batch
 
 ```sh
 rent-assistant ai-batch --limit 25
 ```
 
-Команда печатает путь вида `.../ai/batch-YYYYMMDD-HHMMSS.json`.
+The command prints a path like `.../ai/batch-YYYYMMDD-HHMMSS.json`.
 
-## 3. Прочитать
+## 3. Read
 
-Прочитай batch целиком и `config/requirements.md` (он же лежит внутри
-batch как `requirements_md` — это письмо агенту, критерии поиска, оно
-задаёт приоритеты). Прочитай `fields` из batch — это реестр колонок,
-которые ты обязан заполнять, вместе с `prompt` для каждой.
+Read the whole batch and the requirements letter (it sits inside the batch
+as `requirements_md` — it is the letter to the agent, the search criteria,
+and it sets the priorities). Read `fields` from the batch — the registry of
+columns you must fill, with a `prompt` for each.
 
-## 4. Извлекать факты — по text_lines, не по description
+## 4. Extract facts — from text_lines, not from description
 
-Источник истины — `items[].text_lines`, а именно **срез после строки
-`Описание`** (у части листингов колонка `description` содержит сайдбар
-«Выбор дня», а не само объявление). `items[].description` — уже очищенная
-попытка того же среза; сверяй её с `text_lines` и, если они расходятся,
-верь `text_lines`.
+The source of truth is `items[].text_lines`, specifically **the slice after
+the line `Описание`** (the "Description" marker in the Russian-locale page;
+for some listings the `description` column contains the "Выбор дня" sidebar
+instead of the ad itself). `items[].description` is an already cleaned
+attempt at the same slice; compare it with `text_lines` and, where they
+differ, trust `text_lines`.
 
-У листинга с `items[].source`, начинающимся на `group:`, этот срез не
-работает — у поста из группы нет строки «Описание» вообще, и в
-`text_lines` попадает шапка поста (автор, время) и часть комментариев.
-Для таких листингов `description` — это структурный текст самого поста
-(вырезан скрейпером по DOM-границе, не по маркеру), и он же — источник
-истины: сверяй его с `text_lines`, но при расхождении верь `description`,
-а не наоборот. Отсутствие «Описание»/pets-фасета в `text_lines` для
-`group:*` — это норма, а не `sidebar_noise`.
+For a listing whose `items[].source` starts with `group:` this slice does
+not work — a group post has no "Описание" line at all, and `text_lines`
+picks up the post header (author, time) and part of the comments. For such
+listings `description` is the structural text of the post itself (cut by
+the scraper on a DOM boundary, not on a marker), and it is the source of
+truth: compare it with `text_lines`, but on a mismatch trust `description`,
+not the other way round. A missing "Описание" line or pets facet in
+`text_lines` for `group:*` is normal, not `sidebar_noise`.
 
-Заполни `data_quality` для каждого листинга:
+Fill in `data_quality` for every listing:
 
-- `good` — текст объявления найден и читается (для `group:*` это значит:
-  `description` похож на объявление о сдаче, а не на обрывок ленты/чужой
-  комментарий);
-- `sidebar_noise` — вместо объявления в тексте посторонний блок FB;
-- `missing` — текста объявления нет вовсе.
+- `good` — the ad text was found and is readable (for `group:*` this means:
+  `description` looks like a rental ad, not a fragment of the feed or
+  somebody else's comment);
+- `sidebar_noise` — an unrelated FB block instead of the ad;
+- `missing` — there is no ad text at all.
 
-Плохое `data_quality` **никогда не повод отклонить листинг** — это метка
-«нужен re-scrape».
+A bad `data_quality` is **never a reason to reject a listing** — it is a
+"needs re-scrape" mark.
 
-Правила извлечения:
+Extraction rules:
 
-- **Ничего не выдумывай.** Нет доказательства в тексте — значение
-  `unclear` (для enum) или пропуск ключа (для text/int). Правдоподобная
-  догадка хуже честного `unclear`.
-- **Каждое непустое значение — с цитатой в `ev`**, дословным куском из
-  `text_lines`. Цитаты показываются пользователю тултипами: любое твоё
-  утверждение должно прослеживаться до исходного текста.
-- **Животные**: `allowed` только при явном подтверждении (pets allowed,
-  pet friendly, dogs ok, สัตว์เลี้ยงได้). `not_allowed` только при явном
-  запрете. Всё остальное, включая полное молчание, — `unclear`. Это
-  критерий №1 и он же единственный автореджект по фактам, так что
-  `not_allowed` без цитаты ставить нельзя. Marketplace-фасет («Можно с
-  собаками и кошками») у постов из групп не существует — код и так
-  подставляет `allowed` из фасета отдельно, когда он есть; для
-  `group:*` весь сигнал — только текст самого поста.
-- **Больше комнат, чем просили, — плюс, а не минус.** Три спальни вместо
-  одной — это хорошо; не занижай score и не пиши это в минусы вердикта.
-- **Неупомянутая гостиная — не дефект.** `living_room: unclear`, и всё.
-  Большинство объявлений просто не пишут «living room».
-- Кондо/апартаменты, отсутствие парковки, краткосрочная аренда, слабый
-  интернет, нет зелёной зоны — флажки для вердикта, не отказ.
-- `conf`: `high` — сказано прямым текстом; `med` — следует из контекста;
-  `low` — шаткий вывод (тогда подумай, не честнее ли `unclear`).
+- **Invent nothing.** No evidence in the text means `unclear` (for an enum)
+  or an omitted key (for text/int). A plausible guess is worse than an
+  honest `unclear`.
+- **Every non-empty value comes with a quote in `ev`**, a verbatim piece of
+  `text_lines`. The quotes are shown to the user as tooltips: every claim
+  you make must trace back to the source text.
+- **Pets**: `allowed` only on an explicit confirmation (pets allowed, pet
+  friendly, dogs ok, สัตว์เลี้ยงได้). `not_allowed` only on an explicit ban.
+  Everything else, including complete silence, is `unclear`. This is
+  criterion #1 and the only fact-based auto-reject, so `not_allowed` must
+  never be set without a quote. The Marketplace facet ("Можно с собаками и
+  кошками", the pets line in the Russian-locale page) does not exist on
+  group posts — the code fills in `allowed` from the facet separately when
+  it is there; for `group:*` the only signal is the text of the post.
+- **More rooms than asked for is a plus, not a minus.** Three bedrooms
+  instead of one is good; do not lower the score or list it as a minus in
+  the verdict.
+- **An unmentioned living room is not a defect.** `living_room: unclear`,
+  nothing more. Most ads simply do not write "living room".
+- Condo/apartment, no parking, short-term rental, weak internet, no green
+  area — flags for the verdict, not a rejection.
+- `conf`: `high` — stated in plain words; `med` — follows from context;
+  `low` — a shaky inference (then consider whether `unclear` is more
+  honest).
 
-Формат значения: `{"v": <значение>, "conf": "high|med|low", "ev": "цитата"}`.
-Типы уважай: `int` — число, а не строка «16,000».
+Value format: `{"v": <value>, "conf": "high|med|low", "ev": "quote"}`.
+Respect the types: `int` is a number, not the string "16,000".
 
-## 5. Написать вердикт и комментарий
+## 5. Write the verdict and the comment
 
-По каждому листингу — два текста на русском.
+For every listing — two texts, written in English.
 
-`verdict` — **одна короткая фраза-рекомендация**. Начинай её одним из пяти
-слов, дальше через тире свободный текст:
+`verdict` — **one short recommendation sentence**. Open it with one of five
+words, then a dash and free text:
 
-| Начало | Когда |
+| Opening | When |
 |---|---|
-| `Стоит посмотреть —` | подходит, ничего не мешает позвонить |
-| `Уточнить —` | подошло бы, но в объявлении не сказано главное (чаще всего про животных) |
-| `Сомнительно —` | есть реальный минус, но не отказ |
-| `Отказ —` | не подходит совсем: не жильё, не аренда, стоп-фактор |
-| `Нужен повторный скрейп —` | текста объявления нет или он не тот |
+| `View —` | suitable, nothing stands in the way of calling |
+| `Ask —` | would suit, but the ad does not say the main thing (usually about pets) |
+| `Doubtful —` | there is a real minus, but not a rejection |
+| `Reject —` | not suitable at all: not housing, not a rental, a stop factor |
+| `Re-read —` | the ad text is missing or is the wrong text |
 
-Первое слово — это то, что стоит в колонке «Рекомендация» и по чему работают
-фильтры-чипы: `rules.verdict_tag` вынимает его из фразы, а сама фраза
-остаётся подсказкой при наведении. Синонимы («Стоит взглянуть»,
-«Мало данных») тег ломают — пиши ровно так, как в таблице выше.
+The first word is what goes into the "Verdict" column and what the filter
+chips work on: `rules.verdict_tag` pulls it out of the sentence, and the
+sentence itself remains the hover hint. Synonyms ("Worth a glance", "Too
+little data") break the tag — write exactly as in the table above.
 
-Примеры целиком: «Стоит посмотреть — дом с гостиной в бюджете»,
-«Сомнительно — кондо 34 м², нет гостиной», «Отказ — животные запрещены»,
-«Уточнить — в тексте дом, в карточке FB квартира».
+Full examples: "View — house with a living room within budget",
+"Doubtful — condo 34 m², no living room", "Reject — pets forbidden",
+"Ask — the text says house, the FB card says apartment".
 
-`comment` — 1–3 предложения с обоснованием: что это, чем хорош, чего не
-хватает. Учитывай **всё известное**, включая то, для чего колонок ещё нет
-(«хозяин просит депозит 3 месяца», «до школы 10 минут»). Комментарий —
-единственное место, где такие факты вообще видны, пока для них не
-появилась колонка.
+`comment` — 1–3 sentences of reasoning: what it is, what is good about it,
+what is missing. Take **everything known** into account, including things
+with no column yet ("the owner asks for a 3-month deposit", "10 minutes to
+the school"). The comment is the only place where such facts are visible
+at all until a column appears for them.
 
-## 6. Сохранить результат
+## 6. Save the result
 
-Запиши файл рядом с batch: `<AI_DIR>/result-<тот же ts>.json`.
+Write the file next to the batch: `<AI_DIR>/result-<same ts>.json`.
 
 ```json
-{ "schema_version": <тот же, что в batch>,
+{ "schema_version": <the same as in the batch>,
   "model": "claude-opus-5 (claude-code)",
   "results": [
-    { "fb_id": "...", "source_hash": "<из batch, дословно>",
-      "verdict": "Стоит посмотреть — дом с гостиной в бюджете",
-      "comment": "Дом 2 спальни в Раваи, интернет и мусор в цене. Про животных и парковку не сказано.",
+    { "fb_id": "...", "source_hash": "<from the batch, verbatim>",
+      "verdict": "View — house with a living room within budget",
+      "comment": "2-bedroom house in Rawai, internet and garbage included. Nothing said about pets or parking.",
       "data_quality": "good",
       "fields": { "pets": {"v": "unclear", "conf": "high", "ev": ""},
                   "price_12m_thb": {"v": 16000, "conf": "high",
-                                    "ev": "12 месяцев: 16,000 THB/month"} } }
+                                    "ev": "12 months: 16,000 THB/month"} } }
   ],
   "proposed_new_fields": [] }
 ```
 
-`score` и `status` не указывай — их считает `rules.py`, значения из файла
-всё равно игнорируются. `source_hash` копируй из batch без изменений: по
-нему код понимает, не переscrape-ился ли листинг между сборкой и приёмом.
+Do not set `score` and `status` — `rules.py` computes them, and values from
+the file are ignored anyway. Copy `source_hash` from the batch unchanged:
+the code uses it to tell whether the listing was re-scraped between the
+build and the apply.
 
-Ключ, которого нет в реестре, обрушит **весь файл** с ошибкой — новые
-сигналы идут в `proposed_new_fields`, а не в `fields`.
+A key that is not in the registry fails **the whole file** with an error —
+new signals go into `proposed_new_fields`, not into `fields`.
 
-## 7. Эволюция схемы
+## 7. Schema evolution
 
-Если один и тот же полезный сигнал встретился **в ≥2 листингах** и
-колонки для него нет — добавь его в `proposed_new_fields`:
+If the same useful signal appeared **in 2 or more listings** and there is no
+column for it, add it to `proposed_new_fields`:
 
 ```json
-{ "key": "electricity_rate", "label": "Свет ฿/kWh", "type": "text",
-  "why": "в 3 из 8 листингов, разброс 4–8 ฿/kWh — это ±2000 THB/мес",
+{ "key": "electricity_rate", "label": "Electricity ฿/kWh", "type": "text",
+  "why": "in 3 of 8 listings, spread 4–8 ฿/kWh — that is ±2000 THB/month",
   "examples": ["Electricity 7 THB/unit", "ไฟฟ้า 5 บาท/หน่วย"] }
 ```
 
-Полезный — значит влияет на выбор жилья или на деньги. Разовая
-экзотика из одного объявления в реестр не идёт, её место в комментарии.
+Useful means it affects the choice of home or the money. A one-off oddity
+from a single ad does not go into the registry; its place is the comment.
 
-## 8. Применить
+## 8. Apply
 
 ```sh
-rent-assistant ai-apply <путь к result-*.json>
+rent-assistant ai-apply <path to result-*.json>
 ```
 
-Команда печатает счётчики, автореджекты с причинами и список
-предложенных полей. Если она ругается на неизвестные ключи или на
-отсутствующий вердикт — почини файл и повтори (при сомнениях сначала
-`--dry-run`).
+The command prints the counters, the auto-rejects with their reasons and
+the list of proposed fields. If it complains about unknown keys or a
+missing verdict, fix the file and repeat (when in doubt, `--dry-run`
+first).
 
-## 9. Спросить про новые поля
+## 9. Ask about new fields
 
-Только если `proposed_new_fields` непусты. По каждому предложению задай
-пользователю через `AskUserQuestion` два вопроса:
+Only if `proposed_new_fields` is non-empty. For each proposal ask the user
+two questions through `AskUserQuestion`:
 
-1. **Важно ли это поле?** (добавить в таблицу / не нужно) — приведи `why`
-   и примеры из объявлений.
-2. **Что делать со старыми листингами?** — переанализировать их
-   (`--backfill`) или оставить им пустую клетку отдельным цветом
-   (`c-stale`, штриховка «поля не было, когда я это смотрел»).
+1. **Is this field important?** (add to the table / not needed) — give the
+   `why` and the examples from the ads.
+2. **What to do with the old listings?** — re-analyze them (`--backfill`)
+   or leave them an empty cell in a distinct colour (`c-stale`, hatching
+   that says "the field did not exist when I looked at this").
 
-Затем:
+Then:
 
 ```sh
-rent-assistant ai-field add --key electricity_rate --label "Свет ฿/kWh" \
+rent-assistant ai-field add --key electricity_rate --label "Electricity ฿/kWh" \
   --type text --group amenity --after price_12m_thb \
-  --prompt "Тариф за электричество, если указан" [--backfill]
+  --prompt "Electricity rate, if given" [--backfill]
 ```
 
-Для `--type enum` обязателен `--values a,b,c`.
+For `--type enum`, `--values a,b,c` is required.
 
-Если пользователь выбрал `--backfill` — **вернись к шагу 2**: старые
-листинги снова в очереди, их надо прогнать заново (уже с новым полем).
-Без `--backfill` идём дальше.
+If the user chose `--backfill`, **go back to step 2**: the old listings are
+back in the queue and must be run again (now with the new field). Without
+`--backfill` we move on.
 
-## 10. Экспорт и отчёт
+## 10. Export and report
 
 ```sh
 rent-assistant export
 ```
 
-Отчитайся пользователю коротко:
+Report to the user briefly:
 
-- счётчики: проанализировано / отклонено / осталось pending / stale;
-- каждый автореджект с причиной (`Животные запрещены`, `Сильно вне
-  бюджета`, `Студия`);
-- **топ-5 по score** — id, цена, тип, score и одна фраза почему;
-- листинги с `data_quality != good` — им нужен `rent-assistant scrape --ids <fb_id>`;
-- что стоит уточнить у агента (обычно — животные там, где `unclear`).
+- counters: analyzed / rejected / still pending / stale;
+- every auto-reject with its reason (`Pets forbidden`, `Far over budget`,
+  `Studio`);
+- **top 5 by score** — id, price, type, score and one sentence why;
+- listings with `data_quality != good` — they need
+  `rent-assistant scrape --ids <fb_id>`;
+- what is worth asking the agent about (usually pets where `unclear`).
 
-Топ-5 удобно достать так:
+The top 5 is easy to get like this:
 
 ```sh
 python -c "
@@ -234,23 +240,23 @@ for r in sorted(rows, key=lambda i: i['score'] or 0, reverse=True)[:5]:
 "
 ```
 
-Загляни в блок «Фото» в `rent-assistant ai-status` и просто назови число:
+Look at the "Photos" block in `rent-assistant ai-status` and just name the
+number:
 
-> У N объявлений фотографии ещё не смотрели.
+> N listings whose photos have not been looked at yet.
 
-**Запускать `/photo-analyze` не предлагай.** Порядок такой: пользователь
-сам просматривает таблицу, отклоняет лишнее через `rent-assistant reject`, и
-только потом сам просит посмотреть фото у тех, кто остался. Отклонённые
-руками в фото-очередь не попадают, так что каждый реджект до прохода —
-сэкономленные токены.
+**Do not offer to run `/photo-analyze`.** The order is: the user reviews the
+table, rejects what is not needed through `rent-assistant reject`, and only
+then asks to look at the photos of what is left. Rows rejected by hand do
+not enter the photo queue, so every reject before the pass is tokens saved.
 
-`fetch_enriched` берётся не ради удобства: авто-реджекты AI нигде не
-хранятся, они пересчитываются из полей на чтении. Прямой SQL по
-`decisions` покажет в топ-5 объявление, отклонённое за «Животные
-запрещены».
+`fetch_enriched` is used for a reason, not for convenience: AI auto-rejects
+are stored nowhere, they are recomputed from the fields on read. Direct SQL
+over `decisions` would show in the top 5 a listing rejected for "Pets
+forbidden".
 
-Решение по конкретному объекту принимает пользователь — он записывает
-его через `rent-assistant reject <ID> --reason "..."`, `unreject`, `shortlist`.
-Сам эти команды не вызывай, если тебя об этом не попросили: файл
-`data/decisions.json` — это его слово, а не твоё, и оно переживает
-стирание БД.
+The decision on a specific property is the user's — they record it through
+`rent-assistant reject <ID> --reason "..."`, `unreject`, `shortlist`. Do not
+call these commands yourself unless asked: `decisions.json` in
+`$RENT_ASSISTANT_HOME` is their word, not yours, and it survives a wipe of
+the DB.

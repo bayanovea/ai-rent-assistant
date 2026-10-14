@@ -1,73 +1,77 @@
 ---
 name: check-alive
-description: Проверить, живы ли объявления из shortlist/longlist на Facebook, и снять с учёта то, что автор уже снял с публикации — rent-assistant check-alive, затем export. Активируется ТОЛЬКО по явной просьбе: «проверь shortlist на актуальность», «что из longlist ещё живо», «check alive», «/check-alive». Непустой shortlist/longlist сам по себе поводом не является — проход стоит по одному запросу к Facebook на объявление и запускается, когда пользователь просит.
+description: Check whether the shortlist/longlist listings are still live on Facebook, and drop what the author has already taken down — rent-assistant check-alive, then export. Triggers ONLY on an explicit request: "check the shortlist is still live", "what in the longlist is still alive", "check alive", "/check-alive". A non-empty shortlist/longlist is not a reason by itself — the pass costs one Facebook request per listing and runs when the user asks.
 ---
 
-# Живо / снято — по shortlist и longlist
+# Alive / gone — over the shortlist and longlist
 
-Это проверка факта, а не мнения ИИ: объявление либо ещё висит на Facebook,
-либо продавец его снял. Только `shortlist` и `longlist` того стоят — это
-строки, которые пользователь уже отобрал руками и держит под рукой; `active`
-никто ещё не смотрел, а `rejected` уже не нужен.
+This is a check of fact, not an AI opinion: a listing is either still up
+on Facebook or the seller has taken it down. Only `shortlist` and
+`longlist` are worth it — these are the rows the user has already picked
+by hand and keeps at hand; nobody has looked at `active` yet, and
+`rejected` is no longer needed.
 
-**Это не пересбор.** `scrape --ids` перечитывает описание и галерею и на
-мёртвой странице портит строку чужими данными (см. `docs/dedupe.md`,
-«A dead page's `--ids` re-read damages the row» в `CLAUDE.md`). Проверка
-живости не пишет ни одного поля листинга — она либо ничего не делает, либо
-переводит строку в `rejected` через обычный `reject`, то же самое место,
-куда попадает решение пользователя.
+**This is not a re-scrape.** `scrape --ids` re-reads the description and
+the gallery, and on a dead page it damages the row with somebody else's
+data (see `docs/dedupe.md`, "A dead page's `--ids` re-read damages the row"
+in `CLAUDE.md`). The liveness check writes not a single listing field — it
+either does nothing or moves the row to `rejected` through the ordinary
+`reject`, the same place where the user's own decision goes.
 
-**Таймаут — это не "снято".** Facebook отдаёт узнаваемый текст, когда
-объявление действительно удалено («content isn't available» и варианты);
-страница, которая просто долго грузится или не отрисовалась, ничего не
-доказывает. `check_listing_alive` возвращает три состояния: `True` (живо),
-`False` (Facebook прямо сказал, что нет) и `None` (не понятно — оставить как
-есть). В `rejected` уходит только `False`.
+**A timeout is not "gone".** Facebook returns recognizable text when a
+listing is really deleted ("content isn't available" and variants); a page
+that is merely slow to load or did not render proves nothing.
+`check_listing_alive` returns three states: `True` (alive), `False`
+(Facebook said outright that it is not) and `None` (unclear — leave as
+is). Only `False` goes to `rejected`.
 
-## 1. Прогнать проверку
+## 1. Run the check
 
 ```sh
 rent-assistant check-alive
 ```
 
-По умолчанию проверяет `shortlist` и `longlist`. Сузить до одного таба —
-`--status shortlist`. Без `--apply` команда ничего не пишет: только
-печатает по каждому объявлению `alive` / `gone` / `inconclusive` и в конце
-итог — сколько подтверждённо снято, сколько неясно, сколько ещё живо.
+By default it checks `shortlist` and `longlist`. To narrow to one tab —
+`--status shortlist`. Without `--apply` the command writes nothing: it only
+prints `alive` / `gone` / `inconclusive` per listing and a summary at the
+end — how many confirmed gone, how many unclear, how many still alive.
 
-Между запросами команда выдерживает ту же паузу 3–7 с, что и `scrape`
-между детальными страницами — это чужой чат, не свой скрипт для перебора.
+Between requests the command keeps the same 3–7 s pause that `scrape`
+keeps between detail pages — this is somebody else's chat, not your own
+enumeration script.
 
-## 2. Посмотреть, что предлагается отклонить
+## 2. Look at what is proposed for rejection
 
-Прочитай список `gone` из вывода. Если что-то смущает (например,
-подозрительно много подряд от одного продавца, или сессия могла разлогиниться
-посреди прогона — тогда часть "gone" на самом деле "не долетело") — перепроверь
-вручную: открой `https://www.facebook.com/marketplace/item/<fb_id>/` в браузере
-или перезапусти `check-alive` без `--apply` ещё раз для этих id.
+Read the `gone` list from the output. If something looks off (for example,
+suspiciously many in a row from one seller, or the session may have logged
+out mid-run — then part of the "gone" is really "did not get through"),
+re-check by hand: open `https://www.facebook.com/marketplace/item/<fb_id>/`
+in a browser, or re-run `check-alive` without `--apply` once more for those
+ids.
 
-Если команда остановилась с сообщением про логин — это не то же самое, что
-"объявление снято": сессия истекла, `rent-assistant login` и повторить прогон для
-непройденных.
+If the command stopped with a message about login, that is not the same as
+"listing gone": the session expired, `rent-assistant login` and repeat the
+run for the ones not covered.
 
-## 3. Применить
+## 3. Apply
 
 ```sh
 rent-assistant check-alive --apply
 ```
 
-Пишет `rejected` (причина по умолчанию — «снято с публикации», меняется
-`--reason`) для каждого подтверждённо мёртвого объявления, через тот же
-`decisions.json`, что и ручной `rent-assistant reject`. `inconclusive` не трогает
-ничего — эти строки остаются в своём табе и попадут в следующий прогон.
+Writes `rejected` (the default reason is "no longer listed", changed with
+`--reason`) for every confirmed dead listing, through the same
+`decisions.json` as a manual `rent-assistant reject`. `inconclusive`
+touches nothing — those rows stay in their tab and enter the next run.
 
-## 4. Экспорт и отчёт
+## 4. Export and report
 
 ```sh
 rent-assistant export
 ```
 
-Отчитайся коротко: сколько проверено, сколько снято (с id), сколько осталось
-неясным и почему (таймауты, разлогин), сколько подтверждённо ещё живо.
-Решение по конкретному спорному id — за пользователем;
-`rent-assistant unreject <fb_id>` возвращает его в очередь, если проверка ошиблась.
+Report briefly: how many checked, how many gone (with ids), how many
+remain unclear and why (timeouts, logout), how many confirmed still alive.
+The decision on a specific disputed id is the user's;
+`rent-assistant unreject <fb_id>` returns it to the queue if the check was
+wrong.

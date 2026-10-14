@@ -68,7 +68,7 @@ first.
 
 **The hash stage must never touch `PHOTOS_DIR`.** `fingerprint.py` downloads
 the first three shots, hashes them and drops the bytes; nothing is written.
-Save those three previews into `data/photos/<fb_id>/` and the photo pass is
+Save those three previews into `$RENT_ASSISTANT_HOME/photos/<fb_id>/` and the photo pass is
 broken forever: `_download_photos` skips a directory that already has photos (`cli.py`),
 so the real gallery never arrives, and `photos_hash` — computed from file names
 and sizes — happily marks the listing as ready with three pictures in it.
@@ -159,7 +159,7 @@ raises. Adding a synonym to the stems is the fix for old rows; fixing the skill
 is the fix for new ones. Neither touches `source_hash`, so neither re-queues
 anything.
 
-**`data_quality` is a badge, `unclear` is a dash, `Причина` and `Кто решил`
+**`data_quality` is a badge, `unclear` is a dash, `Reason` and `Decided by`
 are tab-bound.** All of them look like missing columns and all of them are
 deliberate: `good` on 99% of rows, "the ad did not say" on the majority of
 five enum columns, and — for the last two — a column of one repeated value on
@@ -170,7 +170,7 @@ puts a full column's width behind information that is already on screen — see
 
 **A rating never leaves a listing in `active`.** `status_for_rating` sends
 every mark somewhere else — 5 to the shortlist, 4 to the longlist, 3 and below
-out — because the Разобрать tab is the queue of what has not been looked at,
+out — because the Review tab is the queue of what has not been looked at,
 and one rated row sitting in it is indistinguishable at a glance from an
 untouched one. `active` remains a valid status for exactly one writer:
 `unreject`, which puts an auto-rejected listing back into that queue. Widening
@@ -222,7 +222,7 @@ were copied but never run.
 ## Districts
 
 **The first named district wins.** `area` is free text and the AI often names
-two places at once (`Cherngtalay, Thalang`, `Kathu, 10 мин до Patong`).
+two places at once (`Cherngtalay, Thalang`, `Kathu, 10 min to Patong`).
 `district_rating` takes the earliest match by position in the string, not the
 best and not the worst: the flat is where the ad put it, everything else is a
 landmark. Take the maximum and a Thalang townhouse becomes Bang Tao; take the
@@ -291,7 +291,7 @@ and it is not supposed to. A second spelling is pointed at an existing building
 by hand through `aliases`. A fuzzy match that got it wrong would silently
 reject another building's listings, and nothing would raise.
 
-**`data/buildings.json` is the source of truth; the `buildings` table is a
+**`buildings.json` in the data home is the source of truth; the `buildings` table is a
 mirror.** The `decisions.json` argument exactly: a scrape can be repeated and
 an AI pass re-run, a web search the user then vetted cannot. `init_db` only
 creates the table — it does not fill it — so the file is synced back in
@@ -313,7 +313,8 @@ first to decide is the same as not having a cutoff.
 **The E2E-encryption PIN dialog is a human-only step, never a code path.**
 The first time the shared browser profile visits any `/messages/` URL,
 Facebook asks for the Messenger secret-conversation PIN; dismissing it
-wrong (`"Не восстанавливать сообщения"`) permanently drops that profile's
+wrong (`"Не восстанавливать сообщения"`, "Don't restore messages" in the
+Russian-locale UI) permanently drops that profile's
 access to the encrypted history. `messenger.py` raises
 `MessengerPinRequiredError` the moment it detects this dialog and every
 caller lets it propagate up to a message telling the user to run a headed
@@ -341,7 +342,7 @@ messages, which can make an answered conversation `derive_state` into
 **A conversation carries no score weight, in either direction — the same
 rule as the building's pets policy** (see "Pets policy per building" above,
 and the tie-at-100 trap under "The table"). `rules.score` never reads
-`conversations`; the export's «Диалог» / «Ждёт меня» columns are
+`conversations`; the export's "Chat" / "Needs me" columns are
 `fetch_enriched` joining in read-only display fields, not scoring input.
 
 **Only an outright ad `pets: allowed` skips the pets question in the first
@@ -363,9 +364,9 @@ unmeasured beyond "at least 10", and the only reliable signal is the
 dialog itself.
 
 **A second `--profile` is for a second real person, never for automatic
-failover.** `config.browser_profile_dir(name)` exists because the user's
-second person in the household also house-hunts and wanted to message from her own account — two
-real people, not one person's sockpuppets. `MessagingLimitReachedError`
+failover.** `config.browser_profile_dir(name)` exists because a second person in
+the household also house-hunts and wanted to message from their own
+account — two real people, not one person's sockpuppets. `MessagingLimitReachedError`
 on one profile must never trigger code that reaches for another profile
 on its own; that turns "a genuine second person" into exactly the
 automated evade-the-limit machinery Meta's terms prohibit regardless of
