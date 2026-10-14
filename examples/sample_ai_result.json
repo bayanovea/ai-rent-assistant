@@ -1,0 +1,680 @@
+{
+  "schema_version": 6,
+  "model": "sample",
+  "results": [
+    {
+      "fb_id": "9000000000000001",
+      "verdict": "View — a furnished townhouse in a gated village in Kathu, pets welcome, inside the budget.",
+      "comment": "Everything on the checklist is stated outright: pets, parking, a proper kitchen, a garden and fibre internet.",
+      "data_quality": "good",
+      "fields": {
+        "pets": {
+          "v": "allowed",
+          "conf": "high",
+          "ev": "Pets welcome."
+        },
+        "price_month_thb": {
+          "v": 22000,
+          "conf": "high",
+          "ev": "22,000 THB/month on a 12-month contract"
+        },
+        "deposit": {
+          "v": "2 months",
+          "conf": "high",
+          "ev": "2-month deposit"
+        },
+        "bedrooms": {
+          "v": 2,
+          "conf": "high",
+          "ev": "2 bedrooms"
+        },
+        "bathrooms": {
+          "v": 2,
+          "conf": "high",
+          "ev": "2 bathrooms"
+        },
+        "living_room": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "separate living room"
+        },
+        "furnished": {
+          "v": "full",
+          "conf": "high",
+          "ev": "fully furnished"
+        },
+        "property_type": {
+          "v": "townhouse",
+          "conf": "high",
+          "ev": "Two-storey townhouse"
+        },
+        "project_name": {
+          "v": "Sample Garden Village",
+          "conf": "high",
+          "ev": "Sample Garden Village, Kathu"
+        },
+        "area": {
+          "v": "Kathu",
+          "conf": "high",
+          "ev": "Sample Garden Village, Kathu"
+        },
+        "size_sqm": {
+          "v": 95,
+          "conf": "high",
+          "ev": "95 sq.m."
+        },
+        "floors": {
+          "v": 2,
+          "conf": "high",
+          "ev": "Two-storey"
+        },
+        "kitchen": {
+          "v": "full",
+          "conf": "high",
+          "ev": "proper kitchen with hob, hood and fridge"
+        },
+        "parking": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "Parking for one car inside the village"
+        },
+        "internet": {
+          "v": "fibre 500 Mbps included",
+          "conf": "high",
+          "ev": "Fibre internet 500 Mbps included"
+        },
+        "green_area": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "Small private garden"
+        },
+        "security": {
+          "v": "yes",
+          "conf": "med",
+          "ev": "gated village"
+        },
+        "contract_min_months": {
+          "v": 12,
+          "conf": "high",
+          "ev": "12-month contract"
+        },
+        "poster_type": {
+          "v": "owner",
+          "conf": "high",
+          "ev": "Owner, no agency fee."
+        }
+      }
+    },
+    {
+      "fb_id": "9000000000000002",
+      "verdict": "Ask — the ad says nothing about pets; otherwise a good fit.",
+      "comment": "Three bedrooms, a garden and two parking spaces at the top of the budget. Pets are the one open question.",
+      "data_quality": "good",
+      "fields": {
+        "pets": {
+          "v": "unclear",
+          "conf": "high",
+          "ev": ""
+        },
+        "price_month_thb": {
+          "v": 30000,
+          "conf": "high",
+          "ev": "30,000 THB/month"
+        },
+        "bedrooms": {
+          "v": 3,
+          "conf": "high",
+          "ev": "3 bedrooms"
+        },
+        "bathrooms": {
+          "v": 2,
+          "conf": "high",
+          "ev": "2 bathrooms"
+        },
+        "living_room": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "living room"
+        },
+        "furnished": {
+          "v": "full",
+          "conf": "high",
+          "ev": "Fully furnished"
+        },
+        "property_type": {
+          "v": "house",
+          "conf": "high",
+          "ev": "House for rent"
+        },
+        "project_name": {
+          "v": "Example Village",
+          "conf": "high",
+          "ev": "Example Village, Chalong"
+        },
+        "area": {
+          "v": "Chalong",
+          "conf": "high",
+          "ev": "Example Village, Chalong"
+        },
+        "size_sqm": {
+          "v": 140,
+          "conf": "high",
+          "ev": "140 sq.m."
+        },
+        "kitchen": {
+          "v": "full",
+          "conf": "high",
+          "ev": "Western kitchen"
+        },
+        "parking": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "parking for two cars"
+        },
+        "aircon": {
+          "v": "4",
+          "conf": "high",
+          "ev": "4 air conditioners"
+        },
+        "pool_gym": {
+          "v": "shared village pool",
+          "conf": "high",
+          "ev": "Shared village pool"
+        },
+        "green_area": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "a garden"
+        },
+        "security": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "24-hour security"
+        },
+        "contract_min_months": {
+          "v": 12,
+          "conf": "high",
+          "ev": "minimum 1 year"
+        },
+        "poster_type": {
+          "v": "agent",
+          "conf": "high",
+          "ev": "Contact the agent"
+        }
+      }
+    },
+    {
+      "fb_id": "9000000000000003",
+      "verdict": "Reject — Patong, a tourist area the requirements exclude.",
+      "comment": "A tidy condo, but in the one district on the automatic-rejection list.",
+      "data_quality": "good",
+      "fields": {
+        "pets": {
+          "v": "unclear",
+          "conf": "high",
+          "ev": ""
+        },
+        "price_month_thb": {
+          "v": 18000,
+          "conf": "high",
+          "ev": "18,000 THB/month"
+        },
+        "bedrooms": {
+          "v": 1,
+          "conf": "high",
+          "ev": "1-bedroom"
+        },
+        "bathrooms": {
+          "v": 1,
+          "conf": "high",
+          "ev": "1 Bath"
+        },
+        "furnished": {
+          "v": "full",
+          "conf": "high",
+          "ev": "Fully furnished"
+        },
+        "property_type": {
+          "v": "condo",
+          "conf": "high",
+          "ev": "condo"
+        },
+        "area": {
+          "v": "Patong",
+          "conf": "high",
+          "ev": "condo in Patong"
+        },
+        "size_sqm": {
+          "v": 45,
+          "conf": "high",
+          "ev": "45 sq.m."
+        },
+        "kitchen": {
+          "v": "kitchenette",
+          "conf": "high",
+          "ev": "kitchenette"
+        },
+        "pool_gym": {
+          "v": "pool and gym",
+          "conf": "high",
+          "ev": "pool and gym in the building"
+        },
+        "contract_min_months": {
+          "v": 6,
+          "conf": "high",
+          "ev": "6 or 12 months"
+        },
+        "poster_type": {
+          "v": "unclear",
+          "conf": "high",
+          "ev": ""
+        }
+      }
+    },
+    {
+      "fb_id": "9000000000000004",
+      "verdict": "Reject — 65,000 THB is far above the budget ceiling.",
+      "comment": "Pets allowed and a great house, at almost twice the hard limit.",
+      "data_quality": "good",
+      "fields": {
+        "pets": {
+          "v": "allowed",
+          "conf": "high",
+          "ev": "Pets allowed."
+        },
+        "price_month_thb": {
+          "v": 65000,
+          "conf": "high",
+          "ev": "65,000 THB/month"
+        },
+        "bedrooms": {
+          "v": 4,
+          "conf": "high",
+          "ev": "4 bedrooms"
+        },
+        "bathrooms": {
+          "v": 4,
+          "conf": "high",
+          "ev": "ensuite bathrooms"
+        },
+        "living_room": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "large living and dining area"
+        },
+        "furnished": {
+          "v": "full",
+          "conf": "high",
+          "ev": "fully furnished"
+        },
+        "property_type": {
+          "v": "villa",
+          "conf": "high",
+          "ev": "Private pool villa"
+        },
+        "area": {
+          "v": "Bang Tao",
+          "conf": "high",
+          "ev": "villa in Bang Tao"
+        },
+        "size_sqm": {
+          "v": 280,
+          "conf": "high",
+          "ev": "280 sq.m."
+        },
+        "parking": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "covered parking for two cars"
+        },
+        "pool_gym": {
+          "v": "private pool",
+          "conf": "high",
+          "ev": "Private pool villa"
+        },
+        "contract_min_months": {
+          "v": 12,
+          "conf": "high",
+          "ev": "yearly contract"
+        },
+        "poster_type": {
+          "v": "unclear",
+          "conf": "high",
+          "ev": ""
+        }
+      }
+    },
+    {
+      "fb_id": "9000000000000005",
+      "verdict": "Reject — a studio of 28 m², under the size floor.",
+      "comment": "Cheap and close to the school, but a studio with a kitchenette is exactly what the letter rules out.",
+      "data_quality": "good",
+      "fields": {
+        "pets": {
+          "v": "unclear",
+          "conf": "high",
+          "ev": ""
+        },
+        "price_month_thb": {
+          "v": 12000,
+          "conf": "high",
+          "ev": "12,000 THB/month"
+        },
+        "bedrooms": {
+          "v": 0,
+          "conf": "high",
+          "ev": "Studio"
+        },
+        "bathrooms": {
+          "v": 1,
+          "conf": "low",
+          "ev": ""
+        },
+        "furnished": {
+          "v": "full",
+          "conf": "high",
+          "ev": "Fully furnished"
+        },
+        "property_type": {
+          "v": "studio",
+          "conf": "high",
+          "ev": "Studio for rent"
+        },
+        "area": {
+          "v": "Kathu",
+          "conf": "high",
+          "ev": "Studio for rent in Kathu"
+        },
+        "size_sqm": {
+          "v": 28,
+          "conf": "high",
+          "ev": "28 sq.m."
+        },
+        "floors": {
+          "v": 5,
+          "conf": "high",
+          "ev": "5th floor"
+        },
+        "kitchen": {
+          "v": "kitchenette",
+          "conf": "high",
+          "ev": "kitchenette"
+        },
+        "contract_min_months": {
+          "v": 12,
+          "conf": "high",
+          "ev": "for 12 months"
+        },
+        "poster_type": {
+          "v": "unclear",
+          "conf": "high",
+          "ev": ""
+        }
+      }
+    },
+    {
+      "fb_id": "9000000000000006",
+      "verdict": "Reject — the ad says no pets.",
+      "comment": "Otherwise a quiet house with a garden and a carport inside the budget.",
+      "data_quality": "good",
+      "fields": {
+        "pets": {
+          "v": "not_allowed",
+          "conf": "high",
+          "ev": "No pets."
+        },
+        "price_month_thb": {
+          "v": 28000,
+          "conf": "high",
+          "ev": "28,000 THB/month"
+        },
+        "deposit": {
+          "v": "2 months",
+          "conf": "high",
+          "ev": "2 months deposit"
+        },
+        "bedrooms": {
+          "v": 2,
+          "conf": "high",
+          "ev": "2 bedrooms"
+        },
+        "bathrooms": {
+          "v": 2,
+          "conf": "high",
+          "ev": "2 bathrooms"
+        },
+        "living_room": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "open-plan living room and kitchen"
+        },
+        "furnished": {
+          "v": "full",
+          "conf": "high",
+          "ev": "Fully furnished"
+        },
+        "property_type": {
+          "v": "house",
+          "conf": "high",
+          "ev": "Single-storey house"
+        },
+        "area": {
+          "v": "Rawai",
+          "conf": "high",
+          "ev": "quiet soi in Rawai"
+        },
+        "size_sqm": {
+          "v": 110,
+          "conf": "high",
+          "ev": "110 sq.m."
+        },
+        "floors": {
+          "v": 1,
+          "conf": "high",
+          "ev": "Single-storey"
+        },
+        "kitchen": {
+          "v": "full",
+          "conf": "med",
+          "ev": "open-plan living room and kitchen"
+        },
+        "parking": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "a carport"
+        },
+        "internet": {
+          "v": "fast internet",
+          "conf": "high",
+          "ev": "fast internet"
+        },
+        "green_area": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "a small garden"
+        },
+        "contract_min_months": {
+          "v": 12,
+          "conf": "high",
+          "ev": "1-year contract"
+        },
+        "poster_type": {
+          "v": "unclear",
+          "conf": "high",
+          "ev": ""
+        }
+      }
+    },
+    {
+      "fb_id": "9000000000000007",
+      "verdict": "Doubtful — a kitchenette and only part of the furniture, at the top of the budget.",
+      "comment": "Pet friendly and close to Boat Avenue, but the letter asks for a proper kitchen and full furnishing.",
+      "data_quality": "good",
+      "fields": {
+        "pets": {
+          "v": "allowed",
+          "conf": "high",
+          "ev": "Pet friendly project."
+        },
+        "price_month_thb": {
+          "v": 32000,
+          "conf": "high",
+          "ev": "32,000 THB/month"
+        },
+        "bedrooms": {
+          "v": 2,
+          "conf": "high",
+          "ev": "2 bedrooms"
+        },
+        "bathrooms": {
+          "v": 1,
+          "conf": "high",
+          "ev": "1 bathroom"
+        },
+        "living_room": {
+          "v": "unclear",
+          "conf": "high",
+          "ev": ""
+        },
+        "furnished": {
+          "v": "partial",
+          "conf": "high",
+          "ev": "Partly furnished: beds and wardrobes, no sofa or dining table yet"
+        },
+        "property_type": {
+          "v": "townhouse",
+          "conf": "high",
+          "ev": "Townhouse in a new project"
+        },
+        "area": {
+          "v": "Cherngtalay",
+          "conf": "high",
+          "ev": "Cherngtalay, 5 minutes to Boat Avenue"
+        },
+        "size_sqm": {
+          "v": 90,
+          "conf": "high",
+          "ev": "90 sq.m."
+        },
+        "kitchen": {
+          "v": "kitchenette",
+          "conf": "high",
+          "ev": "Kitchenette with a two-ring hob"
+        },
+        "parking": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "parking in front of the house"
+        },
+        "condition": {
+          "v": "new",
+          "conf": "high",
+          "ev": "new project"
+        },
+        "contract_min_months": {
+          "v": 12,
+          "conf": "high",
+          "ev": "1-year contract"
+        },
+        "poster_type": {
+          "v": "unclear",
+          "conf": "high",
+          "ev": ""
+        }
+      }
+    },
+    {
+      "fb_id": "9000000000000008",
+      "verdict": "Ask — pets and a green area are not mentioned; the move-in date fits.",
+      "comment": "Three bedrooms near the lake with an oven and parking, through an agency.",
+      "data_quality": "good",
+      "fields": {
+        "pets": {
+          "v": "unclear",
+          "conf": "high",
+          "ev": ""
+        },
+        "price_month_thb": {
+          "v": 24000,
+          "conf": "high",
+          "ev": "24,000 THB/month"
+        },
+        "deposit": {
+          "v": "2 months",
+          "conf": "high",
+          "ev": "2 months deposit"
+        },
+        "bedrooms": {
+          "v": 3,
+          "conf": "high",
+          "ev": "3 bedrooms"
+        },
+        "bathrooms": {
+          "v": 2,
+          "conf": "high",
+          "ev": "2 bathrooms"
+        },
+        "living_room": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "living room"
+        },
+        "furnished": {
+          "v": "full",
+          "conf": "high",
+          "ev": "fully furnished"
+        },
+        "property_type": {
+          "v": "house",
+          "conf": "high",
+          "ev": "House near Nai Harn lake"
+        },
+        "area": {
+          "v": "Nai Harn",
+          "conf": "high",
+          "ev": "near Nai Harn lake"
+        },
+        "size_sqm": {
+          "v": 120,
+          "conf": "high",
+          "ev": "120 sq.m."
+        },
+        "kitchen": {
+          "v": "full",
+          "conf": "high",
+          "ev": "kitchen with oven"
+        },
+        "parking": {
+          "v": "yes",
+          "conf": "high",
+          "ev": "parking for one car"
+        },
+        "aircon": {
+          "v": "3",
+          "conf": "high",
+          "ev": "3 air conditioners"
+        },
+        "green_area": {
+          "v": "unclear",
+          "conf": "high",
+          "ev": ""
+        },
+        "contract_min_months": {
+          "v": 12,
+          "conf": "high",
+          "ev": "12 months"
+        },
+        "available_from": {
+          "v": "2026-12-01",
+          "conf": "high",
+          "ev": "Available from 1 December 2026"
+        },
+        "poster_type": {
+          "v": "agent",
+          "conf": "high",
+          "ev": "Agency."
+        }
+      }
+    }
+  ]
+}

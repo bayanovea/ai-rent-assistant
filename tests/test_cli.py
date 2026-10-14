@@ -2363,3 +2363,54 @@ def test_messages_send_records_stage_profile_named(home, monkeypatch):
     assert entry["stage_profile"] == "partner"
     log = messages_module.load_send_log()
     assert log["900:900:first_contact"]["profile"] == "partner"
+
+
+# --- seed: the sample data set behind the README's two-minute path -------
+
+
+SAMPLE_LISTINGS = config.REPO_ROOT / "examples" / "sample_listings.json"
+SAMPLE_RESULT = config.REPO_ROOT / "examples" / "sample_ai_result.json"
+
+
+def test_seed_loads_the_sample_listings_and_records_the_repost(home):
+    result = _run("seed", str(SAMPLE_LISTINGS))
+    assert result.exit_code == 0, result.output
+    assert "inserted: 8" in result.output
+    assert "duplicate: 1" in result.output
+    conn = storage.init_db(config.DB_PATH)
+    try:
+        assert conn.execute("SELECT count(*) FROM listings").fetchone()[0] == 8
+        assert conn.execute("SELECT count(*) FROM duplicates").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_seed_rejects_a_file_that_is_not_a_list(home, tmp_path):
+    bad = tmp_path / "bad.json"
+    bad.write_text('{"fb_id": "1"}', encoding="utf-8")
+    result = _run("seed", str(bad))
+    assert result.exit_code != 0
+    assert "JSON list" in result.output
+
+
+def test_two_minute_path_runs_on_the_sample_data(home):
+    """seed -> ai-apply -> rate -> export, exactly as the README describes it."""
+    assert _run("seed", str(SAMPLE_LISTINGS)).exit_code == 0
+    applied = _run("ai-apply", str(SAMPLE_RESULT))
+    assert applied.exit_code == 0, applied.output
+    assert "Applied 8" in applied.output
+    assert "Auto-rejected 4" in applied.output
+    assert "warning" not in applied.output
+    assert _run("rate", "9000000000000001", "5", "--reason", "looks right").exit_code == 0
+    exported = _run("export")
+    assert exported.exit_code == 0, exported.output
+    html = config.HTML_PATH.read_text(encoding="utf-8")
+    assert "Sample Garden Village" in html
+    assert config.CSV_PATH.exists()
+    rows = {r["fb_id"]: r for r in storage.fetch_enriched(storage.init_db(config.DB_PATH))}
+    assert rows["9000000000000001"]["status"] == "shortlist"
+    assert rows["9000000000000003"]["status"] == "rejected"  # Patong
+    assert rows["9000000000000004"]["status"] == "rejected"  # price
+    assert rows["9000000000000005"]["status"] == "rejected"  # studio
+    assert rows["9000000000000006"]["status"] == "rejected"  # pets
+    assert rows["9000000000000002"]["status"] == "active"

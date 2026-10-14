@@ -1,0 +1,250 @@
+[
+  {
+    "fb_id": "9000000000000001",
+    "url": "https://www.facebook.com/marketplace/item/9000000000000001/",
+    "title": "2 Bed 2 Bath - Townhouse",
+    "price_thb": 22000,
+    "price_raw": "22,000 ฿/month",
+    "district": "Kathu",
+    "bedrooms": 2,
+    "property_type": "townhouse",
+    "description": "Sample Garden Village, Kathu. Two-storey townhouse in a gated village, fully furnished.\n2 bedrooms, 2 bathrooms, separate living room and a proper kitchen with hob, hood and fridge.\n95 sq.m. Small private garden. Pets welcome. Parking for one car inside the village.\nFibre internet 500 Mbps included. 22,000 THB/month on a 12-month contract, 2-month deposit.\nOwner, no agency fee.",
+    "published_at": "2026-10-13T08:00:00Z",
+    "raw_json": {
+      "text_lines": [
+        "Marketplace",
+        "2 Bed 2 Bath - Townhouse",
+        "22,000 ฿/month",
+        "Listed 1 day ago",
+        "Description",
+        "Sample Garden Village, Kathu. Two-storey townhouse in a gated village, fully furnished.",
+        "2 bedrooms, 2 bathrooms, separate living room and a proper kitchen with hob, hood and fridge.",
+        "95 sq.m. Small private garden. Pets welcome. Parking for one car inside the village.",
+        "Fibre internet 500 Mbps included. 22,000 THB/month on a 12-month contract, 2-month deposit.",
+        "Owner, no agency fee.",
+        "See more",
+        "Seller information",
+        "A. Example"
+      ]
+    }
+  },
+  {
+    "fb_id": "9000000000000002",
+    "url": "https://www.facebook.com/marketplace/item/9000000000000002/",
+    "title": "3 Bed 2 Bath - House",
+    "price_thb": 30000,
+    "price_raw": "30,000 ฿/month",
+    "district": "Chalong",
+    "bedrooms": 3,
+    "property_type": "house",
+    "description": "House for rent in Example Village, Chalong. 3 bedrooms, 2 bathrooms, living room, Western kitchen.\n140 sq.m. on a 300 sq.m. plot with a garden. Fully furnished, 4 air conditioners.\nShared village pool, 24-hour security, parking for two cars.\n30,000 THB/month, minimum 1 year. Contact the agent for a viewing.",
+    "published_at": "2026-10-12T15:30:00Z",
+    "raw_json": {
+      "text_lines": [
+        "Marketplace",
+        "3 Bed 2 Bath - House",
+        "30,000 ฿/month",
+        "Listed 1 day ago",
+        "Description",
+        "House for rent in Example Village, Chalong. 3 bedrooms, 2 bathrooms, living room, Western kitchen.",
+        "140 sq.m. on a 300 sq.m. plot with a garden. Fully furnished, 4 air conditioners.",
+        "Shared village pool, 24-hour security, parking for two cars.",
+        "30,000 THB/month, minimum 1 year. Contact the agent for a viewing.",
+        "See more",
+        "Seller information",
+        "A. Example"
+      ]
+    }
+  },
+  {
+    "fb_id": "9000000000000003",
+    "url": "https://www.facebook.com/marketplace/item/9000000000000003/",
+    "title": "1 Bed 1 Bath - Condo",
+    "price_thb": 18000,
+    "price_raw": "18,000 ฿/month",
+    "district": "Patong",
+    "bedrooms": 1,
+    "property_type": "condo",
+    "description": "Modern 1-bedroom condo in Patong, 45 sq.m., 5 minutes walk to the beach and Bangla Road.\nFully furnished with a kitchenette, pool and gym in the building. Great for nightlife lovers.\n18,000 THB/month, 6 or 12 months.",
+    "published_at": "2026-10-12T09:10:00Z",
+    "raw_json": {
+      "text_lines": [
+        "Marketplace",
+        "1 Bed 1 Bath - Condo",
+        "18,000 ฿/month",
+        "Listed 1 day ago",
+        "Description",
+        "Modern 1-bedroom condo in Patong, 45 sq.m., 5 minutes walk to the beach and Bangla Road.",
+        "Fully furnished with a kitchenette, pool and gym in the building. Great for nightlife lovers.",
+        "18,000 THB/month, 6 or 12 months.",
+        "See more",
+        "Seller information",
+        "A. Example"
+      ]
+    }
+  },
+  {
+    "fb_id": "9000000000000004",
+    "url": "https://www.facebook.com/marketplace/item/9000000000000004/",
+    "title": "4 Bed 4 Bath - Villa",
+    "price_thb": 65000,
+    "price_raw": "65,000 ฿/month",
+    "district": "Bang Tao",
+    "bedrooms": 4,
+    "property_type": "villa",
+    "description": "Private pool villa in Bang Tao, 4 bedrooms with ensuite bathrooms, large living and dining area.\n280 sq.m., fully furnished, maid service twice a week, covered parking for two cars. Pets allowed.\n65,000 THB/month on a yearly contract. Laguna area, 7 minutes to the beach.",
+    "published_at": "2026-10-11T18:00:00Z",
+    "raw_json": {
+      "text_lines": [
+        "Marketplace",
+        "4 Bed 4 Bath - Villa",
+        "65,000 ฿/month",
+        "Listed 1 day ago",
+        "Description",
+        "Private pool villa in Bang Tao, 4 bedrooms with ensuite bathrooms, large living and dining area.",
+        "280 sq.m., fully furnished, maid service twice a week, covered parking for two cars. Pets allowed.",
+        "65,000 THB/month on a yearly contract. Laguna area, 7 minutes to the beach.",
+        "See more",
+        "Seller information",
+        "A. Example"
+      ]
+    }
+  },
+  {
+    "fb_id": "9000000000000005",
+    "url": "https://www.facebook.com/marketplace/item/9000000000000005/",
+    "title": "Studio - Condo",
+    "price_thb": 12000,
+    "price_raw": "12,000 ฿/month",
+    "district": "Kathu",
+    "bedrooms": 0,
+    "property_type": "studio",
+    "description": "Studio for rent in Kathu, 28 sq.m., pool view, 5th floor. Fully furnished, kitchenette, washing machine.\n12,000 THB/month for 12 months. Near Central Phuket and the international school.",
+    "published_at": "2026-10-11T07:45:00Z",
+    "raw_json": {
+      "text_lines": [
+        "Marketplace",
+        "Studio - Condo",
+        "12,000 ฿/month",
+        "Listed 1 day ago",
+        "Description",
+        "Studio for rent in Kathu, 28 sq.m., pool view, 5th floor. Fully furnished, kitchenette, washing machine.",
+        "12,000 THB/month for 12 months. Near Central Phuket and the international school.",
+        "See more",
+        "Seller information",
+        "A. Example"
+      ]
+    }
+  },
+  {
+    "fb_id": "9000000000000006",
+    "url": "https://www.facebook.com/marketplace/item/9000000000000006/",
+    "title": "2 Bed 2 Bath - House",
+    "price_thb": 28000,
+    "price_raw": "28,000 ฿/month",
+    "district": "Rawai",
+    "bedrooms": 2,
+    "property_type": "house",
+    "description": "Single-storey house in a quiet soi in Rawai. 2 bedrooms, 2 bathrooms, open-plan living room and kitchen.\n110 sq.m. with a small garden and a carport. Fully furnished, fast internet.\nNo pets. 28,000 THB/month, 1-year contract, 2 months deposit.",
+    "published_at": "2026-10-10T12:00:00Z",
+    "raw_json": {
+      "text_lines": [
+        "Marketplace",
+        "2 Bed 2 Bath - House",
+        "28,000 ฿/month",
+        "Listed 1 day ago",
+        "Description",
+        "Single-storey house in a quiet soi in Rawai. 2 bedrooms, 2 bathrooms, open-plan living room and kitchen.",
+        "110 sq.m. with a small garden and a carport. Fully furnished, fast internet.",
+        "No pets. 28,000 THB/month, 1-year contract, 2 months deposit.",
+        "See more",
+        "Seller information",
+        "A. Example"
+      ]
+    }
+  },
+  {
+    "fb_id": "9000000000000007",
+    "url": "https://www.facebook.com/marketplace/item/9000000000000007/",
+    "title": "2 Bed 1 Bath - Townhouse",
+    "price_thb": 32000,
+    "price_raw": "32,000 ฿/month",
+    "district": "Cherngtalay",
+    "bedrooms": 2,
+    "property_type": "townhouse",
+    "description": "Townhouse in a new project in Cherngtalay, 5 minutes to Boat Avenue. 2 bedrooms, 1 bathroom.\nPartly furnished: beds and wardrobes, no sofa or dining table yet. Kitchenette with a two-ring hob.\n90 sq.m., parking in front of the house. Pet friendly project.\n32,000 THB/month, 1-year contract.",
+    "published_at": "2026-10-09T16:20:00Z",
+    "raw_json": {
+      "text_lines": [
+        "Marketplace",
+        "2 Bed 1 Bath - Townhouse",
+        "32,000 ฿/month",
+        "Listed 1 day ago",
+        "Description",
+        "Townhouse in a new project in Cherngtalay, 5 minutes to Boat Avenue. 2 bedrooms, 1 bathroom.",
+        "Partly furnished: beds and wardrobes, no sofa or dining table yet. Kitchenette with a two-ring hob.",
+        "90 sq.m., parking in front of the house. Pet friendly project.",
+        "32,000 THB/month, 1-year contract.",
+        "See more",
+        "Seller information",
+        "A. Example"
+      ]
+    }
+  },
+  {
+    "fb_id": "9000000000000008",
+    "url": "https://www.facebook.com/marketplace/item/9000000000000008/",
+    "title": "3 Bed 2 Bath - House",
+    "price_thb": 24000,
+    "price_raw": "24,000 ฿/month",
+    "district": "Nai Harn",
+    "bedrooms": 3,
+    "property_type": "house",
+    "description": "House near Nai Harn lake, 3 bedrooms, 2 bathrooms, living room, kitchen with oven.\n120 sq.m., fully furnished, 3 air conditioners, parking for one car. Quiet area.\nAvailable from 1 December 2026. 24,000 THB/month, 12 months, 2 months deposit. Agency.",
+    "published_at": "2026-10-09T10:00:00Z",
+    "raw_json": {
+      "text_lines": [
+        "Marketplace",
+        "3 Bed 2 Bath - House",
+        "24,000 ฿/month",
+        "Listed 1 day ago",
+        "Description",
+        "House near Nai Harn lake, 3 bedrooms, 2 bathrooms, living room, kitchen with oven.",
+        "120 sq.m., fully furnished, 3 air conditioners, parking for one car. Quiet area.",
+        "Available from 1 December 2026. 24,000 THB/month, 12 months, 2 months deposit. Agency.",
+        "See more",
+        "Seller information",
+        "A. Example"
+      ]
+    }
+  },
+  {
+    "fb_id": "9000000000000009",
+    "url": "https://www.facebook.com/marketplace/item/9000000000000009/",
+    "title": "2 Bed 2 Bath - Townhouse",
+    "price_thb": 22000,
+    "price_raw": "22,000 ฿/month",
+    "district": "Kathu",
+    "bedrooms": 2,
+    "property_type": "townhouse",
+    "description": "Sample Garden Village, Kathu. Two-storey townhouse in a gated village, fully furnished.\n2 bedrooms, 2 bathrooms, separate living room and a proper kitchen with hob, hood and fridge.\n95 sq.m. Small private garden. Pets welcome. Parking for one car inside the village.\nFibre internet 500 Mbps included. 22,000 THB/month on a 12-month contract, 2-month deposit.\nOwner, no agency fee.",
+    "published_at": "2026-10-14T08:00:00Z",
+    "raw_json": {
+      "text_lines": [
+        "Marketplace",
+        "2 Bed 2 Bath - Townhouse",
+        "22,000 ฿/month",
+        "Listed 1 day ago",
+        "Description",
+        "Sample Garden Village, Kathu. Two-storey townhouse in a gated village, fully furnished.",
+        "2 bedrooms, 2 bathrooms, separate living room and a proper kitchen with hob, hood and fridge.",
+        "95 sq.m. Small private garden. Pets welcome. Parking for one car inside the village.",
+        "Fibre internet 500 Mbps included. 22,000 THB/month on a 12-month contract, 2-month deposit.",
+        "Owner, no agency fee.",
+        "See more",
+        "Seller information",
+        "A. Example"
+      ]
+    }
+  }
+]

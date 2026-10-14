@@ -972,6 +972,40 @@ def dedupe_cmd(
         conn.close()
 
 
+@main.command("seed")
+@click.argument(
+    "path", type=click.Path(exists=True, dir_okay=False, path_type=Path)
+)
+def seed_cmd(path: Path) -> None:
+    """Load listings from a JSON file into the local database.
+
+    For trying the pipeline without a Facebook session: the file is a JSON
+    list of listing objects in the shape the scraper writes (see
+    ``examples/sample_listings.json``). Rows go through the same upsert as
+    a scrape, so a repost of an ad already in the file is recorded as a
+    duplicate rather than inserted.
+    """
+    try:
+        listings = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"{path} is not valid JSON: {exc}") from exc
+    if not isinstance(listings, list) or not all(
+        isinstance(item, dict) for item in listings
+    ):
+        raise click.ClickException(f"{path} must hold a JSON list of listing objects")
+
+    counts = {"inserted": 0, "updated": 0, "duplicate": 0}
+    conn = _open_db()
+    try:
+        for listing in listings:
+            counts[upsert_listing(conn, listing)] += 1
+    finally:
+        conn.close()
+    summary = ", ".join(f"{k}: {v}" for k, v in counts.items())
+    click.echo(f"Seeded {len(listings)} listings from {path} ({summary}).")
+    click.echo("Next: `rent-assistant ai-apply <result.json>` and `rent-assistant export`.")
+
+
 @main.command("export")
 @click.option(
     "--path",
