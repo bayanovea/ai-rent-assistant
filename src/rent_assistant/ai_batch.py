@@ -55,7 +55,7 @@ def _now_iso() -> str:
 
 def _read_requirements(path: Path | str | None) -> str:
     """Return the requirements letter, or an empty string if there is none."""
-    target = Path(path) if path is not None else config.REQUIREMENTS_PATH
+    target = Path(path) if path is not None else config.requirements_path()
     try:
         return target.read_text(encoding="utf-8")
     except FileNotFoundError:

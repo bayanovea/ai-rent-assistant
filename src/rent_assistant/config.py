@@ -14,8 +14,10 @@ from pathlib import Path
 # Where runtime state lives unless ``RENT_ASSISTANT_HOME`` says otherwise.
 _DEFAULT_HOME: Path = Path.home() / ".rent-assistant"
 
-# Editable, version-controlled configuration lives in the repo itself (not in
-# RENT_ASSISTANT_HOME): the AI field registry and the search requirements letter.
+# Editable, version-controlled configuration lives in the repo itself: the AI
+# field registry and a *sample* requirements letter. The real letter is
+# private (it describes a household) and lives in the home directory — see
+# ``requirements_path``.
 REPO_ROOT: Path = Path(__file__).resolve().parents[2]
 CONFIG_DIR: Path = REPO_ROOT / "config"
 AI_FIELDS_PATH: Path = CONFIG_DIR / "ai_fields.json"
@@ -126,6 +128,19 @@ BUILDINGS_PATH: Path = RENT_ASSISTANT_HOME / "buildings.json"
 # `written` stage in decisions.json are the two things standing between a
 # re-run and a duplicate message to a real person.
 MESSAGES_SENT_PATH: Path = RENT_ASSISTANT_HOME / "messages_sent.json"
+
+
+def requirements_path() -> Path:
+    """The requirements letter the AI batches read.
+
+    ``$RENT_ASSISTANT_HOME/requirements.md`` when it exists — the user's own
+    letter, kept out of the checkout with the rest of the private state —
+    otherwise the tracked sample in ``config/``.
+    """
+    private = RENT_ASSISTANT_HOME / "requirements.md"
+    if private.is_file():
+        return private
+    return REQUIREMENTS_PATH
 
 
 def ensure_home() -> Path:

@@ -87,8 +87,16 @@ def test_real_registry_declares_the_photo_pass_fields():
 
 def test_requirements_file_exists_and_flags_pets_first():
     text = config.REQUIREMENTS_PATH.read_text(encoding="utf-8")
-    assert "критерий №1" in text
+    assert "criterion #1" in text
     assert text.strip()
+
+
+def test_requirements_path_prefers_the_private_letter(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "RENT_ASSISTANT_HOME", tmp_path)
+    assert config.requirements_path() == config.REQUIREMENTS_PATH
+    private = tmp_path / "requirements.md"
+    private.write_text("# mine\n", encoding="utf-8")
+    assert config.requirements_path() == private
 
 
 # --- lookups -----------------------------------------------------------
