@@ -43,6 +43,8 @@ rent-assistant export
 open "$RENT_ASSISTANT_HOME/rentals.html"   # xdg-open on Linux
 ```
 
+![The Review tab of the exported table on the sample data](docs/screenshot-review.png)
+
 `seed` reports 8 inserted and 1 duplicate: the ninth ad is a repost of the
 first under a new id, and the same content fingerprint that catches agency
 reposts catches it here. `ai-apply` reports 8 analyses applied and 4
