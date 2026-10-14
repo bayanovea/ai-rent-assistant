@@ -17,7 +17,7 @@ The file format is a flat map keyed by the normalised building key::
         "policy": "not_allowed",
         "status": "confirmed",
         "confidence": "high",
-        "note": "Управляющая компания: no pets of any kind.",
+        "note": "Juristic office: no pets of any kind.",
         "sources": [{"url": "...", "title": "...", "quote": "..."}],
         "researched_at": "2026-08-27T10:00:00Z",
         "researched_by": "claude-opus-5 (claude-code)",

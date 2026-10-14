@@ -357,7 +357,7 @@ def test_stage_reaches_the_html_row(path: Path):
     html_row = storage.html_row(row, registry)
     assert html_row["stage"] == "viewing_scheduled"
     cells = html_row["cells"]
-    assert cells["stage"]["t"] == "Договорились о просмотре"
+    assert cells["stage"]["t"] == "Viewing scheduled"
     assert cells["stage_fb_id"]["t"] == "123"
     assert cells["stage_at"]["t"] == "2026-09-25 14:00"
     assert cells["stage_note"]["t"] == "встречает партнёр"

@@ -206,7 +206,7 @@ def test_apply_results_reports_auto_rejections(conn, registry):
         _result("1", fields={"pets": {"v": "not_allowed", "ev": "no pets"}}),
     )
 
-    assert report.rejected == [("1", "Животные запрещены")]
+    assert report.rejected == [("1", "Pets forbidden")]
 
 
 def test_apply_results_purges_photos_of_a_rejected_listing(

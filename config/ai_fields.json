@@ -19,7 +19,7 @@
     },
     {
       "key": "pets_evidence",
-      "label": "Pets — цитата",
+      "label": "Pets — quote",
       "group": "core",
       "type": "text",
       "added_in": 1,
@@ -27,7 +27,7 @@
     },
     {
       "key": "price_month_thb",
-      "label": "Цена ฿/мес",
+      "label": "Price ฿/mo",
       "group": "core",
       "type": "int",
       "added_in": 1,
@@ -35,7 +35,7 @@
     },
     {
       "key": "price_12m_thb",
-      "label": "Цена 12 мес ฿",
+      "label": "Price 12 mo ฿",
       "group": "core",
       "type": "int",
       "added_in": 1,
@@ -43,7 +43,7 @@
     },
     {
       "key": "deposit",
-      "label": "Депозит",
+      "label": "Deposit",
       "group": "core",
       "type": "text",
       "added_in": 1,
@@ -51,7 +51,7 @@
     },
     {
       "key": "bedrooms",
-      "label": "Спален",
+      "label": "Bedrooms",
       "group": "core",
       "type": "int",
       "added_in": 1,
@@ -59,7 +59,7 @@
     },
     {
       "key": "bathrooms",
-      "label": "Санузлов",
+      "label": "Bathrooms",
       "group": "core",
       "type": "int",
       "added_in": 1,
@@ -67,7 +67,7 @@
     },
     {
       "key": "extra_rooms",
-      "label": "Доп. комнаты",
+      "label": "Extra rooms",
       "group": "core",
       "type": "text",
       "added_in": 1,
@@ -75,7 +75,7 @@
     },
     {
       "key": "living_room",
-      "label": "Гостиная",
+      "label": "Living room",
       "group": "core",
       "type": "enum",
       "values": [
@@ -89,7 +89,7 @@
     },
     {
       "key": "furnished",
-      "label": "Меблировка",
+      "label": "Furnished",
       "group": "core",
       "type": "enum",
       "values": [
@@ -104,7 +104,7 @@
     },
     {
       "key": "property_type",
-      "label": "Тип жилья",
+      "label": "Type",
       "group": "property",
       "type": "enum",
       "values": [
@@ -121,7 +121,7 @@
     },
     {
       "key": "project_name",
-      "label": "Проект/посёлок",
+      "label": "Project/village",
       "group": "property",
       "type": "text",
       "added_in": 1,
@@ -129,7 +129,7 @@
     },
     {
       "key": "area",
-      "label": "Район",
+      "label": "District",
       "group": "property",
       "type": "text",
       "added_in": 1,
@@ -137,7 +137,7 @@
     },
     {
       "key": "size_sqm",
-      "label": "Площадь м²",
+      "label": "Size m²",
       "group": "property",
       "type": "int",
       "added_in": 1,
@@ -145,7 +145,7 @@
     },
     {
       "key": "floors",
-      "label": "Этажей",
+      "label": "Floors",
       "group": "property",
       "type": "int",
       "added_in": 1,
@@ -153,7 +153,7 @@
     },
     {
       "key": "condition",
-      "label": "Состояние",
+      "label": "Condition",
       "group": "property",
       "type": "enum",
       "values": [
@@ -168,7 +168,7 @@
     },
     {
       "key": "light",
-      "label": "Свет",
+      "label": "Light",
       "group": "property",
       "type": "enum",
       "added_in": 4,
@@ -183,7 +183,7 @@
     },
     {
       "key": "appeal",
-      "label": "Впечатление",
+      "label": "Appeal",
       "group": "property",
       "type": "enum",
       "added_in": 5,
@@ -198,7 +198,7 @@
     },
     {
       "key": "view",
-      "label": "Вид из окна",
+      "label": "View",
       "group": "property",
       "type": "enum",
       "added_in": 6,
@@ -214,7 +214,7 @@
     },
     {
       "key": "kitchen",
-      "label": "Кухня",
+      "label": "Kitchen",
       "group": "amenity",
       "type": "enum",
       "values": [
@@ -229,7 +229,7 @@
     },
     {
       "key": "parking",
-      "label": "Парковка",
+      "label": "Parking",
       "group": "amenity",
       "type": "enum",
       "values": [
@@ -243,7 +243,7 @@
     },
     {
       "key": "internet",
-      "label": "Интернет",
+      "label": "Internet",
       "group": "amenity",
       "type": "text",
       "added_in": 1,
@@ -251,7 +251,7 @@
     },
     {
       "key": "utilities",
-      "label": "Коммуналка",
+      "label": "Utilities",
       "group": "amenity",
       "type": "text",
       "added_in": 3,
@@ -259,7 +259,7 @@
     },
     {
       "key": "aircon",
-      "label": "Кондиционеры",
+      "label": "Air con",
       "group": "amenity",
       "type": "text",
       "added_in": 1,
@@ -267,7 +267,7 @@
     },
     {
       "key": "pool_gym",
-      "label": "Бассейн/зал",
+      "label": "Pool/gym",
       "group": "amenity",
       "type": "text",
       "source": "both",
@@ -276,7 +276,7 @@
     },
     {
       "key": "green_area",
-      "label": "Зелёная зона",
+      "label": "Green area",
       "group": "amenity",
       "type": "enum",
       "values": [
@@ -290,7 +290,7 @@
     },
     {
       "key": "security",
-      "label": "Охрана",
+      "label": "Security",
       "group": "amenity",
       "type": "enum",
       "values": [
@@ -303,7 +303,7 @@
     },
     {
       "key": "contract_min_months",
-      "label": "Мин. контракт, мес",
+      "label": "Min contract, mo",
       "group": "meta",
       "type": "int",
       "added_in": 1,
@@ -311,7 +311,7 @@
     },
     {
       "key": "available_from",
-      "label": "Свободно с",
+      "label": "Available from",
       "group": "meta",
       "type": "date",
       "added_in": 1,
@@ -319,7 +319,7 @@
     },
     {
       "key": "posted_at",
-      "label": "Дата в тексте",
+      "label": "Date in text",
       "group": "meta",
       "type": "date",
       "added_in": 1,
@@ -327,7 +327,7 @@
     },
     {
       "key": "poster_type",
-      "label": "Кто сдаёт",
+      "label": "Posted by",
       "group": "meta",
       "type": "enum",
       "values": [
@@ -340,7 +340,7 @@
     },
     {
       "key": "contact",
-      "label": "Контакт",
+      "label": "Contact",
       "group": "meta",
       "type": "text",
       "added_in": 1,
@@ -348,7 +348,7 @@
     },
     {
       "key": "photo_quality",
-      "label": "Что на фото",
+      "label": "Photos show",
       "group": "meta",
       "type": "enum",
       "values": [

@@ -9,7 +9,7 @@ table is only a mirror kept in sync for JOINing in :func:`.fetch_enriched`.
 The file format is a flat map keyed by ``fb_id``::
 
     {"9000000000000001": {"status": "rejected",
-                           "reason": "Нет зелёной зоны",
+                           "reason": "No green area",
                            "rating": 2.5,
                            "decided_at": "2026-08-25T10:00:00Z"}}
 
@@ -69,9 +69,9 @@ VALID_STAGES: frozenset[str] = frozenset(
 )
 
 STAGE_LABELS: dict[str, str] = {
-    "written": "Написал",
-    "viewing_scheduled": "Договорились о просмотре",
-    "viewed": "Просмотрено, ждёт сравнения",
+    "written": "Messaged",
+    "viewing_scheduled": "Viewing scheduled",
+    "viewed": "Viewed, comparing",
 }
 
 # The user's own 1-5 mark, and the two thresholds that turn it into a status.

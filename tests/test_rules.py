@@ -317,8 +317,6 @@ def test_boat_lagoon_is_rated_like_kathu_and_bang_tao():
     # and config/requirements.md's district table.
     assert district_rating("Boat Lagoon, Thalang") == 5.0
     assert district_rating("BoatLagoon") == 5.0
-    assert district_rating("Боат Лагун, Тхаланг") == 5.0
-    assert district_rating("Боатлагун") == 5.0
     # Generic Koh Kaew, with no Boat Lagoon named, keeps the broader rating.
     assert district_rating("Koh Kaew, Thalang") == 3.5
 
@@ -499,35 +497,35 @@ def test_missing_living_room_barely_costs_anything():
 
 def test_verdict_tag_normalises_the_ai_sentence():
     # The AI writes the same recommendation four ways; the column shows one.
-    for sentence in ("Стоит посмотреть — дом 3 спальни",
-                     "Стоит взглянуть — таунхаус у аэропорта",
-                     "Стоит присмотреться — дом в Катху"):
-        assert verdict_tag(sentence) == ("see", "смотреть")
-    assert verdict_tag("Уточнить у агента — про животных молчат")[0] == "ask"
-    assert verdict_tag("Сомнительно: кондо 35 м²")[0] == "doubt"
-    assert verdict_tag("Нужен повторный скрейп: текста нет")[0] == "reread"
-    assert verdict_tag("Мало данных — четыре строки текста")[0] == "reread"
-    assert verdict_tag("Не жильё: сдаётся земельный участок")[0] == "no"
+    for sentence in ("View — 3-bedroom house",
+                     "Worth a look — townhouse near the airport",
+                     "Worth viewing — house in Kathu"):
+        assert verdict_tag(sentence) == ("see", "view")
+    assert verdict_tag("Ask the agent — the ad is silent about pets")[0] == "ask"
+    assert verdict_tag("Doubtful: a 35 m² condo")[0] == "doubt"
+    assert verdict_tag("Needs a re-scrape: no text")[0] == "reread"
+    assert verdict_tag("Too little data — four lines of text")[0] == "reread"
+    assert verdict_tag("Not housing: a plot of land for rent")[0] == "no"
 
 
 def test_the_earliest_word_of_the_verdict_decides():
-    # "Стоит посмотреть, но стоит уточнить парковку" is a recommendation with
-    # a caveat; "Стоит уточнить" is a question. Position tells them apart.
-    assert verdict_tag("Стоит посмотреть — но надо уточнить про парковку")[0] == "see"
-    assert verdict_tag("Стоит уточнить, есть ли парковка")[0] == "ask"
+    # "View, but ask about parking" is a recommendation with a caveat;
+    # "Ask whether there is parking" is a question. Position tells them apart.
+    assert verdict_tag("View — but ask about the parking")[0] == "see"
+    assert verdict_tag("Ask whether there is parking, then view")[0] == "ask"
 
 
 def test_bad_data_quality_outranks_whatever_the_ai_concluded():
     # The analysis read the sidebar, so its recommendation is about the wrong
     # text; the only thing to do with the row is read it again.
-    assert verdict_tag("Стоит посмотреть — дом", "sidebar_noise")[0] == "reread"
-    assert verdict_tag("Стоит посмотреть — дом", "good")[0] == "see"
+    assert verdict_tag("View — house", "sidebar_noise")[0] == "reread"
+    assert verdict_tag("View — house", "good")[0] == "see"
 
 
 def test_an_unrecognised_verdict_stays_blank_rather_than_guessing():
     # A blank cell shows the drift; a wrong bucket hides it, and the sentence
     # itself is still one hover away.
-    assert verdict_tag("Животные разрешены, но вы уже отклонили как дубль") == ("", "")
+    assert verdict_tag("Already handled as a duplicate") == ("", "")
     assert verdict_tag("") == ("", "")
     assert verdict_tag(None) == ("", "")
 

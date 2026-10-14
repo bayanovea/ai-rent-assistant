@@ -1699,7 +1699,7 @@ def test_buildings_set_confirms_and_rejects_the_listings(home):
     finally:
         conn.close()
     assert [row["status"] for row in rows] == ["rejected"]
-    assert rows[0]["reason"] == "Кондо запрещает животных"
+    assert rows[0]["reason"] == "Building forbids pets"
 
 
 def test_buildings_set_does_not_count_the_ads_that_survive_it(home):
@@ -1715,8 +1715,8 @@ def test_buildings_set_does_not_count_the_ads_that_survive_it(home):
     )
 
     assert result.exit_code == 0, result.output
-    assert "Отклонит объявлений: 1" in result.output
-    assert "Останутся: 2" in result.output
+    assert "Rejects listings: 1" in result.output
+    assert "Survive: 2" in result.output
 
     conn = storage.init_db(config.DB_PATH)
     try:
@@ -1735,7 +1735,7 @@ def test_buildings_conflicts_lists_the_ads_that_argue_with_the_rule(home):
 
     assert result.exit_code == 0, result.output
     assert "The Base Central Phuket" in result.output
-    assert "2 объявлений обещают животных" in result.output
+    assert "2 ads promise pets" in result.output
 
 
 def test_buildings_conflicts_is_quiet_on_a_single_ad(home):
@@ -1745,7 +1745,7 @@ def test_buildings_conflicts_is_quiet_on_a_single_ad(home):
     result = _run("buildings", "conflicts")
 
     assert result.exit_code == 0, result.output
-    assert "Нет зданий" in result.output
+    assert "No building" in result.output
 
 
 def test_buildings_set_finds_the_building_by_name_and_takes_aliases(home):
@@ -1805,18 +1805,18 @@ def test_ai_status_counts_the_buildings(home):
 
     unresearched = _run("ai-status")
     assert unresearched.exit_code == 0, unresearched.output
-    assert "Не исследованы: 1" in unresearched.output
-    assert "Предложены:     0" in unresearched.output
+    assert "Unresearched: 1" in unresearched.output
+    assert "Proposed:       0" in unresearched.output
 
     _run("buildings-apply", str(_result_file(home)))
     proposed = _run("ai-status")
-    assert "Не исследованы: 0" in proposed.output
-    assert "Предложены:     1" in proposed.output
-    assert "Подтверждены:   0" in proposed.output
+    assert "Unresearched: 0" in proposed.output
+    assert "Proposed:       1" in proposed.output
+    assert "Confirmed:      0" in proposed.output
 
     _run("buildings", "set", "the-base-central-phuket", "--policy", "not_allowed")
     confirmed = _run("ai-status")
-    assert "Подтверждены:   1" in confirmed.output
+    assert "Confirmed:      1" in confirmed.output
 
 
 def test_export_repopulates_the_buildings_mirror_after_a_db_wipe(home):

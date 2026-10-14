@@ -31,7 +31,7 @@ def _valid() -> dict:
             },
             {
                 "key": "size_sqm",
-                "label": "Площадь м²",
+                "label": "Size m²",
                 "group": "property",
                 "type": "int",
                 "added_in": 1,

@@ -670,7 +670,7 @@ def test_export_html_colours_pets_and_marks_rejected(conn, tmp_path: Path):
     for field in registry.fields:
         if field["key"] not in merged:
             assert field["label"] in labels
-    assert "Причина" in labels
+    assert "Reason" in labels
     assert len(labels) == (
         len(storage._FIXED_COLUMNS) + len(registry.fields) - len(merged)
     )
@@ -695,10 +695,10 @@ def test_export_html_shows_the_source_column_with_labels(conn, tmp_path: Path):
     text = out.read_text(encoding="utf-8")
 
     columns = _inline_payload(text, "COLUMNS")
-    assert any(c["key"] == "source" and c["label"] == "Источник" for c in columns)
+    assert any(c["key"] == "source" and c["label"] == "Source" for c in columns)
 
     rows = {r["fb_id"]: r for r in _inline_payload(text, "DATA")}
-    assert rows["market-1"]["cells"]["source"]["t"] == "маркет"
+    assert rows["market-1"]["cells"]["source"]["t"] == "market"
     assert rows["group-1"]["cells"]["source"]["t"] == "PhuketRentSale"
 
 
@@ -725,7 +725,7 @@ def test_export_html_marks_user_rejection_as_user(conn, tmp_path: Path):
     conn.execute(
         "INSERT INTO decisions (fb_id, status, reason, decided_at) "
         "VALUES (?, ?, ?, ?)",
-        ("mine", "rejected", "Слишком далеко от школы", "2026-08-25T12:00:00Z"),
+        ("mine", "rejected", "Too far from the school", "2026-08-25T12:00:00Z"),
     )
     conn.commit()
 
@@ -736,11 +736,11 @@ def test_export_html_marks_user_rejection_as_user(conn, tmp_path: Path):
     row = _inline_payload(text, "DATA")[0]
     assert row["status"] == "rejected"
     assert row["decided_by"] == "user"
-    assert row["cells"]["reason"]["t"] == "Слишком далеко от школы"
-    assert "Слишком далеко от школы" in text
+    assert row["cells"]["reason"]["t"] == "Too far from the school"
+    assert "Too far from the school" in text
     # Свой отказ надо уметь отделить от машинного: их на вкладке в полсотни
     # раз больше. Значение короткое — панель фильтров даёт по нему чипы.
-    assert row["cells"]["decided_by"]["t"] == "вы"
+    assert row["cells"]["decided_by"]["t"] == "you"
 
 
 def test_the_decider_is_a_column_bound_to_the_rejected_tabs(conn, tmp_path: Path):
@@ -853,7 +853,7 @@ def _attach_photos(conn, fb_id: str, data: dict, **overrides):
         "photos_hash": "photos-a",
         "photos_analyzed_at": "2026-08-25T12:00:00Z",
         "photo_model": "claude-sonnet-5 (claude-code)",
-        "photo_comment": "Мебель на снимках выглядит старой.",
+        "photo_comment": "The furniture in the photos looks old.",
         "photo_data_json": data,
     }
     row.update(overrides)
@@ -891,7 +891,7 @@ def test_fetch_enriched_merges_photo_fields_over_text(conn):
     # Only the contradiction is an override: filling `photo_quality` is not.
     assert item["photo_overrides"] == {"furnished": "full"}
     assert item["photo_analyzed"] is True
-    assert item["photo_comment"] == "Мебель на снимках выглядит старой."
+    assert item["photo_comment"] == "The furniture in the photos looks old."
 
 
 def test_fetch_enriched_without_photos_has_no_overrides(conn):
@@ -932,8 +932,8 @@ def test_export_html_marks_the_photo_columns(conn, tmp_path: Path):
 
     row = _inline_payload(text, "DATA")[0]
     assert row["cells"]["furnished"]["t"] == "partial"
-    assert row["cells"]["furnished"]["was"] == "текст: full"
-    assert row["cells"]["photo_comment"]["t"] == "Мебель на снимках выглядит старой."
+    assert row["cells"]["furnished"]["was"] == "text: full"
+    assert row["cells"]["photo_comment"]["t"] == "The furniture in the photos looks old."
 
 
 def test_export_html_photo_override_badge_is_absent_without_disagreement(
@@ -1098,7 +1098,7 @@ def test_the_verdict_column_is_a_tag_with_the_sentence_behind_it(conn, tmp_path:
         _make_analysis(
             fb_id="v1",
             schema_version=registry.schema_version,
-            verdict="Уточнить — дом в Катху, но про животных молчат",
+            verdict="Ask — house in Kathu, but the ad is silent about pets",
         ),
     )
 
@@ -1107,9 +1107,9 @@ def test_the_verdict_column_is_a_tag_with_the_sentence_behind_it(conn, tmp_path:
     text = out.read_text(encoding="utf-8")
     row = _inline_payload(text, "DATA")[0]
 
-    assert row["cells"]["verdict"]["t"] == "спросить"
+    assert row["cells"]["verdict"]["t"] == "ask"
     assert row["cells"]["verdict"]["tag"] == "ask"
-    assert row["cells"]["verdict"]["ev"].startswith("Уточнить —")
+    assert row["cells"]["verdict"]["ev"].startswith("Ask —")
     assert row["cells"]["verdict"]["n"] == rules.verdict_order("ask")
     # Short enough for chips: the filter panel enumerates values under 30 chars.
     assert len(row["cells"]["verdict"]["t"]) < 30
@@ -1515,7 +1515,7 @@ def test_dedupe_one_suggests_instead_of_guessing_when_no_signal_matches(conn):
     assert first["status"] == "rejected" and first["rating"] == 2.0
     # Почему авто-проход её не взял, видно в самой подсказке.
     assert first["contradicts"] is True
-    assert "тот же проект" in first["why"]
+    assert "same project" in first["why"]
 
 
 def test_dedupe_one_into_merges_the_pair_you_named(conn):
@@ -1654,7 +1654,7 @@ def test_a_trailing_word_in_the_project_name_still_reaches_the_shortlist(conn):
     result = storage.dedupe_one(conn, "long", dry_run=True)
     assert (result.canonical, result.removed) == (None, [])
     assert [c["fb_id"] for c in result.candidates] == ["short"]
-    assert "тот же проект" in result.candidates[0]["why"]
+    assert "same project" in result.candidates[0]["why"]
 
 
 def test_one_house_priced_a_thousand_apart_reaches_the_shortlist(conn):
@@ -1667,7 +1667,7 @@ def test_one_house_priced_a_thousand_apart_reaches_the_shortlist(conn):
 
     result = storage.dedupe_one(conn, "cheap", dry_run=True)
     assert (result.canonical, result.removed) == (None, [])
-    assert "та же цена" in result.candidates[0]["why"]
+    assert "same price" in result.candidates[0]["why"]
 
 
 def test_two_condo_units_priced_a_thousand_apart_are_not_the_same_price(conn):
@@ -1679,7 +1679,7 @@ def test_two_condo_units_priced_a_thousand_apart_are_not_the_same_price(conn):
               bedrooms=1, property_type="condo")
 
     result = storage.dedupe_one(conn, "unit-a", dry_run=True)
-    assert "та же цена" not in result.candidates[0]["why"]
+    assert "same price" not in result.candidates[0]["why"]
 
 
 def test_sidebar_noise_never_matches_on_text(conn):
@@ -1913,8 +1913,8 @@ def test_upsert_listing_resighting_without_source_does_not_clobber_it(conn):
 
 
 def test_source_label_for_marketplace_and_groups():
-    assert storage.source_label(None) == "маркет"
-    assert storage.source_label("marketplace") == "маркет"
+    assert storage.source_label(None) == "market"
+    assert storage.source_label("marketplace") == "market"
     assert storage.source_label("group:phuketrentsale") == "PhuketRentSale"
     assert storage.source_label("group:unknown-slug") == "unknown-slug"
 
@@ -2814,12 +2814,12 @@ def test_export_html_badges_a_confirmed_building_on_the_project_cell(
     rows, text = _export_rows(conn, tmp_path)
     cell = rows["a1"]["cells"]["project_name"]
     assert cell["t"] == "The Base Central Phuket"
-    assert (cell["bp"], cell["bs"], cell["bt"]) == ("not_allowed", "confirmed", "нельзя")
+    assert (cell["bp"], cell["bs"], cell["bt"]) == ("not_allowed", "confirmed", "no pets")
     assert cell["bc"] == rules.CLASS_BAD
     # The rejection can be checked from the table: quote and URL are both there.
     assert "Pets are not allowed in the building." in cell["bev"]
     assert "https://example.com/rules" in cell["bev"]
-    assert "подтверждено" in cell["bev"]
+    assert "confirmed" in cell["bev"]
     # It stays a badge, not a column of its own.
     columns = _inline_payload(text, "COLUMNS")
     assert not [c for c in columns if c["key"].startswith("building")]
@@ -2830,10 +2830,10 @@ def test_export_html_badges_a_confirmed_building_on_the_project_cell(
 @pytest.mark.parametrize(
     "policy,cls,label",
     [
-        ("not_allowed", rules.CLASS_BAD, "нельзя"),
-        ("negotiable", rules.CLASS_WARN, "по договорённости"),
-        ("allowed", rules.CLASS_GOOD, "можно"),
-        ("unknown", rules.CLASS_NONE, "не найдено"),
+        ("not_allowed", rules.CLASS_BAD, "no pets"),
+        ("negotiable", rules.CLASS_WARN, "negotiable"),
+        ("allowed", rules.CLASS_GOOD, "allowed"),
+        ("unknown", rules.CLASS_NONE, "not found"),
     ],
 )
 def test_export_html_colours_the_badge_by_policy(
@@ -2854,7 +2854,7 @@ def test_export_html_renders_a_proposal_in_its_own_class(conn, tmp_path: Path):
     rows, text = _export_rows(conn, tmp_path)
     cell = rows["a1"]["cells"]["project_name"]
     assert cell["bs"] == "proposed"
-    assert "предложение, не подтверждено" in cell["bev"]
+    assert "proposed, not confirmed" in cell["bev"]
     assert rows["a1"]["status"] == "active"
     assert ".bpol.b-proposed" in text
 

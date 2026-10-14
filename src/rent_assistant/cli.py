@@ -894,8 +894,8 @@ def _dedupe_one_cmd(
             mark += f" {cand['rating']:g}"
         why = ", ".join(cand["why"])
         if cand["contradicts"]:
-            why += "; но этаж, корпус или площадь расходятся"
-        price = f"{cand['price']} THB" if cand["price"] is not None else "цена не названа"
+            why += "; but floor, block or size differ"
+        price = f"{cand['price']} THB" if cand["price"] is not None else "no price"
         click.echo(f"  rent-assistant dedupe {fb_id} --into {cand['fb_id']}")
         click.echo(f"      {cand['title'][:60]} — {price} [{mark}] — {why}")
 
@@ -1171,7 +1171,7 @@ def ai_status_cmd() -> None:
         photo_reasons[reason] = photo_reasons.get(reason, 0) + 1
     photo_detail = ", ".join(f"{k}: {v}" for k, v in sorted(photo_reasons.items()))
 
-    click.echo("Фото:")
+    click.echo("Photos:")
     click.echo(f"  Analyzed: {photo_analyzed}")
     click.echo(
         f"  Pending:  {len(photo_pending)}"
@@ -1180,7 +1180,7 @@ def ai_status_cmd() -> None:
     click.echo(f"  No photos: {len(no_photos)}")
     # The hash backfill has its own queue: it does not care about the photo
     # pass at all, so it gets its own line rather than a pending_reason.
-    click.echo(f"  Фото-хэши: {hashed_listings} из {total_listings}")
+    click.echo(f"  Photo hashes: {hashed_listings} of {total_listings}")
     if no_photos:
         click.echo(
             "  These listings have no photos on disk — "
@@ -1193,18 +1193,18 @@ def ai_status_cmd() -> None:
 
     # A proposal is inert until the user confirms it, so `Предложены` is a
     # queue of questions to answer, not of work already done.
-    click.echo("Здания:")
-    click.echo(f"  Не исследованы: {unresearched}")
-    click.echo(f"  Предложены:     {proposed}")
-    click.echo(f"  Подтверждены:   {confirmed}")
+    click.echo("Buildings:")
+    click.echo(f"  Unresearched: {unresearched}")
+    click.echo(f"  Proposed:       {proposed}")
+    click.echo(f"  Confirmed:      {confirmed}")
     # Not a queue: these rows are already visible in the table and rejected by
     # nothing. The line is here so a building the research got wrong surfaces
     # without anyone thinking to look for it.
     if conflicts:
         rows = sum(len(c["listings"]) for c in conflicts)
         click.echo(
-            f"  Расхождения:    {len(conflicts)} "
-            f"(объявлений: {rows}) — `rent-assistant buildings conflicts`"
+            f"  Conflicts:      {len(conflicts)} "
+            f"(listings: {rows}) — `rent-assistant buildings conflicts`"
         )
 
 
@@ -2034,9 +2034,9 @@ def buildings_list_cmd(status: str | None, policy: str | None) -> None:
             f"{affected.get(key, 0)} listing(s)"
         )
         if entry.get("area"):
-            click.echo(f"    Район: {entry['area']}")
+            click.echo(f"    District: {entry['area']}")
         if entry.get("aliases"):
-            click.echo(f"    Псевдонимы: {', '.join(entry['aliases'])}")
+            click.echo(f"    Aliases: {', '.join(entry['aliases'])}")
         if entry.get("note"):
             click.echo(f"    {entry['note']}")
         for source in entry.get("sources") or []:
@@ -2059,7 +2059,7 @@ def buildings_list_cmd(status: str | None, policy: str | None) -> None:
 def buildings_conflicts_cmd(min_signals: int) -> None:
     """Print buildings whose ads keep contradicting a not_allowed house rule.
 
-    These listings are not rejected — an ad saying "с животными можно" survives
+    These listings are not rejected — an ad saying "pets welcome" survives
     the building's rule on purpose. What the pile means is that the research
     may have read the wrong tower, so it is worth a look by hand before the
     policy is trusted.
@@ -2074,7 +2074,7 @@ def buildings_conflicts_cmd(min_signals: int) -> None:
 
     if not conflicts:
         click.echo(
-            f"Нет зданий, где {min_signals}+ объявлений спорят с правилом дома."
+            f"No building where {min_signals}+ ads argue with the house rule."
         )
         return
 
@@ -2082,11 +2082,11 @@ def buildings_conflicts_cmd(min_signals: int) -> None:
         click.echo(
             f"{conflict['name']} [{conflict['key']}]: "
             f"{conflict['policy']} / {conflict['status']}, "
-            f"{len(conflict['listings'])} объявлений обещают животных"
+            f"{len(conflict['listings'])} ads promise pets"
         )
         for listing in conflict["listings"]:
             price = listing.get("price_thb")
-            price_str = f"{price} THB" if price else "цена не указана"
+            price_str = f"{price} THB" if price else "price not stated"
             click.echo(
                 f"    - {listing['fb_id']} {price_str} "
                 f"{listing.get('title') or ''}"
@@ -2159,11 +2159,11 @@ def buildings_set_cmd(
     kept = survivors[0] if survivors else 0
     click.echo(f"{saved['name']} [{stored_key}]: {policy} (confirmed)")
     if policy == "not_allowed":
-        click.echo(f"  Отклонит объявлений: {max(affected - kept, 0)}")
+        click.echo(f"  Rejects listings: {max(affected - kept, 0)}")
         if kept:
             click.echo(
-                f"  Останутся: {kept} — объявления обещают животных вопреки "
-                "правилу дома, `rent-assistant buildings conflicts`"
+                f"  Survive: {kept} — the ad promises pets despite the house "
+                "rule, see `rent-assistant buildings conflicts`"
             )
     click.echo(
         f"Saved to {config.BUILDINGS_PATH}. Run `rent-assistant export` to refresh "
@@ -2405,7 +2405,7 @@ def _record_decision(
 )
 @click.option(
     "--reason",
-    default="снято с публикации",
+    default="no longer listed",
     show_default=True,
     help="Reason recorded on the auto-reject.",
 )
@@ -2621,7 +2621,7 @@ def _record_stage(
     label = decisions.STAGE_LABELS[stage]
     when = f" — {viewing_at}" if viewing_at else ""
     note_suffix = f" ({note})" if note else ""
-    postings_word = "объявление" if "," not in target else "объявления"
+    postings_word = "posting" if "," not in target else "postings"
     click.echo(f"{fb_id}: {label}, {postings_word} {target}{when}{note_suffix}")
     click.echo(f"Saved to {config.DECISIONS_PATH}. Run `rent-assistant export` to refresh the table.")
 
@@ -2639,7 +2639,7 @@ def contact_cmd(fb_id: str, posting_fb_id: str | None, note: str | None) -> None
     """Record that you wrote to the landlord/agent about this listing.
 
     Independent of status/shortlist: rejecting the listing later does not
-    erase this. Moves the row to the «В работе» tab.
+    erase this. Moves the row to the "In progress" tab.
     """
     _record_stage(fb_id, "written", posting_fb_id=posting_fb_id, viewing_at=None, note=note)
 
@@ -3038,7 +3038,7 @@ def messages_send_cmd(
                     fb_id,
                     "written",
                     posting_fb_id=target,
-                    note="авто: первое сообщение",
+                    note="auto: first message",
                     profile=profile or "default",
                 )
                 _sync_decisions(db_conn)

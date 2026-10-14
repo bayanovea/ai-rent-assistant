@@ -215,7 +215,7 @@ def marketplace_url(fb_id: str) -> str:
 def source_label(source: str | None) -> str:
     """Human label for the export's «Источник» column and its filter chips."""
     if not source or source == "marketplace":
-        return "маркет"
+        return "market"
     if source.startswith("group:"):
         slug = source.split(":", 1)[1]
         return config.GROUPS.get(slug, slug)
@@ -243,7 +243,7 @@ _BUILDING_PATTERNS = (
     re.compile(r"корпус\s+([a-zA-Z])", re.I),
 )
 
-_WORD_RE = re.compile(r"[0-9a-zA-Zа-яёА-ЯЁ\u0e00-\u0e7f]+")
+_WORD_RE = re.compile(r"[^\W_]+")
 
 # Agencies write from the same template, so two ads for different flats in
 # one project routinely read 80% alike. Only near-identical text counts.
@@ -1036,20 +1036,20 @@ def _candidate_score(a: dict[str, Any], b: dict[str, Any]) -> tuple[int, list[st
     why: list[str] = []
     if a["project"] and b["project"] and _same_project(a["project"], b["project"]):
         points += 3
-        why.append("тот же проект")
+        why.append("same project")
     union = a["words"] | b["words"]
     overlap = len(a["words"] & b["words"]) / len(union) if union else 0.0
     if overlap >= _CANDIDATE_TEXT_RATIO:
         points += 2 if overlap >= _TEXT_MATCH_RATIO else 1
-        why.append(f"текст совпадает на {round(overlap * 100)}%")
+        why.append(f"text {round(overlap * 100)}% alike")
     if not points:
         return 0, []
     if a["bedrooms"] is not None and a["bedrooms"] == b["bedrooms"]:
         points += 2
-        why.append("столько же спален")
+        why.append("same bedrooms")
     if _price_matches(a, b):
         points += 2
-        why.append("та же цена")
+        why.append("same price")
     return points, why
 
 
@@ -2863,7 +2863,7 @@ function tdHTML(row, col) {
 
   // Правило кондо о животных: не колонка, а бейдж на названии проекта — оно
   // известно только для исследованных зданий. В подсказке — цитаты и ссылки,
-  // чтобы отказ «Кондо запрещает животных» можно было проверить, а не верить.
+  // чтобы отказ «Building forbids pets» можно было проверить, а не верить.
   if (cell.bp) {
     inner += '<span class="bpol ' + esc(cell.bc) + ' b-' + esc(cell.bs)
       + '" title="' + esc(cell.bev) + '">' + esc(cell.bt) + '</span>';
@@ -3479,15 +3479,15 @@ document.getElementById("dec-copy").addEventListener("click", () => {
   // текстового поля остаётся запасным путём — и заодно видимым: даже если
   // копирование запретят, блок уже выделен и его можно взять руками.
   box.select();
-  const done = () => { note.textContent = "скопировано"; };
+  const done = () => { note.textContent = "copied"; };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(box.value).then(done, () => {
       note.textContent = document.execCommand("copy")
-        ? "скопировано" : "выделено — скопируйте вручную";
+        ? "copied" : "selected — copy it by hand";
     });
   } else {
     note.textContent = document.execCommand("copy")
-      ? "скопировано" : "выделено — скопируйте вручную";
+      ? "copied" : "selected — copy it by hand";
   }
 });
 
@@ -3582,42 +3582,42 @@ render();
 # prose between the price and the number of bedrooms.
 _FIXED_COLUMNS: dict[str, dict[str, Any]] = {
     "fb_id": {"label": "ID", "kind": "id", "src": "fb"},
-    "price": {"label": "Цена ฿/мес", "kind": "num", "src": "fb"},
-    "area": {"label": "Район", "kind": "text", "src": "fb"},
+    "price": {"label": "Price ฿/mo", "kind": "num", "src": "fb"},
+    "area": {"label": "District", "kind": "text", "src": "fb"},
     # When the ad itself was posted, not when a sweep first saw it. A corpus
     # collected over three days has three `first_seen_at` values and tells you
     # nothing; `published_at` is filled on 98% of rows and is what says whether
     # the flat is likely already gone.
-    "published_at": {"label": "Опубликовано", "kind": "text", "src": "fb"},
-    "first_seen_at": {"label": "Первый показ", "kind": "text", "src": "fb"},
+    "published_at": {"label": "Listed", "kind": "text", "src": "fb"},
+    "first_seen_at": {"label": "First seen", "kind": "text", "src": "fb"},
     # `source` here is the listing's own origin (marketplace / a group) —
     # not to be confused with a cell's `"src"` key just below, which says
     # which pass wrote that one field. Short labels, so the filter panel
     # renders them as chips for free.
-    "source": {"label": "Источник", "kind": "text", "src": "fb"},
+    "source": {"label": "Source", "kind": "text", "src": "fb"},
     "score": {"label": "Score", "kind": "score", "src": "ai"},
     # The district on the 1-5 scale the score already uses. It is not a column
     # anyone reads row by row — it exists so "хороший район" is expressible as
     # a filter and a sort key, which free-text `Район` never was.
-    "area_rating": {"label": "Оценка района", "kind": "num", "src": "ai"},
+    "area_rating": {"label": "District rating", "kind": "num", "src": "ai"},
     # The AI's recommendation, reduced to its tag. The sentence it wrote is
     # the tooltip, so nothing is lost and the column costs one word.
-    "verdict": {"label": "Рекомендация", "kind": "tag", "src": "ai"},
-    "comment": {"label": "Комментарий AI", "kind": "comment", "src": "ai"},
+    "verdict": {"label": "Verdict", "kind": "tag", "src": "ai"},
+    "comment": {"label": "AI comment", "kind": "comment", "src": "ai"},
     "photo_comment": {
-        "label": "Комментарий по фото", "kind": "comment", "src": "photo",
+        "label": "Photo comment", "kind": "comment", "src": "photo",
     },
-    "rating": {"label": "Моя оценка", "kind": "rating", "src": "sys"},
+    "rating": {"label": "My rating", "kind": "rating", "src": "sys"},
     # Обе колонки живут только там, где им есть что показать: `tabs` —
     # список вкладок, на остальных колонки нет вовсе. Причину пишет отказ и
     # ничто больше; «Кто решил» на Longlist и Shortlist был бы столбцом,
     # где во всех строках стоит «вы».
     "decided_by": {
-        "label": "Кто решил", "kind": "who", "src": "sys",
+        "label": "Decided by", "kind": "who", "src": "sys",
         "tabs": ["rejected", "all"],
     },
     "reason": {
-        "label": "Причина", "kind": "reason", "src": "sys",
+        "label": "Reason", "kind": "reason", "src": "sys",
         "tabs": ["rejected", "all"],
     },
     # The post-shortlist pipeline (decisions.save_stage), set from the CLI —
@@ -3625,38 +3625,38 @@ _FIXED_COLUMNS: dict[str, dict[str, Any]] = {
     # работе» / All the same way `decided_by` / `reason` are scoped to their
     # tabs: elsewhere every row's cell would be empty by construction.
     "stage": {
-        "label": "Этап", "kind": "text", "src": "sys",
+        "label": "Stage", "kind": "text", "src": "sys",
         "tabs": ["in_progress", "all"],
     },
     "stage_fb_id": {
-        "label": "По объявлению", "kind": "text", "src": "sys",
+        "label": "Posting", "kind": "text", "src": "sys",
         "tabs": ["in_progress", "all"],
     },
     "stage_at": {
-        "label": "Просмотр", "kind": "text", "src": "sys",
+        "label": "Viewing", "kind": "text", "src": "sys",
         "tabs": ["in_progress", "all"],
     },
     "stage_note": {
-        "label": "Заметка", "kind": "comment", "src": "sys",
+        "label": "Note", "kind": "comment", "src": "sys",
         "tabs": ["in_progress", "all"],
     },
     "stage_profile": {
-        "label": "Аккаунт", "kind": "text", "src": "sys",
+        "label": "Account", "kind": "text", "src": "sys",
         "tabs": ["in_progress", "all"],
     },
     # Messenger conversation columns — same scoping as the stage columns
     # above, and the same rule: no score weight, ever (CLAUDE.md "The
     # table"). `messages sync`/`classify-apply` write these, never a rating.
     "convo_state": {
-        "label": "Диалог", "kind": "text", "src": "sys",
+        "label": "Chat", "kind": "text", "src": "sys",
         "tabs": ["in_progress", "all"],
     },
     "convo_needs": {
-        "label": "Ждёт меня", "kind": "tag", "src": "sys",
+        "label": "Needs me", "kind": "tag", "src": "sys",
         "tabs": ["in_progress", "all"],
     },
     "convo_last": {
-        "label": "Последний ответ", "kind": "comment", "src": "sys",
+        "label": "Last reply", "kind": "comment", "src": "sys",
         "tabs": ["in_progress", "all"],
     },
 }
@@ -3731,7 +3731,7 @@ _UNCLEAR_SPEAKS: frozenset[str] = frozenset({"pets"})
 # Who a verdict came from, as the `Кто решил` cell reads it. The column is
 # what makes "мои отказы" a filter chip: the AI auto-rejects outnumber the
 # hand-made ones 47 to 1, and nothing else on the row separates them.
-_DECIDER_LABELS: dict[str, str] = {"user": "вы", "ai": "AI"}
+_DECIDER_LABELS: dict[str, str] = {"user": "you", "ai": "AI"}
 
 
 def _profile_label(stage_profile: Any) -> str:
@@ -3746,7 +3746,7 @@ def _profile_label(stage_profile: Any) -> str:
     if not stage_profile:
         return ""
     if stage_profile == "default":
-        return "первый пользователь"
+        return "primary"
     return str(stage_profile)
 
 # messages.VALID_CONVO_STATES / NEEDS_ACTION_REASONS, in Russian for the
@@ -3754,19 +3754,19 @@ def _profile_label(stage_profile: Any) -> str:
 # can change without touching the state machine, same split as
 # decisions.STAGE_LABELS.
 _CONVO_STATE_LABELS: dict[str, str] = {
-    "contacted": "Написали, ждём ответа",
-    "replied": "Ответили, не разобрано",
-    "pets_declined": "Животные нельзя",
-    "viewing_proposed": "Предложили время",
-    "answered": "Ответили",
-    "viewing_agreed": "Время согласовано",
+    "contacted": "Messaged, awaiting reply",
+    "replied": "Replied, not classified",
+    "pets_declined": "No pets",
+    "viewing_proposed": "Time proposed",
+    "answered": "Answered",
+    "viewing_agreed": "Viewing agreed",
 }
 _CONVO_REASON_LABELS: dict[str, str] = {
-    "viewing_time": "согласовать время",
-    "pets_declined": "животные нельзя",
-    "unusual_reply": "нестандартный ответ",
-    "no_listing_match": "не сопоставлено с объявлением",
-    "unclassified": "не удалось разобрать",
+    "viewing_time": "agree on a time",
+    "pets_declined": "pets declined",
+    "unusual_reply": "unusual reply",
+    "no_listing_match": "no listing match",
+    "unclassified": "could not classify",
 }
 
 # Values of the FB `district` field that name the island or the province
@@ -3912,10 +3912,10 @@ def _area_rating_cell(item: dict[str, Any]) -> dict[str, Any]:
 # the same reason `data_quality` rides on the ID: a column of its own would
 # spend a full width on a word that is blank for every unresearched building.
 _BUILDING_POLICY_LABELS: dict[str, str] = {
-    "not_allowed": "нельзя",
-    "negotiable": "по договорённости",
-    "allowed": "можно",
-    "unknown": "не найдено",
+    "not_allowed": "no pets",
+    "negotiable": "negotiable",
+    "allowed": "allowed",
+    "unknown": "not found",
 }
 
 _BUILDING_POLICY_CLASSES: dict[str, str] = {
@@ -3926,8 +3926,8 @@ _BUILDING_POLICY_CLASSES: dict[str, str] = {
 }
 
 _BUILDING_STATUS_LABELS: dict[str, str] = {
-    "confirmed": "подтверждено",
-    "proposed": "предложение, не подтверждено",
+    "confirmed": "confirmed",
+    "proposed": "proposed, not confirmed",
 }
 
 
@@ -3935,7 +3935,7 @@ def _building_badge(item: dict[str, Any]) -> dict[str, Any] | None:
     """The building's pets rule as a badge, or ``None`` for an unknown building.
 
     The tooltip carries the verbatim quotes and their URLs, so a rejection
-    reading «Кондо запрещает животных» can be checked from the table instead of
+    reading «Building forbids pets» can be checked from the table instead of
     trusted. A ``proposed`` entry gets its own status word here and its own
     class on the page: research alone rejects nothing, and an unvetted proposal
     must not read like a decision.
@@ -3945,7 +3945,7 @@ def _building_badge(item: dict[str, Any]) -> dict[str, Any] | None:
         return None
     status = str(item.get("building_status") or "proposed")
     name = str(item.get("building_name") or "").strip()
-    head = f"животные: {_BUILDING_POLICY_LABELS.get(policy, policy)}"
+    head = f"pets: {_BUILDING_POLICY_LABELS.get(policy, policy)}"
     lines = [
         f"{name} — {head}" if name else head,
         _BUILDING_STATUS_LABELS.get(status, status),
@@ -4122,7 +4122,7 @@ def html_row(item: dict[str, Any], registry: ai_schema.Registry) -> dict[str, An
         if key in photo_overrides:
             # The photo disagreed with the text. Both readings stay visible:
             # the cell shows what the camera saw, the badge what was written.
-            cell["was"] = "текст: " + (_display(photo_overrides[key]) or "—")
+            cell["was"] = "text: " + (_display(photo_overrides[key]) or "—")
         cells[key] = cell
 
     badge = _building_badge(item)
@@ -4159,10 +4159,10 @@ def _price_tooltip(
         and not rules.is_empty(fb_price)
         and ai_price != fb_price
     ):
-        parts.append(f"AI: {_display(ai_price)} · карточка FB: {_display(fb_price)}")
+        parts.append(f"AI: {_display(ai_price)} · FB card: {_display(fb_price)}")
     yearly = rules.value_of(fields, "price_12m_thb")
     if not rules.is_empty(yearly) and yearly != ai_price:
-        parts.append(f"12 месяцев: {_display(yearly)} ฿")
+        parts.append(f"12 months: {_display(yearly)} ฿")
     return "\n".join(parts)
 
 

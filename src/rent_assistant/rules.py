@@ -29,12 +29,12 @@ from .config import (
 )
 
 # Reasons attached to auto-rejections, in the order they are checked.
-REASON_PETS = "Животные запрещены"
-REASON_BUILDING_PETS = "Кондо запрещает животных"
-REASON_AREA = "Район в автоотказе"
-REASON_PRICE = "Сильно вне бюджета"
-REASON_STUDIO = "Студия"
-REASON_SIZE = f"Меньше {MIN_SIZE_SQM} м²"
+REASON_PETS = "Pets forbidden"
+REASON_BUILDING_PETS = "Building forbids pets"
+REASON_AREA = "District auto-rejected"
+REASON_PRICE = "Far over budget"
+REASON_STUDIO = "Studio"
+REASON_SIZE = f"Under {MIN_SIZE_SQM} m²"
 
 # CSS classes the HTML export understands.
 CLASS_GOOD = "c-good"
@@ -102,22 +102,20 @@ def is_empty(value: Any) -> bool:
 # (`Ka Rorn` is FB's Karon, `Ban Ket Ho` is a village inside Kathu).
 _RATED_AREAS: tuple[tuple[float, tuple[str, ...]], ...] = (
     (5.0, ("kathu", "ket ho", "ketho", "loch palm", "lochpalm", "bang tao",
-           "bangtao", "boat lagoon", "boatlagoon", "кату", "катху",
-           "банг тао", "бангтао", "боат лагун", "боатлагун")),
+           "bangtao", "boat lagoon", "boatlagoon")),
     (4.5, ("cherngtalay", "cherng talay", "choeng thale", "choengthale",
            "laguna", "surin", "boat avenue", "boatavenue", "layan")),
     (4.0, ("rawai", "nai harn", "naiharn", "nai yang", "naiyang", "nai thon",
-           "naithon", "mai khao", "maikhao", "sakhu", "airport", "аэропорт",
+           "naithon", "mai khao", "maikhao", "sakhu", "airport",
            "old town", "oldtown", "talat nuea", "talatnuea", "talat yai",
-           "talatyai", "раваи", "равай")),
+           "talatyai")),
     (3.5, ("kata", "karon", "ka rorn", "karorn", "thalang", "si sunthon",
            "sisunthon", "sri soonthorn", "srisoonthorn", "bang jo", "bangjo",
            "koh kaew", "kohkaew", "ko kaeo", "pa khlok", "pakhlok", "paklok",
-           "kamala", "panwa", "phuket town", "phukettown", "mueang phuket",
-           "ката", "карон", "тхаланг", "камала")),
+           "kamala", "panwa", "phuket town", "phukettown", "mueang phuket")),
     (3.0, ("chalong", "wichit", "samkong", "sam kong", "ratsada", "rassada",
-           "sapam", "ao po", "aopo", "koh siray", "ko sireh", "чалонг")),
-    (1.0, ("patong", "патонг", "патонге")),
+           "sapam", "ao po", "aopo", "koh siray", "ko sireh")),
+    (1.0, ("patong",)),
 )
 
 _AREA_RATINGS: dict[str, float] = {
@@ -143,7 +141,7 @@ def district_rating(text: Any) -> float | None:
     """Return the 1-5 rating of the district named in ``text``.
 
     The AI writes `area` as free text and often names two places at once
-    (``Cherngtalay, Thalang``, ``Nai Harn, Rawai``, ``Kathu, 10 мин до
+    (``Cherngtalay, Thalang``, ``Nai Harn, Rawai``, ``Kathu, 10 min to
     Patong``). The **first** name wins, because that is where the ad puts the
     listing itself and everything after it is context — taking the best or the
     worst match instead would rate a Kathu house by its distance to Patong.
@@ -214,7 +212,7 @@ def decide(
     An ad that says ``pets: allowed`` outright is the one exception, and it
     survives a building that forbids them. The two remain separate sources —
     neither overwrites the other — but they are not equally specific: the
-    house rule is about the tower, while "с животными можно" is about this
+    house rule is about the tower, while "pets welcome" is about this
     flat, and it is usually a landlord who already has the permission the rule
     talks about. Rejecting it would throw away the only listings in a
     forbidding building worth looking at. Repeated such ads in one building
@@ -280,15 +278,14 @@ def decide(
 # blank cell that shows the drift instead of quietly filing it under a wrong
 # heading, with the sentence itself still one hover away.
 VERDICT_TAGS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    ("see", "смотреть", ("стоит посмотреть", "стоит взглянуть",
-                         "стоит присмотреться", "стоит рассмотреть")),
-    ("ask", "спросить", ("уточнить", "спросить")),
-    ("doubt", "сомнительно", ("сомнительно", "под вопросом", "спорно")),
-    ("reread", "перечитать", ("повторный скрейп", "повторного скрейпа",
-                              "re-scrape", "рескрейп", "мало данных",
-                              "текста объявления нет", "нет текста")),
-    ("no", "отказ", ("отказ", "не жильё", "не жилье", "не аренда",
-                     "не подходит", "не сдают")),
+    ("see", "view", ("worth viewing", "worth a look", "worth a visit",
+                     "worth seeing", "view")),
+    ("ask", "ask", ("ask", "clarify", "check with")),
+    ("doubt", "doubtful", ("doubtful", "questionable", "borderline")),
+    ("reread", "re-read", ("re-read", "reread", "re-scrape", "rescrape",
+                           "too little data", "no ad text", "no text")),
+    ("no", "reject", ("reject", "not housing", "not a rental",
+                   "not suitable", "not for rent")),
 )
 
 # Longest stems first, so "стоит уточнить" is a question rather than a
@@ -311,7 +308,7 @@ def verdict_tag(verdict: Any, data_quality: str | None = None) -> tuple[str, str
     only thing to do with the row is read it again.
     """
     if data_quality and data_quality != "good":
-        return "reread", "перечитать"
+        return "reread", "re-read"
     text = str(verdict or "").lower()
     if not text.strip():
         return "", ""
