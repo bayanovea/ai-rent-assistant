@@ -32,9 +32,9 @@ def _in_building(conn, fb_id: str, project: str, *, pets="unclear",
             "url": f"https://www.facebook.com/marketplace/item/{fb_id}",
             "title": "2 Bed 1 Bath - Condo",
             "price_thb": price,
-            "price_raw": f"{price} ฿/месяц",
+            "price_raw": f"{price} ฿/month",
             "district": "Phuket Town",
-            "description": "Квартира в кондо.",
+            "description": "Flat in a condo.",
         },
         now="2026-08-25T10:00:00Z",
     )
@@ -46,7 +46,7 @@ def _in_building(conn, fb_id: str, project: str, *, pets="unclear",
             "analyzed_at": "2026-08-25T10:00:00Z",
             "source_hash": f"hash-{fb_id}",
             "model": "claude-opus-5 (claude-code)",
-            "verdict": "Подходит, квартира в кондо.",
+            "verdict": "View, a flat in a condo.",
             "data_quality": "good",
             "data_json": {
                 "project_name": {"v": project},
@@ -74,7 +74,7 @@ def _result(**overrides):
         "area": "Phuket Town",
         "policy": "not_allowed",
         "confidence": "high",
-        "note": "УК: no pets of any kind.",
+        "note": "Management: no pets of any kind.",
         "sources": _sources(),
     }
     entry.update(overrides)
@@ -105,7 +105,7 @@ def test_batch_carries_the_queue_and_the_research_prompt(conn):
     ]
     for value in buildings.POLICIES:
         assert value in batch["research_prompt"]
-    assert "цитат" in batch["research_prompt"]
+    assert "quote" in batch["research_prompt"]
     assert batch["generated_at"]
 
 
@@ -331,7 +331,7 @@ def test_apply_skips_a_building_the_user_already_confirmed(conn, path):
         "The Base Central Phuket",
         policy="negotiable",
         status="confirmed",
-        note="Спросил агента: до 10 кг можно.",
+        note="Asked the agent: up to 10 kg is fine.",
     )
     store = buildings.load_buildings(path)
 
@@ -401,7 +401,7 @@ def test_apply_dry_run_writes_nothing_but_still_counts(conn, path):
 def test_apply_rejects_the_whole_file_before_writing_anything(conn, path):
     _in_building(conn, "1", "The Base Central Phuket")
     result = _result()
-    result["results"].append({"key": "zcape-iii", "policy": "нельзя"})
+    result["results"].append({"key": "zcape-iii", "policy": "forbidden"})
 
     with pytest.raises(buildings_batch.BatchError):
         buildings_batch.apply_buildings_results(

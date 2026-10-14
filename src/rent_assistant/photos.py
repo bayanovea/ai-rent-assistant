@@ -54,7 +54,7 @@ def pick_photo_urls(urls: list[str]) -> list[str]:
 
 
 def download_and_resize(context: Any, urls: list[str], fb_id: str) -> list[Path]:
-    """Download the picked photos into ``data/photos/<fb_id>/`` and shrink them.
+    """Download the picked photos into ``photos/<fb_id>/`` and shrink them.
 
     ``context`` is the Playwright browsing context: its ``request`` client
     shares cookies with the persistent profile, which is what makes the

@@ -43,10 +43,10 @@ def _add_listing(conn, fb_id: str, **overrides):
         "url": f"https://www.facebook.com/marketplace/item/{fb_id}",
         "title": "2 Bed 1 Bath - House",
         "price_thb": 22000,
-        "price_raw": "22 000 ฿/месяц",
+        "price_raw": "22 000 ฿/month",
         "district": "Kathu, Phuket",
-        "description": "Дом в посёлке, 2 спальни. Собаки разрешены.",
-        "raw_json": json.dumps({"text_lines": ["Описание", "Дом в посёлке."]}),
+        "description": "House in a village, 2 bedrooms. Dogs allowed.",
+        "raw_json": json.dumps({"text_lines": ["Описание", "House in a village."]}),
     }
     listing.update(overrides)
     storage.upsert_listing(conn, listing)
@@ -57,7 +57,7 @@ def _analysed(conn, registry, fb_id: str, fields: dict | None = None, **override
     """Give a listing a text analysis the rules leave `active` by default."""
     _add_listing(conn, fb_id, **overrides)
     data = {
-        "pets": {"v": "allowed", "conf": "high", "ev": "Собаки разрешены"},
+        "pets": {"v": "allowed", "conf": "high", "ev": "Dogs allowed"},
         "furnished": {"v": "full", "conf": "high", "ev": "fully furnished"},
     }
     if fields is not None:
@@ -70,7 +70,7 @@ def _analysed(conn, registry, fb_id: str, fields: dict | None = None, **override
             "analyzed_at": "2026-08-25T10:00:00Z",
             "source_hash": "hash",
             "model": "claude-opus-5",
-            "verdict": "Годится.",
+            "verdict": "View, it fits.",
             "comment": None,
             "score": 5,
             "data_quality": "good",
@@ -89,7 +89,7 @@ def test_build_photo_batch_describes_the_pass(conn, registry, photos_home):
     batch = photo_batch.build_photo_batch(
         conn,
         registry,
-        requirements_md="письмо агенту",
+        requirements_md="letter to the agent",
         photo_analysis_version=7,
         now="2026-08-25T10:00:00Z",
     )
@@ -97,7 +97,7 @@ def test_build_photo_batch_describes_the_pass(conn, registry, photos_home):
     assert batch["schema_version"] == registry.schema_version
     assert batch["photo_analysis_version"] == 7
     assert batch["generated_at"] == "2026-08-25T10:00:00Z"
-    assert batch["requirements_md"] == "письмо агенту"
+    assert batch["requirements_md"] == "letter to the agent"
 
     (item,) = batch["items"]
     assert item["fb_id"] == "1"
@@ -194,7 +194,7 @@ def _entry(**overrides):
     entry = {
         "fb_id": "1",
         "photos_hash": "abc",
-        "fields": {"condition": {"v": "good", "conf": "high", "ev": "фото 2: ремонт"}},
+        "fields": {"condition": {"v": "good", "conf": "high", "ev": "photo 2: renovation"}},
     }
     entry.update(overrides)
     return entry
@@ -267,9 +267,9 @@ def test_apply_photo_results_writes_the_photo_columns(conn, registry, photos_hom
             {
                 "fb_id": "1",
                 "photos_hash": digest,
-                "comment": "Ремонт свежий, но кухня — плитка.",
+                "comment": "Fresh renovation, but the kitchen is tiled.",
                 "fields": {
-                    "condition": {"v": "good", "conf": "high", "ev": "фото 2: ремонт"}
+                    "condition": {"v": "good", "conf": "high", "ev": "photo 2: renovation"}
                 },
             },
         ),
@@ -279,13 +279,13 @@ def test_apply_photo_results_writes_the_photo_columns(conn, registry, photos_hom
     assert report.applied == 1
     row = conn.execute("SELECT * FROM ai_analysis WHERE fb_id = '1'").fetchone()
     assert storage.photo_fields_of(dict(row))["condition"]["v"] == "good"
-    assert row["photo_comment"] == "Ремонт свежий, но кухня — плитка."
+    assert row["photo_comment"] == "Fresh renovation, but the kitchen is tiled."
     assert row["photos_hash"] == digest
     assert row["photo_schema_version"] == registry.schema_version
     assert row["photos_analyzed_at"] == "2026-08-25T12:00:00Z"
     assert row["photo_model"] == "claude-sonnet-5"
     # The text pass's own columns are untouched.
-    assert row["verdict"] == "Годится."
+    assert row["verdict"] == "View, it fits."
     assert storage.fields_of(row["data_json"])["pets"]["v"] == "allowed"
 
 
@@ -305,9 +305,9 @@ def test_apply_photo_results_reports_where_photos_contradicted_the_text(
                 "photos_hash": photos.photos_hash("1"),
                 "fields": {
                     # The text said `full`; the pictures show a bare room.
-                    "furnished": {"v": "none", "conf": "high", "ev": "фото 1: пусто"},
+                    "furnished": {"v": "none", "conf": "high", "ev": "photo 1: empty"},
                     # Nothing in the text to disagree with — not an override.
-                    "living_room": {"v": "yes", "conf": "high", "ev": "фото 3"},
+                    "living_room": {"v": "yes", "conf": "high", "ev": "photo 3"},
                 },
             },
         ),
@@ -334,7 +334,7 @@ def test_apply_photo_results_rescores_from_the_merged_fields(
                 "fb_id": "1",
                 "photos_hash": photos.photos_hash("1"),
                 "fields": {
-                    "living_room": {"v": "yes", "conf": "high", "ev": "фото 3: зал"}
+                    "living_room": {"v": "yes", "conf": "high", "ev": "photo 3: living room"}
                 },
             },
         ),
@@ -371,9 +371,9 @@ def test_apply_photo_results_can_drop_a_listing_into_rejected(
                     "property_type": {
                         "v": "studio",
                         "conf": "high",
-                        "ev": "фото 1: одна комната",
+                        "ev": "photo 1: one room",
                     },
-                    "size_sqm": {"v": 18, "conf": "medium", "ev": "фото 1"},
+                    "size_sqm": {"v": 18, "conf": "medium", "ev": "photo 1"},
                 },
             },
         ),
@@ -401,7 +401,7 @@ def test_apply_photo_results_dry_run_writes_nothing(conn, registry, photos_home)
             {
                 "fb_id": "1",
                 "photos_hash": photos.photos_hash("1"),
-                "fields": {"furnished": {"v": "none", "conf": "high", "ev": "фото 1"}},
+                "fields": {"furnished": {"v": "none", "conf": "high", "ev": "photo 1"}},
             },
         ),
         dry_run=True,
@@ -427,7 +427,7 @@ def test_apply_photo_results_skips_a_stale_photos_hash(conn, registry, photos_ho
             {
                 "fb_id": "1",
                 "photos_hash": "hash-of-pictures-long-gone",
-                "fields": {"condition": {"v": "worn", "conf": "high", "ev": "фото 2"}},
+                "fields": {"condition": {"v": "worn", "conf": "high", "ev": "photo 2"}},
             },
         ),
     )
@@ -468,7 +468,7 @@ def test_apply_photo_results_is_idempotent(conn, registry, photos_home):
     entry = {
         "fb_id": "1",
         "photos_hash": photos.photos_hash("1"),
-        "fields": {"living_room": {"v": "yes", "conf": "high", "ev": "фото 3"}},
+        "fields": {"living_room": {"v": "yes", "conf": "high", "ev": "photo 3"}},
     }
 
     photo_batch.apply_photo_results(
@@ -503,8 +503,8 @@ def test_apply_photo_results_collects_proposed_new_fields(
             registry,
             {"fb_id": "1", "photos_hash": photos.photos_hash("1"), "fields": {}},
             proposed_new_fields=[
-                {"key": "balcony_view", "type": "text", "label": "Вид с балкона"},
-                {"key": "condition", "type": "enum", "label": "уже есть"},
+                {"key": "balcony_view", "type": "text", "label": "Balcony view"},
+                {"key": "condition", "type": "enum", "label": "already there"},
             ],
         ),
     )

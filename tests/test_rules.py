@@ -128,7 +128,7 @@ def test_the_ads_own_pets_field_wins_the_reason_when_both_apply():
 
 
 def test_an_ad_promising_pets_survives_a_forbidding_building():
-    # The house rule is about the tower, "с животными можно" is about this
+    # The house rule is about the tower, "pets allowed" is about this
     # flat — and it is usually a landlord who already has the permission the
     # rule talks about. Rejecting it would throw away the only listings in a
     # forbidding building worth looking at.
@@ -219,7 +219,7 @@ def test_unknown_size_stays_active():
     assert decide(wrap(pets="allowed", bedrooms=1), 20_000) == ("active", None)
     assert decide(wrap(bedrooms=1, size_sqm=None), 20_000) == ("active", None)
     assert decide(wrap(bedrooms=1, size_sqm=""), 20_000) == ("active", None)
-    assert decide(wrap(bedrooms=1, size_sqm="около 40"), 20_000) == ("active", None)
+    assert decide(wrap(bedrooms=1, size_sqm="about 40"), 20_000) == ("active", None)
 
 
 def test_small_size_from_bad_data_quality_stays_active():
@@ -294,8 +294,8 @@ def test_patong_from_facebooks_own_tag_is_rejected():
 
 def test_patong_as_a_landmark_does_not_reject_a_kathu_house():
     # The first name is where the flat is; everything after it is context.
-    assert decide(wrap(area="Kathu, 10 мин до Patong"), 20_000) == ("active", None)
-    assert district_rating("Kathu, 10 мин до Patong") == 5.0
+    assert decide(wrap(area="Kathu, 10 min to Patong"), 20_000) == ("active", None)
+    assert district_rating("Kathu, 10 min to Patong") == 5.0
 
 
 def test_the_first_district_named_wins():
@@ -323,7 +323,7 @@ def test_boat_lagoon_is_rated_like_kathu_and_bang_tao():
 
 def test_a_district_nobody_named_is_unrated():
     assert district_rating("Changwat Phuket, Phuket, Thailand") is None
-    assert district_rating("рядом с объездной и IKEA") is None
+    assert district_rating("next to the bypass road and IKEA") is None
     assert district_rating("") is None
     assert district_rating(None) is None
 
@@ -339,7 +339,7 @@ def test_district_moves_the_score_around_the_pivot():
 
 def test_an_unknown_district_costs_nothing():
     # Silence about the area is not evidence that the area is bad.
-    assert score(wrap(area="")) == score({}) == score(wrap(area="Пхукет"))
+    assert score(wrap(area="")) == score({}) == score(wrap(area="somewhere on the island"))
 
 
 def test_facebooks_district_scores_only_when_the_ai_named_none():
@@ -371,7 +371,7 @@ def test_size_at_or_above_the_floor_is_plain():
 
 
 def test_unparsable_size_is_plain():
-    assert cell_class("size_sqm", "около 40", {"added_in": 1}, 1) == CLASS_PLAIN
+    assert cell_class("size_sqm", "about 40", {"added_in": 1}, 1) == CLASS_PLAIN
 
 
 def test_pets_allowed_is_green():
@@ -430,7 +430,7 @@ def _perfect() -> dict:
         security="yes",
         condition="good",
         bedrooms=2,
-        extra_rooms="кабинет",
+        extra_rooms="study",
         internet="AIS fibre 300 Mbps",
         contract_min_months=12,
     )
@@ -460,9 +460,9 @@ def test_a_wordy_ad_does_not_outrank_a_terse_one():
     wordy = wrap(
         pets="allowed",
         bedrooms=2,
-        extra_rooms="кабинет",
+        extra_rooms="study",
         internet="AIS fibre 300 Mbps",
-        pool_gym="общий бассейн",
+        pool_gym="shared pool",
     )
     assert score(wordy) == score(terse)
 

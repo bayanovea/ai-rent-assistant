@@ -14,7 +14,8 @@ from datetime import datetime, timedelta, timezone
 
 # Currency tokens we accept as "this string is a THB price". FB shows a mix
 # of "THB", "฿", "Bt", "baht", or nothing at all when the marketplace UI
-# already labels the column. "бат" is the Cyrillic spelling group posts use.
+# already labels the column. "бат" is the Russian-locale spelling group posts
+# use (Facebook/ad text, verified live — keep it byte-for-byte).
 # We treat unlabelled numbers as THB too since the whole search is scoped to
 # Phuket rentals in THB.
 _CURRENCY_RE = re.compile(
@@ -58,8 +59,8 @@ def parse_price(raw: str | None) -> int | None:
     we do not do FX conversion.
 
     A marketplace ``price_raw`` is a short, price-only string, so its first
-    number is the price. A group post's is a whole sentence — "Вилла с 3
-    спальнями ... по 100 000 бат в месяц" — where the first number is the
+    number is the price. A group post's is a whole sentence — "Villa with
+    3 bedrooms ... 100 000 бат per month" — where the first number is the
     bedroom count, not the price. When a currency token is present, the
     number closest to it wins; only an untagged string (a bare "25000") falls
     back to the first number in it.
@@ -136,6 +137,7 @@ def extract_bedrooms(title: str | None, description: str | None) -> int | None:
     return None
 
 
+# Facebook UI text in the Russian locale, verified live — keep byte-for-byte.
 PETS_FACET_LINE = "Можно с собаками и кошками"
 # Facebook's own "pets" facet on a rental listing — a fixed line straight
 # under the price, not ad copy. It only ever renders when the poster ticked
@@ -187,7 +189,8 @@ def extract_property_type(title: str | None, description: str | None) -> str:
 # body sits between the "Описание"/"Description" heading and the seller
 # block. Picking "the longest text node" instead (what iteration 1 did)
 # reliably grabs the "Выбор дня" sidebar of unrelated listings, so we cut
-# on the markers.
+# on the markers. The Russian strings in the tables below are Facebook's own
+# UI text in the Russian locale, verified live — keep them byte-for-byte.
 
 _DESCRIPTION_MARKERS = frozenset({"описание", "description"})
 
@@ -229,9 +232,9 @@ _TITLE_JUNK = frozenset(
     }
 )
 
-# Relative timestamps, RU and EN in one pattern: an optional count, a unit
-# stem, then "назад"/"ago". "an hour ago" / "час назад" carry no digits, so
-# a missing count means 1.
+# Relative timestamps, RU (Facebook's Russian-locale text) and EN in one
+# pattern: an optional count, a unit stem, then "назад"/"ago". "an hour ago"
+# / "час назад" carry no digits, so a missing count means 1.
 _PUBLISHED_RE = re.compile(
     r"(?:(\d+)\s*)?"
     r"(день|дн|мин|час|сутк|недел|мес|minutes?|mins?|hours?|days?|weeks?|months?)"
@@ -295,6 +298,7 @@ _FEED_SHORT_UNIT_DAYS: tuple[tuple[tuple[str, ...], float], ...] = (
     (("нед", "w"), 7.0),
     (("мес",), 30.0),
 )
+# "вчера в 10:11" / "сегодня в 09:05" — Russian-locale feed timestamps.
 _YESTERDAY_RE = re.compile(r"\bвчера\b[^\d]*(\d{1,2}):(\d{2})", re.IGNORECASE)
 _TODAY_RE = re.compile(r"\bсегодня\b[^\d]*(\d{1,2}):(\d{2})", re.IGNORECASE)
 

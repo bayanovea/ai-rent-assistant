@@ -46,8 +46,8 @@ def test_parse_price_valid(raw: str, expected: int) -> None:
         # string — an unrelated number ahead of the currency token must not
         # win. Real bug: this parsed to 3 (the bedroom count).
         (
-            "Вилла с 3 спальнями в Банг Тао доступна для ежегодного "
-            "контракта по 100 000 бат в месяц",
+            "Villa with 3 bedrooms in Bang Tao available for a yearly "
+            "contract at 100 000 бат per month",
             100_000,
         ),
         # Same shape in English: "1-year" precedes the actual price.
@@ -235,8 +235,8 @@ def test_description_from_text_lines_english_markers() -> None:
 
 
 def test_description_from_text_lines_without_seller_marker_runs_to_end() -> None:
-    lines = ["Описание", "Дом с садом.", "Парковка на 2 машины."]
-    assert description_from_text_lines(lines) == "Дом с садом.\nПарковка на 2 машины."
+    lines = ["Описание", "House with a garden.", "Parking for 2 cars."]
+    assert description_from_text_lines(lines) == "House with a garden.\nParking for 2 cars."
 
 
 @pytest.mark.parametrize(
@@ -244,9 +244,9 @@ def test_description_from_text_lines_without_seller_marker_runs_to_end() -> None
     [
         None,
         [],
-        ["Marketplace", "16 000 ฿/месяц", "Отправить сообщение"],  # маркера нет
+        ["Marketplace", "16 000 ฿/месяц", "Отправить сообщение"],  # no marker
         ["Описание", "Информация о продавце", "A. Example"],  # empty slice
-        ["Описание", "Ещё", "Информация о продавце"],  # только «Ещё»
+        ["Описание", "Ещё", "Информация о продавце"],  # only "Ещё"
     ],
 )
 def test_description_from_text_lines_none(lines: list[str] | None) -> None:
@@ -269,7 +269,7 @@ def test_description_from_text_lines_none(lines: list[str] | None) -> None:
         ),
         ("Marketplace | House for rent in Chalong | Facebook", "House for rent in Chalong"),
         ("(12) Marketplace - Townhouse Pruksa Ville | Facebook", "Townhouse Pruksa Ville"),
-        ("Villa with pool", "Villa with pool"),  # уже чистый
+        ("Villa with pool", "Villa with pool"),  # already clean
         ("  (3) Marketplace — Condo Kathu | Facebook  ", "Condo Kathu"),
     ],
 )
@@ -287,7 +287,7 @@ def test_clean_fb_title(raw: str, expected: str) -> None:
         "недавно опубликовано",
         "Recently posted",
         "Marketplace",
-        "(6) Marketplace | Facebook",  # ничего кроме chrome не осталось
+        "(6) Marketplace | Facebook",  # nothing but chrome left
     ],
 )
 def test_clean_fb_title_junk(raw: str | None) -> None:
@@ -307,7 +307,7 @@ NOW = datetime(2026, 8, 25, 12, 0, 0, tzinfo=timezone.utc)
 @pytest.mark.parametrize(
     "raw,expected",
     [
-        # RU — то, что реально отдаёт FB в русской локали (nbsp внутри).
+        # RU — what FB really renders in the Russian locale (nbsp inside).
         ("Опубликовано 12 часов назад", "2026-08-25T00:00:00Z"),
         ("Опубликовано 1 час назад", "2026-08-25T11:00:00Z"),
         ("Опубликовано 30 минут назад", "2026-08-25T11:30:00Z"),
@@ -315,7 +315,7 @@ NOW = datetime(2026, 8, 25, 12, 0, 0, tzinfo=timezone.utc)
         ("Опубликовано 5 дней назад", "2026-08-20T12:00:00Z"),
         ("Опубликовано 2 недели назад", "2026-08-11T12:00:00Z"),
         ("Опубликовано 1 месяц назад", "2026-07-26T12:00:00Z"),
-        # EN — прежние шаблоны не сломаны.
+        # EN — the earlier patterns still hold.
         ("Listed 3 days ago", "2026-08-22T12:00:00Z"),
         ("Posted 2 weeks ago", "2026-08-11T12:00:00Z"),
         ("5 minutes ago", "2026-08-25T11:55:00Z"),
@@ -334,7 +334,7 @@ def test_parse_published_at(raw: str, expected: str) -> None:
         "",
         "   ",
         "Отправить сообщение",
-        "Опубликовано вчера",  # без числа и без «назад» — формат неизвестен
+        "Опубликовано вчера",  # no number and no «назад» — unknown format
     ],
 )
 def test_parse_published_at_unknown_format(raw: str | None) -> None:
@@ -344,12 +344,12 @@ def test_parse_published_at_unknown_format(raw: str | None) -> None:
 @pytest.mark.parametrize(
     "raw,expected",
     [
-        # RU — группы показывают абсолютную дату, не относительную. NOW —
-        # 2026-08-25, так что 12 сентября без года читается как будущее в
-        # этом году, а значит на самом деле прошлогоднее.
+        # RU — groups show an absolute date, not a relative one. NOW is
+        # 2026-08-25, so "12 сентября" without a year reads as this year's
+        # future, which means it is really last year's.
         ("12 сентября в 14:30", "2025-09-12T14:30:00Z"),
         ("12 сентября 2025", "2025-09-12T00:00:00Z"),
-        # EN — оба варианта.
+        # EN — both forms.
         ("September 12 at 2:30 PM", "2025-09-12T14:30:00Z"),
         ("September 12, 2025", "2025-09-12T00:00:00Z"),
     ],
@@ -378,7 +378,7 @@ def test_parse_published_at_absolute_without_year_rolls_back_when_future() -> No
         ("1w", "2026-08-18T12:00:00Z"),
         ("вчера в 10:11", "2026-08-24T10:11:00Z"),
         ("сегодня в 09:05", "2026-08-25T09:05:00Z"),
-        # Формы, которые понимает parse_published_at, тоже проходят.
+        # The forms parse_published_at understands pass as well.
         ("Опубликовано 3 дня назад", "2026-08-22T12:00:00Z"),
     ],
 )
@@ -438,7 +438,7 @@ def test_parse_published_at_naive_now_treated_as_utc() -> None:
 
 
 def test_parse_published_at_defaults_to_now() -> None:
-    """Без `now` берётся текущее UTC-время — результат близок к нему."""
+    """Without `now` the current UTC time is used — the result is close to it."""
     result = parse_published_at("Listed 1 day ago")
     assert result is not None
     parsed = datetime.strptime(result, "%Y-%m-%dT%H:%M:%SZ").replace(
@@ -489,11 +489,11 @@ def test_extract_gallery_urls_picks_the_modal_alt_group() -> None:
     """Gallery shots share one alt; suggestion cards each carry their own."""
     page = _FakePage(
         [
-            _FakeImg(_GALLERY.format(i), "Фото Дом в Катху") for i in range(3)
+            _FakeImg(_GALLERY.format(i), "Photo House in Kathu") for i in range(3)
         ]
         + [
-            _FakeImg(_GALLERY.format("s1"), "Вилла в группе Аренда Пхукет"),
-            _FakeImg(_GALLERY.format("s2"), "Кондо в группе Аренда Пхукет"),
+            _FakeImg(_GALLERY.format("s1"), "Villa in group Phuket Rent"),
+            _FakeImg(_GALLERY.format("s2"), "Condo in group Phuket Rent"),
         ]
     )
     assert extract_gallery_urls(page) == [_GALLERY.format(i) for i in range(3)]
@@ -502,9 +502,9 @@ def test_extract_gallery_urls_picks_the_modal_alt_group() -> None:
 def test_extract_gallery_urls_dedupes_keeping_dom_order() -> None:
     page = _FakePage(
         [
-            _FakeImg(_GALLERY.format("a"), "Фото Дом"),
-            _FakeImg(_GALLERY.format("b"), "Фото Дом"),
-            _FakeImg(_GALLERY.format("a"), "Фото Дом"),
+            _FakeImg(_GALLERY.format("a"), "Photo House"),
+            _FakeImg(_GALLERY.format("b"), "Photo House"),
+            _FakeImg(_GALLERY.format("a"), "Photo House"),
         ]
     )
     assert extract_gallery_urls(page) == [_GALLERY.format("a"), _GALLERY.format("b")]
@@ -515,11 +515,11 @@ def test_extract_gallery_urls_dedupes_keeping_dom_order() -> None:
     [
         [],
         # Single shot per alt — no group is a gallery.
-        [_FakeImg(_GALLERY.format("s1"), "Вилла в группе Аренда")],
+        [_FakeImg(_GALLERY.format("s1"), "Villa in group Rent")],
         # Blank alt (avatars, spacers) never counts.
         [_FakeImg(_AVATAR, ""), _FakeImg(_AVATAR, None)],
         # Missing src is unusable.
-        [_FakeImg("", "Фото Дом"), _FakeImg("", "Фото Дом")],
+        [_FakeImg("", "Photo House"), _FakeImg("", "Photo House")],
     ],
 )
 def test_extract_gallery_urls_empty_gallery(imgs) -> None:
@@ -534,13 +534,13 @@ def test_extract_gallery_urls_ignores_images_inside_suggestion_links() -> None:
     """A card linking to another ad is never this listing's gallery."""
     page = _FakePage(
         [
-            _FakeImg(_GALLERY.format(i), "Фото Дом в Катху") for i in range(3)
+            _FakeImg(_GALLERY.format(i), "Photo House in Kathu") for i in range(3)
         ]
         + [
-            _FakeImg(_GALLERY.format("s1"), "Похожее", in_suggestion=True),
-            _FakeImg(_GALLERY.format("s2"), "Похожее", in_suggestion=True),
-            _FakeImg(_GALLERY.format("s3"), "Похожее", in_suggestion=True),
-            _FakeImg(_GALLERY.format("s4"), "Похожее", in_suggestion=True),
+            _FakeImg(_GALLERY.format("s1"), "Similar", in_suggestion=True),
+            _FakeImg(_GALLERY.format("s2"), "Similar", in_suggestion=True),
+            _FakeImg(_GALLERY.format("s3"), "Similar", in_suggestion=True),
+            _FakeImg(_GALLERY.format("s4"), "Similar", in_suggestion=True),
         ]
     )
     assert extract_gallery_urls(page) == [_GALLERY.format(i) for i in range(3)]
@@ -555,7 +555,7 @@ def test_extract_gallery_urls_empty_when_only_suggestions_rendered() -> None:
     """
     page = _FakePage(
         [
-            _FakeImg(_GALLERY.format(f"s{i}"), "Похожее объявление",
+            _FakeImg(_GALLERY.format(f"s{i}"), "Similar listing",
                      in_suggestion=True)
             for i in range(5)
         ]
@@ -572,9 +572,9 @@ def test_extract_gallery_urls_drops_an_element_it_cannot_interrogate() -> None:
 
     page = _FakePage(
         [
-            _FakeImg(_GALLERY.format("a"), "Фото Дом"),
-            _Stale(_GALLERY.format("b"), "Фото Дом"),
-            _FakeImg(_GALLERY.format("c"), "Фото Дом"),
+            _FakeImg(_GALLERY.format("a"), "Photo House"),
+            _Stale(_GALLERY.format("b"), "Photo House"),
+            _FakeImg(_GALLERY.format("c"), "Photo House"),
         ]
     )
     assert extract_gallery_urls(page) == [_GALLERY.format("a"), _GALLERY.format("c")]

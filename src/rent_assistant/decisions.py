@@ -3,15 +3,16 @@
 Everything else in this project is reproducible: listings can be re-scraped
 and the AI analysis re-run at any time. A user verdict — "rejected, too far
 from the school", "shortlist" — is not. So it lives in a plain JSON file
-(``data/decisions.json``) that no ``init_db`` can wipe, and the ``decisions``
+(``decisions.json`` in ``$RENT_ASSISTANT_HOME``) that no ``init_db`` can
+wipe, and the ``decisions``
 table is only a mirror kept in sync for JOINing in :func:`.fetch_enriched`.
 
 The file format is a flat map keyed by ``fb_id``::
 
     {"9000000000000001": {"status": "rejected",
-                           "reason": "No green area",
-                           "rating": 2.5,
-                           "decided_at": "2026-08-25T10:00:00Z"}}
+                          "reason": "No green area",
+                          "rating": 2.5,
+                          "decided_at": "2026-08-25T10:00:00Z"}}
 
 ``rating`` is the user's own 1-5 mark for a listing and it is what decides
 ``status`` — see :func:`status_for_rating`. It is optional: ``reject`` and

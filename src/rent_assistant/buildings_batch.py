@@ -36,45 +36,47 @@ BatchError = ai_batch.BatchError
 # rather than of the skill alone so that a batch stays readable on its own —
 # and so the four policy values live next to the data they describe.
 RESEARCH_PROMPT = """\
-Найди правило дома о животных для каждого здания из `buildings`.
+Find the house rule on pets for every building in `buildings`.
 
-Ищи сайт управляющей компании и правила дома, страницы агентств с этим
-кондо, отзывы Google/Facebook и ветки форумов экспатов. Название и район
-здания — в полях `name` и `area`; `pets` показывает, что об этом успели
-сказать сами объявления (противоречие с ними — это находка, а не ошибка).
+Look for the management company's site and the house rules, agency pages
+for this condo, Google/Facebook reviews and expat forum threads. The
+building's name and district are in `name` and `area`; `pets` shows what
+the ads themselves have said about it (a contradiction with them is a
+finding, not an error).
 
-Верни JSON: {"results": [{"key", "name", "policy", "confidence", "note",
-"sources": [{"url", "title", "quote"}]}]}. `key` — ровно тот, что пришёл
-в батче.
+Return JSON: {"results": [{"key", "name", "policy", "confidence", "note",
+"sources": [{"url", "title", "quote"}]}]}. `key` is exactly the one that
+came in the batch.
 
-`policy` — одно из четырёх:
-- `not_allowed` — правило дома запрещает животных. Сюда же идёт запрет
-  с оговоркой про разрешение управляющей компании («no pets unless
-  specifically permitted by the juristic office») — идти в юридический
-  офис ради одной съёмной квартиры пользователь не будет, так что для
-  него это «нельзя», а не переговоры;
-- `negotiable` — животных в доме держат, вопрос только в том, каких:
-  ограничение по размеру или породе, отдельная плата или депозит за
-  животное, «на усмотрение владельца квартиры». Это не про дом, где
-  базовое правило — запрет;
-- `allowed` — здание прямо разрешает животных;
-- `unknown` — источников нет. Молчание — это `unknown`, а не `allowed`.
+`policy` is one of four:
+- `not_allowed` — the house rule forbids animals. A ban with a caveat
+  about the management's permission («no pets unless specifically
+  permitted by the juristic office») goes here too — the user will not
+  go to the juristic office for one rented flat, so for them it is "no",
+  not a negotiation;
+- `negotiable` — animals do live in the building, the only question is
+  which: a size or breed limit, a separate fee or deposit for the animal,
+  "at the owner's discretion". This is not about a building whose base
+  rule is a ban;
+- `allowed` — the building explicitly allows animals;
+- `unknown` — no sources. Silence is `unknown`, not `allowed`.
 
-Решай смело: одного источника, который прямо пишет про запрет, хватает
-для `not_allowed` — второго подтверждения ждать не надо и смягчать
-находку до `negotiable` из-за оговорок не надо.
+Decide boldly: one source that states the ban outright is enough for
+`not_allowed` — do not wait for a second confirmation and do not soften
+the finding to `negotiable` because of caveats.
 
-`not_allowed` без дословной цитаты из источника не принимается: apply
-отклонит весь файл. Источник про другое здание той же сети (The Base
-Downtown вместо The Base Central) доказательством не считается.
+`not_allowed` without a verbatim quote from the source is not accepted:
+apply rejects the whole file. A source about another building of the
+same chain (The Base Downtown instead of The Base Central) does not count
+as evidence.
 
-Если при этом попадаются источники, говорящие обратное — гид называет
-дом пет-френдли, жильцы в отзывах пишут про своих собак, — политику это
-не меняет, но положи их в `sources` и скажи об этом в `note`: такие
-расхождения пользователь разбирает руками.
+If sources saying the opposite turn up along the way — a guide calls the
+building pet-friendly, residents mention their dogs in reviews — the
+policy does not change, but put them in `sources` and say so in `note`:
+the user sorts out such discrepancies by hand.
 
-`confidence` — `high` | `med` | `low`. Статус не ставь, файлы не пиши,
-объявления не трогай: их читает и меняет только CLI.
+`confidence` is `high` | `med` | `low`. Do not set a status, do not write
+files, do not touch the listings: only the CLI reads and changes them.
 """
 
 

@@ -127,7 +127,7 @@ def test_derive_state_pets_declined():
 
 
 def test_derive_state_viewing_proposed():
-    facts = {"viewing_proposed": True, "proposed_times": ["сегодня в 16:00"]}
+    facts = {"viewing_proposed": True, "proposed_times": ["today at 16:00"]}
     assert msg.derive_state(True, True, facts) == (
         "viewing_proposed",
         1,

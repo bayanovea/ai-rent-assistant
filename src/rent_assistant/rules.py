@@ -267,8 +267,8 @@ def decide(
 
 # The AI writes its recommendation as one sentence, and the sentence is what
 # the table used to show: 240px of clipped prose whose first two words were
-# "Стоит посмотреть" on 62% of the active set, spelled four different ways
-# ("Стоит взглянуть", "Стоит присмотреться"). The tag below is those first two
+# "Worth viewing" on 62% of the active set, spelled four different ways
+# ("Worth a look", "Worth seeing"). The tag below is those first two
 # words, normalised — narrow enough for a column, short enough for a filter
 # chip, ordered so that sorting ascending puts what to look at first.
 #
@@ -288,9 +288,8 @@ VERDICT_TAGS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
                    "not suitable", "not for rent")),
 )
 
-# Longest stems first, so "стоит уточнить" is a question rather than a
-# recommendation: whichever stem appears earliest in the sentence wins, and on
-# a tie the more specific one does.
+# Longest stems first: whichever stem appears earliest in the sentence wins,
+# and on a tie at the same position the longer, more specific one does.
 _VERDICT_STEMS: tuple[tuple[str, str, str], ...] = tuple(
     sorted(
         ((stem, slug, label) for slug, label, stems in VERDICT_TAGS

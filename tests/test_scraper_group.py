@@ -112,8 +112,8 @@ class _FakePage:
 
 def test_group_post_re_matches_posts_and_permalink_forms() -> None:
     assert GROUP_POST_RE.search(
-        "https://www.facebook.com/groups/phuketrentsale/posts/9000000000000003/"
-    ).group(2) == "9000000000000003"
+        "https://www.facebook.com/groups/phuketrentsale/posts/9000000000000001/"
+    ).group(2) == "9000000000000001"
     assert GROUP_POST_RE.search(
         "/groups/170117323644873/permalink/123456789/?ref=x"
     ).group(2) == "123456789"
@@ -234,8 +234,8 @@ def test_extract_price_raw_matches_baht_variants() -> None:
 
 
 def test_extract_price_raw_matches_cyrillic_bat() -> None:
-    lines = ["Вилла в Банг Тао", "100 000 бат в месяц"]
-    assert _extract_price_raw(lines) == "100 000 бат в месяц"
+    lines = ["Villa in Bang Tao", "100 000 бат per month"]
+    assert _extract_price_raw(lines) == "100 000 бат per month"
 
 
 def test_extract_price_raw_none_when_no_currency_line() -> None:

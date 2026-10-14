@@ -24,7 +24,7 @@ def registry():
 
 def _raw_json(*, description_lines: list[str] | None = None) -> str:
     lines = ["Недавно опубликовано", "16 000 ฿", "Описание"]
-    lines += description_lines or ["Дом в посёлке, 2 спальни.", "Собаки разрешены."]
+    lines += description_lines or ["House in a village, 2 bedrooms.", "Dogs allowed."]
     lines += ["Ещё", "Информация о продавце", "A. Example"]
     return json.dumps({"title": "(6) Marketplace", "text_lines": lines})
 
@@ -35,9 +35,9 @@ def _add_listing(conn, fb_id: str, **overrides):
         "url": f"https://www.facebook.com/marketplace/item/{fb_id}",
         "title": "2 Bed 1 Bath - House",
         "price_thb": 22000,
-        "price_raw": "22 000 ฿/месяц",
+        "price_raw": "22 000 ฿/month",
         "district": "Kathu, Phuket",
-        "description": "Дом в посёлке, 2 спальни.\nСобаки разрешены.",
+        "description": "House in a village, 2 bedrooms.\nDogs allowed.",
         "raw_json": _raw_json(),
     }
     listing.update(overrides)
@@ -53,12 +53,12 @@ _CURRENT_VERSION = ai_schema.load_registry().schema_version
 def _result(fb_id: str, *, fields: dict | None = None, **overrides) -> dict:
     entry = {
         "fb_id": fb_id,
-        "verdict": "Дом в посёлке, животные разрешены, цена в бюджете.",
+        "verdict": "View: a house in a village, pets allowed, price in budget.",
         "data_quality": "good",
         "fields": fields
         if fields is not None
         else {
-            "pets": {"v": "allowed", "conf": "high", "ev": "Собаки разрешены"},
+            "pets": {"v": "allowed", "conf": "high", "ev": "Dogs allowed"},
             "bedrooms": {"v": 2, "conf": "high", "ev": ""},
             "price_month_thb": {"v": 22000, "conf": "high", "ev": ""},
         },
@@ -77,11 +77,11 @@ def _result(fb_id: str, *, fields: dict | None = None, **overrides) -> dict:
 def test_build_batch_carries_registry_and_requirements(conn, registry):
     _add_listing(conn, "1")
 
-    batch = ai_batch.build_batch(conn, registry, "письмо агенту", now="2026-08-25T10:00:00Z")
+    batch = ai_batch.build_batch(conn, registry, "letter to the agent", now="2026-08-25T10:00:00Z")
 
     assert batch["schema_version"] == registry.schema_version
     assert batch["generated_at"] == "2026-08-25T10:00:00Z"
-    assert batch["requirements_md"] == "письмо агенту"
+    assert batch["requirements_md"] == "letter to the agent"
     assert [f["key"] for f in batch["fields"]] == registry.field_keys()
     assert len(batch["items"]) == 1
 
@@ -134,13 +134,13 @@ def test_build_batch_replaces_sidebar_description_with_text_lines(conn, registry
     _add_listing(
         conn,
         "1",
-        description="Выбор дня\nПохожие объявления рядом с вами\n" + "мусор " * 200,
-        raw_json=_raw_json(description_lines=["Настоящий текст объявления."]),
+        description="Выбор дня\nПохожие объявления рядом с вами\n" + "junk " * 200,
+        raw_json=_raw_json(description_lines=["The real ad text."]),
     )
 
     item = ai_batch.build_batch(conn, registry, "")["items"][0]
 
-    assert item["description"] == "Настоящий текст объявления."
+    assert item["description"] == "The real ad text."
     assert "Выбор дня" not in item["description"]
 
 
@@ -148,13 +148,13 @@ def test_build_batch_falls_back_to_column_without_markers(conn, registry):
     _add_listing(
         conn,
         "1",
-        description="Короткое описание без маркеров.",
+        description="Short description without markers.",
         raw_json=json.dumps({"text_lines": ["16 000 ฿", "Kathu"]}),
     )
 
     item = ai_batch.build_batch(conn, registry, "")["items"][0]
 
-    assert item["description"] == "Короткое описание без маркеров."
+    assert item["description"] == "Short description without markers."
 
 
 def test_write_batch_creates_directory_and_file(conn, registry, tmp_path: Path):
@@ -188,13 +188,13 @@ def test_apply_results_updates_on_second_run(conn, registry):
     _add_listing(conn, "1")
     ai_batch.apply_results(conn, registry, _result("1"))
 
-    report = ai_batch.apply_results(conn, registry, _result("1", verdict="Пересмотрено."))
+    report = ai_batch.apply_results(conn, registry, _result("1", verdict="Re-read: revised."))
 
     assert (report.inserted, report.updated) == (0, 1)
     verdict = conn.execute(
         "SELECT verdict FROM ai_analysis WHERE fb_id = '1'"
     ).fetchone()["verdict"]
-    assert verdict == "Пересмотрено."
+    assert verdict == "Re-read: revised."
 
 
 def test_apply_results_reports_auto_rejections(conn, registry):
@@ -270,7 +270,7 @@ def test_apply_results_collects_proposed_new_fields(conn, registry):
     _add_listing(conn, "1")
     result = _result("1")
     result["proposed_new_fields"] = [
-        {"key": "electricity_rate", "label": "Свет ฿/kWh", "type": "text", "why": "3 из 8"},
+        {"key": "electricity_rate", "label": "Electricity ฿/kWh", "type": "text", "why": "3 of 8"},
         {"key": "pets", "label": "Pets", "type": "enum"},
     ]
 
@@ -324,7 +324,7 @@ def test_apply_results_dry_run_writes_nothing(conn, registry):
         {"results": []},
         {"schema_version": "1", "results": []},
         {"schema_version": 1},
-        {"schema_version": 1, "results": [{"verdict": "нет id"}]},
+        {"schema_version": 1, "results": [{"verdict": "no id"}]},
         {"schema_version": 1, "results": [{"fb_id": "1", "verdict": "  "}]},
     ],
 )
@@ -352,12 +352,12 @@ def _registry_with_extra_field(tmp_path, registry):
     raw["fields"].append(
         {
             "key": "balcony",
-            "label": "Балкон",
+            "label": "Balcony",
             "group": "amenity",
             "type": "enum",
             "values": ["yes", "no", "unclear"],
             "added_in": version,
-            "prompt": "Есть ли балкон?",
+            "prompt": "Is there a balcony?",
         }
     )
     target = tmp_path / "ai_fields.json"
@@ -409,7 +409,7 @@ def test_bad_data_quality_blocks_the_auto_rejection(conn, registry):
     result = _result(
         "1",
         data_quality="sidebar_noise",
-        fields={"pets": {"v": "not_allowed", "ev": "из сайдбара"}},
+        fields={"pets": {"v": "not_allowed", "ev": "from the sidebar"}},
     )
 
     report = ai_batch.apply_results(conn, registry, result)

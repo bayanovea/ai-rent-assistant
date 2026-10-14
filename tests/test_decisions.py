@@ -21,17 +21,17 @@ def test_missing_file_is_empty(path: Path):
 
 
 def test_save_and_load_round_trip(path: Path):
-    dec.save_decision(path, "123", "rejected", "Нет зелёной зоны")
+    dec.save_decision(path, "123", "rejected", "No green area")
 
     loaded = dec.load_decisions(path)
     assert set(loaded) == {"123"}
     assert loaded["123"]["status"] == "rejected"
-    assert loaded["123"]["reason"] == "Нет зелёной зоны"
+    assert loaded["123"]["reason"] == "No green area"
     assert loaded["123"]["decided_at"].endswith("Z")
 
 
 def test_save_keeps_other_decisions(path: Path):
-    dec.save_decision(path, "123", "rejected", "далеко")
+    dec.save_decision(path, "123", "rejected", "too far")
     dec.save_decision(path, "456", "shortlist")
 
     loaded = dec.load_decisions(path)
@@ -41,13 +41,13 @@ def test_save_keeps_other_decisions(path: Path):
 
 
 def test_save_overwrites_existing_decision(path: Path):
-    dec.save_decision(path, "123", "rejected", "поспешил")
-    dec.save_decision(path, "123", "active", "передумал")
+    dec.save_decision(path, "123", "rejected", "too hasty")
+    dec.save_decision(path, "123", "active", "changed my mind")
 
     loaded = dec.load_decisions(path)
     assert len(loaded) == 1
     assert loaded["123"]["status"] == "active"
-    assert loaded["123"]["reason"] == "передумал"
+    assert loaded["123"]["reason"] == "changed my mind"
 
 
 def test_invalid_status_rejected(path: Path):
@@ -57,12 +57,12 @@ def test_invalid_status_rejected(path: Path):
 
 
 def test_file_is_readable_json(path: Path):
-    dec.save_decision(path, "123", "shortlist", "домик с садом")
+    dec.save_decision(path, "123", "shortlist", "cottage with a garden")
 
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["123"]["reason"] == "домик с садом"
+    assert raw["123"]["reason"] == "cottage with a garden"
     # not escaped into \uXXXX — the file is meant to be hand-editable
-    assert "домик" in path.read_text(encoding="utf-8")
+    assert "cottage" in path.read_text(encoding="utf-8")
 
 
 def test_load_rejects_non_object_file(path: Path):
@@ -73,7 +73,7 @@ def test_load_rejects_non_object_file(path: Path):
 
 def test_sync_to_db_fills_table(path: Path):
     conn = storage.init_db(":memory:")
-    dec.save_decision(path, "123", "rejected", "шумно")
+    dec.save_decision(path, "123", "rejected", "noisy")
     dec.save_decision(path, "456", "shortlist")
 
     written = dec.sync_to_db(conn, path=path)
@@ -81,14 +81,14 @@ def test_sync_to_db_fills_table(path: Path):
 
     rows = {r["fb_id"]: dict(r) for r in conn.execute("SELECT * FROM decisions")}
     assert rows["123"]["status"] == "rejected"
-    assert rows["123"]["reason"] == "шумно"
+    assert rows["123"]["reason"] == "noisy"
     assert rows["456"]["status"] == "shortlist"
     conn.close()
 
 
 def test_sync_to_db_drops_rows_removed_from_file(path: Path):
     conn = storage.init_db(":memory:")
-    dec.save_decision(path, "123", "rejected", "шумно")
+    dec.save_decision(path, "123", "rejected", "noisy")
     dec.sync_to_db(conn, path=path)
 
     dec.sync_to_db(conn, {})
@@ -106,7 +106,7 @@ def test_sync_to_db_rejects_invalid_status(path: Path):
 def test_decision_survives_database_wipe(tmp_path: Path, path: Path):
     db_path = tmp_path / "rentals.db"
     conn = storage.init_db(db_path)
-    dec.save_decision(path, "123", "rejected", "нельзя с собакой")
+    dec.save_decision(path, "123", "rejected", "no dogs allowed")
     dec.sync_to_db(conn, path=path)
     conn.close()
 
@@ -118,7 +118,7 @@ def test_decision_survives_database_wipe(tmp_path: Path, path: Path):
     dec.sync_to_db(conn, path=path)
     row = conn.execute("SELECT * FROM decisions WHERE fb_id = '123'").fetchone()
     assert row["status"] == "rejected"
-    assert row["reason"] == "нельзя с собакой"
+    assert row["reason"] == "no dogs allowed"
     conn.close()
 
 
@@ -133,12 +133,12 @@ def test_sync_to_db_feeds_fetch_enriched(path: Path):
     )
     conn.commit()
 
-    dec.save_decision(path, "123", "shortlist", "смотрим в субботу")
+    dec.save_decision(path, "123", "shortlist", "viewing on Saturday")
     dec.sync_to_db(conn, path=path)
 
     row = storage.fetch_enriched(conn)[0]
     assert row["status"] == "shortlist"
-    assert row["reason"] == "смотрим в субботу"
+    assert row["reason"] == "viewing on Saturday"
     assert row["decided_by"] == "user"
     conn.close()
 
@@ -165,7 +165,7 @@ def test_rating_decides_the_status():
 
 
 def test_rating_is_stored_and_read_back(path: Path):
-    dec.save_decision(path, "123", "longlist", "тесновато", rating=3.5)
+    dec.save_decision(path, "123", "longlist", "a bit cramped", rating=3.5)
     entry = dec.load_decisions(path)["123"]
     assert entry["rating"] == 3.5
     assert entry["status"] == "longlist"
@@ -182,7 +182,7 @@ def test_a_mark_never_leaves_a_listing_in_the_active_queue():
 
 
 def test_a_decision_without_a_rating_keeps_none(path: Path):
-    dec.save_decision(path, "123", "rejected", "Патонг")
+    dec.save_decision(path, "123", "rejected", "Patong")
     assert dec.load_decisions(path)["123"]["rating"] is None
 
 
@@ -251,18 +251,18 @@ def test_save_stage_creates_an_active_entry_when_none_exists(path: Path):
 
 
 def test_save_stage_keeps_the_existing_status(path: Path):
-    dec.save_decision(path, "123", "shortlist", "поехать смотреть")
+    dec.save_decision(path, "123", "shortlist", "go and view")
     dec.save_stage(path, "123", "written", posting_fb_id="123")
 
     entry = dec.load_decisions(path)["123"]
     assert entry["status"] == "shortlist"
-    assert entry["reason"] == "поехать смотреть"
+    assert entry["reason"] == "go and view"
     assert entry["stage"] == "written"
 
 
 def test_save_decision_never_touches_an_existing_stage(path: Path):
     dec.save_stage(path, "123", "viewing_scheduled", posting_fb_id="123", viewing_at="2026-09-25 14:00")
-    dec.save_decision(path, "123", "rejected", "поменяли планы")
+    dec.save_decision(path, "123", "rejected", "plans changed")
 
     entry = dec.load_decisions(path)["123"]
     assert entry["status"] == "rejected"
@@ -272,11 +272,11 @@ def test_save_decision_never_touches_an_existing_stage(path: Path):
 
 def test_save_stage_overwrites_a_previous_stage(path: Path):
     dec.save_stage(path, "123", "written", posting_fb_id="123")
-    dec.save_stage(path, "123", "viewed", posting_fb_id="123", note="снова заняли под ремонт")
+    dec.save_stage(path, "123", "viewed", posting_fb_id="123", note="taken again for renovation")
 
     entry = dec.load_decisions(path)["123"]
     assert entry["stage"] == "viewed"
-    assert entry["stage_note"] == "снова заняли под ремонт"
+    assert entry["stage_note"] == "taken again for renovation"
 
 
 def test_invalid_stage_rejected(path: Path):
@@ -313,7 +313,7 @@ def test_sync_to_db_carries_the_stage(path: Path):
     conn = storage.init_db(":memory:")
     dec.save_stage(
         path, "123", "viewing_scheduled",
-        posting_fb_id="999", viewing_at="2026-09-25 14:00", note="со стороны улицы",
+        posting_fb_id="999", viewing_at="2026-09-25 14:00", note="from the street side",
     )
 
     dec.sync_to_db(conn, path=path)
@@ -322,7 +322,7 @@ def test_sync_to_db_carries_the_stage(path: Path):
     assert row["stage"] == "viewing_scheduled"
     assert row["stage_fb_id"] == "999"
     assert row["stage_at"] == "2026-09-25 14:00"
-    assert row["stage_note"] == "со стороны улицы"
+    assert row["stage_note"] == "from the street side"
     conn.close()
 
 
@@ -346,7 +346,7 @@ def test_stage_reaches_the_html_row(path: Path):
 
     dec.save_stage(
         path, "123", "viewing_scheduled",
-        posting_fb_id="123", viewing_at="2026-09-25 14:00", note="встречает партнёр",
+        posting_fb_id="123", viewing_at="2026-09-25 14:00", note="second person meets them",
     )
     dec.sync_to_db(conn, path=path)
 
@@ -360,7 +360,7 @@ def test_stage_reaches_the_html_row(path: Path):
     assert cells["stage"]["t"] == "Viewing scheduled"
     assert cells["stage_fb_id"]["t"] == "123"
     assert cells["stage_at"]["t"] == "2026-09-25 14:00"
-    assert cells["stage_note"]["t"] == "встречает партнёр"
+    assert cells["stage_note"]["t"] == "second person meets them"
     conn.close()
 
 
@@ -382,7 +382,7 @@ def test_save_stage_without_profile_leaves_it_untouched(path: Path):
 
 def test_save_decision_preserves_stage_profile(path: Path):
     dec.save_stage(path, "123", "written", profile="default")
-    dec.save_decision(path, "123", "rejected", "далеко")
+    dec.save_decision(path, "123", "rejected", "too far")
     entry = dec.load_decisions(path)["123"]
     assert entry["stage_profile"] == "default"
     assert entry["status"] == "rejected"

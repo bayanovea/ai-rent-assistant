@@ -76,7 +76,7 @@ def test_save_and_load_round_trip(path: Path):
         policy="not_allowed",
         area="Phuket Town",
         confidence="high",
-        note="Управляющая компания: no pets.",
+        note="Management company: no pets.",
         sources=_sources(),
         researched_by="claude-opus-5",
     )
@@ -95,11 +95,11 @@ def test_save_and_load_round_trip(path: Path):
 
 
 def test_saved_file_is_readable_json(path: Path):
-    bld.save_building(path, "Кондо Волна", policy="negotiable")
+    bld.save_building(path, "Wave Condo", policy="negotiable")
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["кондо-волна"]["policy"] == "negotiable"
+    assert raw["wave-condo"]["policy"] == "negotiable"
     # Written for a human to open and edit by hand.
-    assert "Кондо Волна" in path.read_text(encoding="utf-8")
+    assert "Wave Condo" in path.read_text(encoding="utf-8")
     assert oct(path.stat().st_mode)[-3:] == "644"
 
 
@@ -118,7 +118,7 @@ def test_confirming_keeps_the_research_behind_it(path: Path):
         "The Base",
         policy="not_allowed",
         confidence="high",
-        note="Из правил дома",
+        note="From the house rules",
         sources=_sources(),
     )
     confirmed = bld.save_building(
@@ -129,7 +129,7 @@ def test_confirming_keeps_the_research_behind_it(path: Path):
     assert confirmed["confirmed_at"].endswith("Z")
     # Fields left as None keep what the proposal researched.
     assert confirmed["sources"] == _sources()
-    assert confirmed["note"] == "Из правил дома"
+    assert confirmed["note"] == "From the house rules"
     assert confirmed["confidence"] == "high"
 
 

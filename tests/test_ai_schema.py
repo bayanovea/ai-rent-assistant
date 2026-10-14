@@ -219,9 +219,9 @@ def test_non_integer_schema_version_rejected(tmp_path):
 def _listing(**over) -> dict:
     base = {
         "title": "1 Bed 1 Bath - Apartment",
-        "price_raw": "16 000 ฿/месяц",
+        "price_raw": "16 000 ฿/month",
         "district": "Kathu, Phuket, Thailand",
-        "description": "Уютная квартира рядом с парком.",
+        "description": "Cosy flat next to the park.",
         "text_lines": ["a", "b", "c"],
     }
     base.update(over)
@@ -239,14 +239,14 @@ def test_source_hash_ignores_key_order():
 
 
 def test_source_hash_changes_with_description():
-    assert source_hash(_listing(description="Совсем другой текст")) != source_hash(_listing())
+    assert source_hash(_listing(description="Completely different text")) != source_hash(_listing())
 
 
 @pytest.mark.parametrize(
     "field,value",
     [
-        ("title", "Другой заголовок"),
-        ("price_raw", "18 000 ฿/месяц"),
+        ("title", "Another title"),
+        ("price_raw", "18 000 ฿/month"),
         ("district", "Rawai, Phuket, Thailand"),
         ("text_lines", ["a", "b", "c", "d"]),
     ],

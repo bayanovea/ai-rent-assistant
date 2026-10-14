@@ -76,6 +76,8 @@ MESSAGES_HOME_URL = "https://www.facebook.com/messages/t/"
 # panel — an unscoped page-wide match landed on that label instead on one
 # run and opened a random thread rather than the folder.
 _MARKETPLACE_FOLDER_TEXT = "Marketplace"
+# The Russian strings in this module are Messenger's own UI text in the
+# Russian locale, measured live — keep them byte-for-byte.
 _THREAD_LIST_ARIA = "Перечень переписок"
 
 # Only a genuine Marketplace-folder thread row carries this aria-label

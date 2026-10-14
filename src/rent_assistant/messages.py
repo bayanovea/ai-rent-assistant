@@ -53,17 +53,16 @@ NEEDS_ACTION_REASONS: frozenset[str] = frozenset(
     }
 )
 
-# Wording is the user's own, used as-is on real listings before this tool
-# existed (see docs/messages.md) — do not rephrase without checking with
-# them first.
+# The viewing ask is the user's own wording, used as-is on real listings
+# before this tool existed (see docs/messages.md) — do not rephrase it
+# without checking with them first. The pets sentence is generic.
 MESSAGE_PETS_KNOWN: str = (
     "Hello! I want to rent your house for 1 year. Can I come to see it? "
     "When is a good time for you?"
 )
 MESSAGE_PETS_UNKNOWN: str = (
     MESSAGE_PETS_KNOWN
-    + " Also, can we live there with a dog? It is a small, well-mannered "
-    "small dog (this breed has no dog smell and does not shed hair)."
+    + " Also, can we live there with a dog? It is a small, well-mannered dog."
 )
 
 

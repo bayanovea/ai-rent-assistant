@@ -4,8 +4,9 @@ A condo's house rule about animals is a property of the *building*, not of any
 one listing: the same five units in the same tower share one answer, and the
 answer outlives every ad that mentions it. So the store is keyed by building
 and, like :mod:`.decisions`, it lives in a plain JSON file
-(``data/buildings.json``) that no ``init_db`` can wipe — a web search the user
-then vetted is exactly as unreproducible as a user verdict. The ``buildings``
+(``buildings.json`` in ``$RENT_ASSISTANT_HOME``) that no ``init_db`` can wipe
+— a web search the user then vetted is exactly as unreproducible as a user
+verdict. The ``buildings``
 table is only a mirror kept in sync so :func:`.fetch_enriched` stays one query.
 
 The file format is a flat map keyed by the normalised building key::
@@ -63,6 +64,8 @@ STATUSES: frozenset[str] = frozenset({"proposed", "confirmed"})
 # Advisory only — shown to the user at confirmation time, never read by a rule.
 CONFIDENCES: frozenset[str] = frozenset({"high", "med", "low"})
 
+# Cyrillic letters are kept on purpose: a building the ad names in Russian
+# needs a stable key too; spellings are then joined by hand through `aliases`.
 _KEY_SPLIT_RE = re.compile(r"[^0-9a-zа-яё]+", re.IGNORECASE)
 
 
