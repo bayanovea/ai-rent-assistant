@@ -12,6 +12,7 @@ and points at the rest.
 | [ai-enrichment.md](ai-enrichment.md) | The text pass: the extraction contract, the six auto-rejections, the score, growing the field registry. |
 | [photo-analysis.md](photo-analysis.md) | The photo pass: live measurements, decisions worth not undoing, open gaps. **Read before touching photos.** |
 | [pets-policy.md](pets-policy.md) | The pets pass: one house rule per building, researched on the web, confirmed by hand before it can reject anything. |
+| [messages.md](messages.md) | Messenger outreach: the thread list, the first-contact composer, the daily limit, the PIN dialog that is never clicked through, and why two accounts means two people. |
 | [dedupe.md](dedupe.md) | Five duplicate signals, what the photo one caught, and the group-veto fix. |
 | [scrape-log.md](scrape-log.md) | Journal: what has been collected, with which flags, and where to continue. |
 | [plans/completed/](plans/completed) | The implementation plan per iteration, with the design rationale of the day. |

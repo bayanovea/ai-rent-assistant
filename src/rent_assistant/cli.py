@@ -143,12 +143,15 @@ def _enrich(listing: dict[str, Any]) -> dict[str, Any]:
 
 
 @click.group()
-@click.version_option(package_name="rent-assistant")
+@click.version_option(package_name="ai-rent-assistant")
 def main() -> None:
-    """FB Marketplace Phuket rentals scraper (MVP).
+    """Long-term rental search: scrape, enrich with AI, decide, export.
 
-    Run ``rent-assistant login`` once to authenticate, then use
-    ``rent-assistant scrape`` to pull fresh listings into the local SQLite DB.
+    Run ``rent-assistant login`` once to sign in and ``rent-assistant
+    scrape`` to pull fresh listings into the local SQLite DB; the ai-*,
+    photo-* and buildings-* commands work around the Claude Code skills,
+    and ``export`` rebuilds the table. ``seed`` loads sample data instead
+    of a scrape.
     """
 
 
