@@ -15,7 +15,7 @@ future. It never runs as part of the pipeline; it is a skill the user invokes.
 What it changes in the main flow:
 
 - a confirmed `not_allowed` building auto-rejects its listings with a new
-  reason, «Кондо запрещает животных», independent of the ad's own `pets` field;
+  reason, "Building forbids pets", independent of the ad's own `pets` field;
 - `negotiable` — the case the user explicitly wants kept — is a first-class
   value, never a rejection, and shows on the row so it can be asked about;
 - the evidence (source URLs and verbatim quotes) is stored and reachable from
@@ -45,7 +45,7 @@ Files and facts the plan builds on:
 - `src/rent_assistant/storage.py:1238` `fetch_enriched` — the single funnel every
   export and every skill reads through. This is where the building policy has
   to be joined in.
-- `config/ai_fields.json` — already carries **`project_name`** ("Проект/посёлок")
+- `config/ai_fields.json` — already carries **`project_name`** ("Project/village")
   and `area`. Those two are the research key; no new AI field is needed.
 - `src/rent_assistant/decisions.py` — the pattern to copy for the store: a plain JSON
   file under `RENT_ASSISTANT_HOME` that `init_db` cannot wipe, mirrored into a SQLite
@@ -101,19 +101,19 @@ first. Tasks 1–8 are each a commit.
 rent-assistant buildings-batch          →  buildings-batch-<ts>.json   (what to research)
         ↓  skill: one subagent per building, WebSearch + WebFetch
         ↓  writes buildings-result-<ts>.json
-rent-assistant buildings-apply <file>   →  data/buildings.json, status: "proposed"   (inert)
+rent-assistant buildings-apply <file>   →  $RENT_ASSISTANT_HOME/buildings.json, status: "proposed"   (inert)
         ↓  skill: AskUserQuestion per proposal, showing quotes + affected rows
 rent-assistant buildings set <key> --policy not_allowed
-                                 →  data/buildings.json, status: "confirmed"  (live)
+                                 →  $RENT_ASSISTANT_HOME/buildings.json, status: "confirmed"  (live)
         ↓
-fetch_enriched  →  rules.decide(..., building_policy=...)  →  «Кондо запрещает животных»
+fetch_enriched  →  rules.decide(..., building_policy=...)  →  "Building forbids pets"
 ```
 
 Key design decisions and why:
 
 **A JSON file is the source of truth, the table is a mirror.** Same argument as
 `decisions.py`: a scrape can be repeated and an AI pass re-run, but a web search
-the user then vetted cannot be reconstructed by any command. `data/buildings.json`
+the user then vetted cannot be reconstructed by any command. `$RENT_ASSISTANT_HOME/buildings.json`
 survives `init_db`; `buildings` exists so `fetch_enriched` stays one query.
 
 **The building key is normalised, with explicit aliases.** Ads spell the same
@@ -150,7 +150,7 @@ later.
 
 ## Technical Details
 
-### `data/buildings.json`
+### `$RENT_ASSISTANT_HOME/buildings.json`
 
 Flat map keyed by the normalised building key:
 
@@ -163,7 +163,7 @@ Flat map keyed by the normalised building key:
     "policy": "not_allowed",
     "status": "confirmed",
     "confidence": "high",
-    "note": "Управляющая компания: no pets of any kind. Агентства подтверждают.",
+    "note": "Management company: no pets of any kind. Agencies confirm.",
     "sources": [
       {"url": "https://...", "title": "The Base Central — House Rules",
        "quote": "Pets are not allowed in the building."}
@@ -286,7 +286,7 @@ the last one so the researcher can see a contradiction coming.
 - Modify: `src/rent_assistant/rules.py`
 - Modify: `tests/test_rules.py`
 
-- [x] add `REASON_BUILDING_PETS = "Кондо запрещает животных"`
+- [x] add `REASON_BUILDING_PETS = "Building forbids pets"`
 - [x] add the `building_policy` parameter to `decide()` and the check, placed
       after the ad's own `pets` check and before the district check
 - [x] extend `decide`'s docstring: `negotiable`, `allowed` and `unknown` never
@@ -367,7 +367,7 @@ the last one so the researcher can see a contradiction coming.
 - Modify: `src/rent_assistant/storage.py` (`export_html`)
 - Modify: `tests/test_storage.py`
 
-- [x] render the policy as a **badge on the existing "Проект/посёлок" cell**, not
+- [x] render the policy as a **badge on the existing "Project/village" cell**, not
       as a new column — `docs/data-layout.md` and the `data_quality` precedent
 - [x] badge colours: `not_allowed` bad, `negotiable` warn, `allowed` good,
       `proposed` rendered distinctly from `confirmed` so an unvetted proposal
@@ -404,7 +404,7 @@ the last one so the researcher can see a contradiction coming.
       evidence
 - [x] the confirmation step: one `AskUserQuestion` per proposal showing policy,
       confidence, quotes, URLs and how many listings it would reject — with
-      «оставить как есть» always an option
+      "leave as is" always an option
 - [x] the report: confirmed buildings, rows they rejected, proposals declined,
       buildings that came back `unknown` and are worth asking an agent about
 - [x] state plainly that the skill writes nothing except through the CLI
@@ -412,7 +412,7 @@ the last one so the researcher can see a contradiction coming.
 ### Task 9: Verify acceptance criteria
 
 - [x] a confirmed `not_allowed` building rejects every one of its listings with
-      «Кондо запрещает животных», including listings scraped after the research
+      "Building forbids pets", including listings scraped after the research
       — `test_enriched_rejects_a_listing_scraped_after_the_research`
 - [x] `negotiable` keeps the listing and is visible on the row —
       `test_enriched_never_rejects_on_a_policy_other_than_not_allowed`,
@@ -423,7 +423,7 @@ the last one so the researcher can see a contradiction coming.
 - [x] the ad's own `pets` field is never overwritten by research —
       `test_enriched_rejection_leaves_the_ads_own_pets_field_alone` asserts it
       both on the read funnel and in the stored `data_json`
-- [x] `data/buildings.json` survives a DB wipe and re-populates the mirror on the
+- [x] `$RENT_ASSISTANT_HOME/buildings.json` survives a DB wipe and re-populates the mirror on the
       next `init_db` — ⚠️ it did not: `init_db` only creates the table, and only
       `buildings set` was syncing the file into it, so a wiped DB exported
       without a single policy until the next confirmation. Fixed by calling
@@ -447,7 +447,7 @@ the last one so the researcher can see a contradiction coming.
 - Create: `docs/pets-policy.md`
 - Modify: `docs/README.md`, `docs/pipeline.md`, `CLAUDE.md`, `README.md`
 - ➕ Modify: `docs/cli.md`, `docs/data-layout.md`, `docs/ai-enrichment.md` —
-  they claim to cover *every* command, everything in `data/` and the *five*
+  they claim to cover *every* command, everything in `$RENT_ASSISTANT_HOME` and the *five*
   auto-rejections, so leaving them alone would have made them wrong rather
   than merely incomplete
 
@@ -461,9 +461,9 @@ the last one so the researcher can see a contradiction coming.
 - [x] link it from `docs/README.md` and mention the pass in `docs/pipeline.md`
       as out-of-pipeline, alongside the photo pass
 - [x] ➕ `docs/cli.md`: `buildings-batch` / `buildings-apply` with their flags,
-      the `buildings list` / `set` review pair, and the `Здания:` block in
+      the `buildings list` / `set` review pair, and the `Buildings:` block in
       `ai-status`
-- [x] ➕ `docs/data-layout.md`: `buildings.json` in the `data/` table and as the
+- [x] ➕ `docs/data-layout.md`: `buildings.json` in the `$RENT_ASSISTANT_HOME` table and as the
       second irreplaceable file, plus the `buildings` mirror among the DB tables
 - [x] ➕ `docs/ai-enrichment.md`: the auto-rejection table is now six rows, and
       the count is fixed in `docs/pipeline.md`, `docs/README.md` and `README.md`
@@ -475,7 +475,7 @@ the last one so the researcher can see a contradiction coming.
         direction (the tie-at-100 failure)
       - `building_key` is deliberately dumb and does not fuzzy-match; aliases are
         added by hand because a wrong merge rejects another building's listings
-      - `data/buildings.json` is the source of truth and the table is a mirror,
+      - `$RENT_ASSISTANT_HOME/buildings.json` is the source of truth and the table is a mirror,
         like `decisions.json`
 - [x] `README.md`: the new commands in the command list
 - [x] move this plan to `docs/plans/completed/`

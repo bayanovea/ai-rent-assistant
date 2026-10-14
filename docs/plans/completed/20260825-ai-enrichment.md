@@ -1,73 +1,73 @@
-# AI-обогащение листингов — итерация 2
+# AI enrichment of listings — iteration 2
 
 ## Overview
 
-Итерация 1 собрала pipeline `URL → SQLite → CSV/HTML`. Все поля извлекаются регекспами; `extractors.py` прямым текстом говорит, что AI-обогащение — следующая итерация, а `raw_json` сохраняется «для будущего AI».
+Iteration 1 built the pipeline `URL → SQLite → CSV/HTML`. Every field is extracted with regexes; `extractors.py` says in plain words that AI enrichment is the next iteration, and `raw_json` is kept "for the future AI".
 
-Эта итерация делает то самое обогащение: инструмент, который можно натравить на ещё не обработанные листинги, чтобы AI вытащил из описания и остальных полей значимые факты, заполнил колонки таблицы и написал короткий вердикт по каждому объекту. Цель — вести поиск жилья по одной HTML-странице, а не по 40 вкладкам Facebook.
+This iteration does that enrichment: a tool that can be pointed at the listings not yet processed, so that the AI pulls the significant facts out of the description and the other fields, fills the table columns and writes a short verdict on each property. The goal is to run the housing search from one HTML page instead of 40 Facebook tabs.
 
-Три вещи определяют архитектуру:
+Three things define the architecture:
 
-1. **AI здесь — это Claude Code (Opus, high thinking effort)**, а не API-клиент. Поэтому «инструмент» — это контракт «batch наружу / результат внутрь» плюс skill, который гоняет цикл. Никаких новых runtime-зависимостей, никакого `anthropic` SDK.
-2. **Схема должна эволюционировать.** Когда AI замечает повторяющийся полезный сигнал, для которого нет колонки, он спрашивает: важно ли это, и переанализировать ли старые листинги или оставить им `unknown` отдельным цветом.
-3. **Текущий текст из скрапера непригоден для анализа.** У 10 из 21 строк `description` вообще NULL; у большинства остальных туда попал сайдбар «Выбор дня» вместо самого объявления. `title` = `"Недавно опубликовано"` у 100% строк, `published_at` NULL у 100%. Скормить это AI — получить уверенную чушь, поэтому чинится первым.
+1. **The AI here is Claude Code (Opus, high thinking effort)**, not an API client. So the "tool" is a contract "batch out / result in" plus a skill that drives the cycle. No new runtime dependencies, no `anthropic` SDK.
+2. **The schema must evolve.** When the AI notices a recurring useful signal that has no column, it asks: does it matter, and should the old listings be re-analysed or left as `unknown` in a separate colour.
+3. **The current text from the scraper is unusable for analysis.** In 10 of 21 rows `description` is NULL outright; in most of the rest the "Выбор дня" (Pick of the day) sidebar ended up there instead of the ad itself. `title` = `"Недавно опубликовано"` (Recently listed) in 100% of rows, `published_at` is NULL in 100%. Feed this to the AI and you get confident nonsense, so it is fixed first.
 
-Ничего из этого не является ценным само по себе: парсинг и анализ можно перезапустить с нуля в любой момент. Незаменимы только собственные решения пользователя (принял/отклонил) — они живут вне БД.
+None of this is valuable in itself: scraping and analysis can be restarted from scratch at any moment. Only the user's own decisions (accepted/rejected) are irreplaceable — they live outside the DB.
 
-## Критерии поиска, которые кодируются
+## The search criteria that get encoded
 
-Пара + маленький небольшая собака, переезд 1 декабря 2026, контракт на год, 15 000–30 000 THB/мес. Дом или таунхаус в хорошем охраняемом посёлке (типа Pruksa Ville), полностью меблированный, ≥1 спальня + гостиная, не крошечная кухня, зелёная зона рядом для прогулок, парковка и хороший интернет. Туристическая зона и близость к пляжу не требуются.
+Two adults and a small dog, moving on the date in the requirements letter, a one-year contract, 15,000–30,000 THB/month. A house or townhouse in a good gated village (like Pruksa Ville), fully furnished, ≥1 bedroom + a living room, not a tiny kitchen, a green area nearby for walks, parking and good internet. A tourist zone and closeness to the beach are not required.
 
-**Разрешение на животных — самый важный критерий.**
+**Permission for pets is the most important criterion.**
 
-Всё это живёт в новом редактируемом `config/requirements.md` (текст письма агенту дословно + чеклист критериев), который целиком вставляется в каждый batch. Поменять приоритеты позже = отредактировать один markdown-файл, а не код.
+All of this lives in a new editable `config/requirements.md` (the text of the letter to the agent verbatim + a checklist of criteria), which is inserted whole into every batch. Changing the priorities later = editing one markdown file, not code.
 
 ## Context (from discovery)
 
-- **Репозиторий**: `~/AI/rent-assistant/scrapper` (git root), рантайм-данные в соседнем `~/AI/rent-assistant/data/` (`RENT_ASSISTANT_HOME`, gitignored).
-- **Стек**: Python 3.11+, click CLI, Playwright, SQLite. Пакет `rent-assistant` v0.1.0, `src/`-layout, entry point `rent-assistant = rent_assistant.cli:main`. Тесты — pytest, 67+ штук, `pythonpath = ["src"]`.
-- **Существующие модули**: `config.py`, `url_builder.py`, `extractors.py` (чистые функции + table-driven тесты), `storage.py` (`init_db`/`upsert_listing`/`export_csv`/`export_html`), `browser.py`, `scraper_list.py`, `scraper_detail.py`, `cli.py`.
-- **БД**: `data/rentals.db`, одна таблица `listings` (`fb_id` PK, `url`, `title`, `price_thb`, `price_raw`, `district`, `bedrooms`, `property_type`, `description`, `published_at`, `first_seen_at`, `last_seen_at`, `raw_json`). 21 строка.
-- **`raw_json`** — `{"url", "final_url", "title", "text_lines": [...]}`, где `text_lines` = первые 200 непустых строк detail-страницы. Это самый богатый и самый надёжный материал для AI, богаче колонки `description`.
-- **HTML-экспорт**: `storage.export_html` (`storage.py:207-341`) — self-contained файл, данные инлайном в `const DATA`, рендер через Grid.js с unpkg CDN, экранирование `</` и `<!--` плюс хелпер `esc()`.
-- **AI-кода нет вообще**: `grep -riE "anthropic|openai|claude|llm"` по `src/` пуст. Зависимости — только playwright, click, python-dateutil.
+- **Repository**: the repository root (git root); runtime data in a separate data directory, `$RENT_ASSISTANT_HOME` (gitignored).
+- **Stack**: Python 3.11+, click CLI, Playwright, SQLite. Package `rent-assistant` v0.1.0, `src/` layout, entry point `rent-assistant = rent_assistant.cli:main`. Tests — pytest, 67+ of them, `pythonpath = ["src"]`.
+- **Existing modules**: `config.py`, `url_builder.py`, `extractors.py` (pure functions + table-driven tests), `storage.py` (`init_db`/`upsert_listing`/`export_csv`/`export_html`), `browser.py`, `scraper_list.py`, `scraper_detail.py`, `cli.py`.
+- **DB**: `$RENT_ASSISTANT_HOME/rentals.db`, one table `listings` (`fb_id` PK, `url`, `title`, `price_thb`, `price_raw`, `district`, `bedrooms`, `property_type`, `description`, `published_at`, `first_seen_at`, `last_seen_at`, `raw_json`). 21 rows.
+- **`raw_json`** — `{"url", "final_url", "title", "text_lines": [...]}`, where `text_lines` = the first 200 non-empty lines of the detail page. This is the richest and the most reliable material for the AI, richer than the `description` column.
+- **HTML export**: `storage.export_html` (`storage.py:207-341`) — a self-contained file, data inline in `const DATA`, rendered with Grid.js from the unpkg CDN, escaping of `</` and `<!--` plus the `esc()` helper.
+- **No AI code at all**: `grep -riE "anthropic|openai|claude|llm"` over `src/` is empty. Dependencies — only playwright, click, python-dateutil.
 
 ## Development Approach
 
-- **testing approach**: Regular (код сначала, тесты после). Unit-тесты обязательны для всех чистых функций: экстракторы, реестр полей, правила решений, слой БД, сборка/приём batch.
+- **testing approach**: Regular (code first, tests after). Unit tests are mandatory for all pure functions: extractors, the field registry, decision rules, the DB layer, batch building/intake.
 - complete each task fully before moving to the next
 - make small, focused changes
-- **CRITICAL: every task MUST include new/updated tests** для чистых функций. Для Playwright-кода и для CLI-обёрток тесты пропускаем осознанно (помечено `DESIGN:`).
+- **CRITICAL: every task MUST include new/updated tests** for pure functions. For Playwright code and for CLI wrappers we skip tests on purpose (marked `DESIGN:`).
 - **CRITICAL: all tests must pass before starting next task** — no exceptions
 - **CRITICAL: update this plan file when scope changes during implementation**
 - run tests after each change
-- обратная совместимость: существующие 67 тестов должны остаться зелёными, `rent-assistant scrape/export/login` не меняют сигнатуры
+- backward compatibility: the existing 67 tests must stay green, `rent-assistant scrape/export/login` do not change their signatures
 
-## Autonomous Execution Notes (for ralphex / agent runs)
+## Autonomous Execution Notes (for autonomous agent execution)
 
-Конвенция та же, что в итерации 1:
+The convention is the same as in iteration 1:
 
-- Чекбоксы с префиксом `MANUAL:` — агент **пропускает и помечает** `[x] MANUAL: ... (skipped — requires live FB / human action)`. Не пытается выполнить, не блокирует прогресс.
-- Чекбоксы с префиксом `DESIGN:` — фиксация проектного решения (например, «не пишем unit-тесты для Playwright-кода осознанно»). Агент **помечает** `[x] DESIGN: ...` без действий.
-- Всё остальное автоматизируется как обычно: код + unit-тесты + `pytest`.
-- Одна задача за итерацию; после задачи — прогон полного `pytest`, отметка чекбоксов, коммит.
+- Checkboxes prefixed `MANUAL:` — the agent **skips them and marks them** `[x] MANUAL: ... (skipped — requires live FB / human action)`. It does not try to do them and does not block progress on them.
+- Checkboxes prefixed `DESIGN:` — a recorded design decision (for example, "we deliberately write no unit tests for Playwright code"). The agent **marks** `[x] DESIGN: ...` with no action.
+- Everything else is automated as usual: code + unit tests + `pytest`.
+- One task per iteration; after the task — a full `pytest` run, ticking the checkboxes, a commit.
 
-**Специфика этой итерации — что агент выполнить не может:**
+**What is specific to this iteration — what the agent cannot do:**
 
-1. `rent-assistant scrape --refresh` требует живой залогиненной сессии FB → `MANUAL:`.
-2. **Сам прогон AI-анализа выполнить автономно нельзя**: он требует интерактивной сессии Claude Code (шаг с `AskUserQuestion` про новые поля) и свежих данных из FB. Агент строит **инструментарий**, а не выполняет анализ → `MANUAL:`.
+1. `rent-assistant scrape --refresh` needs a live logged-in FB session → `MANUAL:`.
+2. **The AI analysis run itself cannot be done autonomously**: it needs an interactive Claude Code session (the `AskUserQuestion` step about new fields) and fresh data from FB. The agent builds the **tooling**, it does not run the analysis → `MANUAL:`.
 
-Поэтому каждая задача обязана быть проверяемой **без живого Facebook и без человека**: вместо живых данных используются зафиксированные фикстуры (Task 1) и синтетические словари в тестах. Ни один автоматизируемый чекбокс в этом плане не должен требовать сети.
+So every task must be verifiable **without live Facebook and without a human**: instead of live data we use pinned fixtures (Task 1) and synthetic dicts in tests. No automatable checkbox in this plan may need the network.
 
-Все `MANUAL:` пункты продублированы в Post-Completion — оттуда человек забирает список ручных действий после автономного прогона.
+All `MANUAL:` items are duplicated in Post-Completion — that is where a human picks up the list of manual actions after an autonomous run.
 
 ## Testing Strategy
 
-- **unit tests**: обязательны для `description_from_text_lines`, `clean_fb_title`, RU-парсинга дат, `ai_schema` (загрузка/валидация реестра, `source_hash`), `rules.decide`, `storage` (новые таблицы, `fetch_enriched`), `decisions`, `ai_batch` (выборка pending, приём результатов, отказ на неизвестные ключи).
-- **fixture-based tests**: реальные `text_lines` двух листингов, зафиксированные в `tests/fixtures/` на Task 1 — на них проверяются экстракторы. Это замена интеграционным тестам с живым FB.
-- **integration tests**: НЕ пишем для Playwright-скраперов и для CLI-обёрток (осознанно, помечено `DESIGN:`).
-- **e2e**: не применимо, UI нет — HTML-экспорт проверяется тестом на присутствие ожидаемых CSS-классов в сгенерированной строке.
-- **manual verification**: полный цикл `scrape --refresh → ai-batch → анализ в сессии → ai-apply → export` после Task 13.
+- **unit tests**: mandatory for `description_from_text_lines`, `clean_fb_title`, RU date parsing, `ai_schema` (loading/validating the registry, `source_hash`), `rules.decide`, `storage` (new tables, `fetch_enriched`), `decisions`, `ai_batch` (selecting pending, accepting results, rejecting unknown keys).
+- **fixture-based tests**: the real `text_lines` of two listings, pinned in `tests/fixtures/` in Task 1 — the extractors are checked against them. This replaces integration tests with live FB.
+- **integration tests**: NOT written for the Playwright scrapers and the CLI wrappers (on purpose, marked `DESIGN:`).
+- **e2e**: not applicable, there is no UI — the HTML export is checked by a test for the presence of the expected CSS classes in the generated string.
+- **manual verification**: the full cycle `scrape --refresh → ai-batch → analysis in a session → ai-apply → export` after Task 13.
 
 ## Progress Tracking
 
@@ -81,27 +81,27 @@
 
 ```
 rent-assistant scrape --refresh        →  rentals.db (listings)
-rent-assistant ai-batch                →  data/ai/batch-<ts>.json   ← pending + реестр полей + requirements
-     Claude Code (Opus, high effort) читает, думает, пишет:
-                                   data/ai/result-<ts>.json
+rent-assistant ai-batch                →  $RENT_ASSISTANT_HOME/ai/batch-<ts>.json   ← pending + field registry + requirements
+     Claude Code (Opus, high effort) reads, thinks, writes:
+                                          $RENT_ASSISTANT_HOME/ai/result-<ts>.json
 rent-assistant ai-apply <file>         →  rentals.db (ai_analysis)
-rent-assistant export                  →  data/rentals.html
+rent-assistant export                  →  $RENT_ASSISTANT_HOME/rentals.html
 ```
 
-Весь цикл запускается одной командой через skill `/analyze`.
+The whole cycle is started with one command through the `/analyze` skill.
 
-Ключевые решения:
+Key decisions:
 
-1. **AI извлекает факты, код применяет политику.** AI никогда не пишет `status` и `reason` — он пишет значения полей с уверенностью и цитатой-доказательством. `rules.py` детерминированно выводит active/rejected. Поэтому авторежекты воспроизводимы, объяснимы и меняются глобально при смене правил — без переанализа.
-2. **Разделение персистентности.** Результаты AI лежат в SQLite (регенерируемы — можно стирать смело). Решения пользователя лежат в `data/decisions.json` (нерегенерируемы — их не трогают ни scrape, ни анализ) и являются source of truth, зеркалируются в БД при экспорте. Решение пользователя всегда перекрывает вердикт AI.
-3. **Реестр полей вместо миграций.** Новое поле = запись в `config/ai_fields.json`. Никаких ALTER TABLE: значения лежат в `data_json`.
-4. **`added_in` versioning** — именно то, что позволяет отличить «поля не было на момент анализа» (отдельный цвет) от «поле было, но AI не нашёл информацию» (обычный серый прочерк).
-5. **`source_hash`** — детектор устаревания. Пересканирование, улучшившее текст листинга, автоматически возвращает его в очередь на анализ.
-6. **Починка экстракторов идёт первой**, потому что качество анализа целиком зависит от качества входного текста.
+1. **The AI extracts facts, the code applies policy.** The AI never writes `status` and `reason` — it writes field values with a confidence and a quote as evidence. `rules.py` derives active/rejected deterministically. So auto-rejects are reproducible, explainable and change globally when the rules change — without re-analysis.
+2. **Separation of persistence.** AI results live in SQLite (regenerable — can be wiped without fear). The user's decisions live in `$RENT_ASSISTANT_HOME/decisions.json` (not regenerable — neither scrape nor analysis touches them) and are the source of truth, mirrored into the DB on export. A user's decision always overrides the AI verdict.
+3. **A field registry instead of migrations.** A new field = an entry in `config/ai_fields.json`. No ALTER TABLE: the values live in `data_json`.
+4. **`added_in` versioning** — exactly what lets us tell "the field did not exist at analysis time" (a separate colour) from "the field existed, but the AI found no information" (an ordinary grey dash).
+5. **`source_hash`** — the staleness detector. A re-scrape that improved a listing's text automatically puts it back into the analysis queue.
+6. **Fixing the extractors goes first**, because the quality of the analysis depends entirely on the quality of the input text.
 
 ## Technical Details
 
-### Реестр полей — `config/ai_fields.json`
+### Field registry — `config/ai_fields.json`
 
 ```json
 {
@@ -110,62 +110,62 @@ rent-assistant export                  →  data/rentals.html
     { "key": "pets", "label": "Pets", "group": "core", "type": "enum",
       "values": ["allowed", "not_allowed", "unclear"],
       "highlight": "pets", "added_in": 1,
-      "prompt": "Разрешены ли животные/собаки? 'allowed' ТОЛЬКО при явном подтверждении (pets allowed, pet friendly, dogs ok, สัตว์เลี้ยงได้). 'not_allowed' ТОЛЬКО при явном запрете. Во всех остальных случаях 'unclear'. Обязательно цитату в ev." }
+      "prompt": "Are pets/dogs allowed? 'allowed' ONLY on explicit confirmation (pets allowed, pet friendly, dogs ok, สัตว์เลี้ยงได้). 'not_allowed' ONLY on an explicit ban. In every other case 'unclear'. A quote in ev is mandatory." }
   ]
 }
 ```
 
-Поля v1 (все четыре группы), `added_in: 1` у всех:
+The v1 fields (all four groups), `added_in: 1` on every one:
 
-| group | key | type | комментарий |
+| group | key | type | comment |
 |---|---|---|---|
-| core | `pets` | enum allowed/not_allowed/unclear | главный критерий |
-| core | `pets_evidence` | text | цитата-основание |
-| core | `price_month_thb` | int | цена, которую AI считает реальной |
-| core | `price_12m_thb` | int | цена при годовом контракте, если объявление даёт тарифную сетку |
-| core | `deposit` | text | «2 месяца депозит + 1 предоплата» |
+| core | `pets` | enum allowed/not_allowed/unclear | the main criterion |
+| core | `pets_evidence` | text | the supporting quote |
+| core | `price_month_thb` | int | the price the AI considers real |
+| core | `price_12m_thb` | int | the price on a yearly contract, if the ad gives a rate table |
+| core | `deposit` | text | "2 months deposit + 1 in advance" |
 | core | `bedrooms` | int | |
 | core | `bathrooms` | int | |
-| core | `extra_rooms` | text | кабинет, вторая гостиная и т.п. |
-| core | `living_room` | enum yes/no/unclear | отсутствие упоминания = `unclear`, НЕ повод для реджекта |
+| core | `extra_rooms` | text | a study, a second living room, etc. |
+| core | `living_room` | enum yes/no/unclear | no mention = `unclear`, NOT a reason to reject |
 | core | `furnished` | enum full/partial/none/unclear | |
 | property | `property_type` | enum house/townhouse/villa/condo/apartment/studio/unknown | |
-| property | `project_name` | text | посёлок / название проекта |
-| property | `area` | text | нормализованный район |
+| property | `project_name` | text | village / project name |
+| property | `area` | text | normalised district |
 | property | `size_sqm` | int | |
 | property | `floors` | int | |
 | property | `condition` | enum new/good/worn/unclear | |
 | amenity | `kitchen` | enum full/kitchenette/none/unclear | |
 | amenity | `parking` | enum yes/no/unclear | |
-| amenity | `internet` | text | скорость/лимит, если указаны |
-| amenity | `aircon` | text | количество |
+| amenity | `internet` | text | speed/limit, if given |
+| amenity | `aircon` | text | count |
 | amenity | `pool_gym` | text | |
-| amenity | `green_area` | enum yes/no/unclear | для выгула собаки |
-| amenity | `security` | enum yes/no/unclear | охрана/КПП |
+| amenity | `green_area` | enum yes/no/unclear | for walking the dog |
+| amenity | `security` | enum yes/no/unclear | guards/gatehouse |
 | meta | `contract_min_months` | int | |
-| meta | `available_from` | date | нужно к 01.12.2026 |
+| meta | `available_from` | date | needed by the move-in date in the requirements letter |
 | meta | `posted_at` | date | |
 | meta | `poster_type` | enum agent/owner/unclear | |
-| meta | `contact` | text | часто `[hidden information]` |
+| meta | `contact` | text | often `[hidden information]` |
 
-Плюс служебное `data_quality` (`good` / `sidebar_noise` / `missing`) — хранится отдельной колонкой, не в реестре.
+Plus the service field `data_quality` (`good` / `sidebar_noise` / `missing`) — stored as a separate column, not in the registry.
 
-### Новые таблицы
+### New tables
 
 ```sql
 CREATE TABLE IF NOT EXISTS ai_analysis (
     fb_id          TEXT PRIMARY KEY,
     schema_version INTEGER NOT NULL,
     analyzed_at    TEXT NOT NULL,
-    source_hash    TEXT NOT NULL,   -- детектор устаревания
+    source_hash    TEXT NOT NULL,   -- staleness detector
     model          TEXT,            -- "claude-opus-5 (claude-code)"
-    verdict        TEXT NOT NULL,   -- короткий вердикт свободным текстом
-    score          INTEGER,         -- 0-100 соответствие критериям
+    verdict        TEXT NOT NULL,   -- short free-text verdict
+    score          INTEGER,         -- 0-100 match against the criteria
     data_quality   TEXT,            -- good | sidebar_noise | missing
-    data_json      TEXT NOT NULL    -- {key: {"v":..., "conf":"high|med|low", "ev":"цитата"}}
+    data_json      TEXT NOT NULL    -- {key: {"v":..., "conf":"high|med|low", "ev":"quote"}}
 );
 
-CREATE TABLE IF NOT EXISTS decisions (   -- зеркало data/decisions.json
+CREATE TABLE IF NOT EXISTS decisions (   -- mirror of $RENT_ASSISTANT_HOME/decisions.json
     fb_id      TEXT PRIMARY KEY,
     status     TEXT NOT NULL,        -- rejected | active | shortlist
     reason     TEXT,
@@ -173,73 +173,75 @@ CREATE TABLE IF NOT EXISTS decisions (   -- зеркало data/decisions.json
 );
 ```
 
-`source_hash` = sha256 по тому, что AI реально видел: `title | price_raw | district | description_clean | len(text_lines)`.
+`source_hash` = sha256 over what the AI actually saw: `title | price_raw | district | description_clean | len(text_lines)`.
 
-Листинг считается **pending**, если: нет строки в `ai_analysis`, ИЛИ его `source_hash` отличается, ИЛИ его `schema_version` ниже версии реестра, поднятой с `--backfill`.
+A listing counts as **pending** if: there is no row in `ai_analysis`, OR its `source_hash` differs, OR its `schema_version` is below the registry version raised with `--backfill`.
 
-### Формат batch — `data/ai/batch-<ts>.json`
+### Batch format — `$RENT_ASSISTANT_HOME/ai/batch-<ts>.json`
 
 ```json
 { "schema_version": 1,
   "generated_at": "2026-08-25T10:00:00Z",
-  "requirements_md": "<содержимое config/requirements.md>",
-  "fields": [ ...реестр целиком... ],
+  "requirements_md": "<contents of config/requirements.md>",
+  "fields": [ ...the whole registry... ],
   "items": [
     { "fb_id": "...", "url": "...", "price_thb": 16000, "price_raw": "16 000 ฿/месяц",
       "district": "Kathu, Phuket, Thailand", "listing_title": "1 Bed 1 Bath - Apartment",
-      "description": "<очищенный текст>", "text_lines": [ "..." ],
+      "description": "<cleaned text>", "text_lines": [ "..." ],
       "source_hash": "abc123..." }
   ] }
 ```
 
-### Формат результата — `data/ai/result-<ts>.json`
+(`price_raw` is the price string as Facebook renders it in the Russian locale; `฿/месяц` means "฿/month".)
+
+### Result format — `$RENT_ASSISTANT_HOME/ai/result-<ts>.json`
 
 ```json
 { "schema_version": 1,
   "model": "claude-opus-5 (claude-code)",
   "results": [
     { "fb_id": "...", "source_hash": "abc123...",
-      "verdict": "Новый кондо-студия у Kathu, всё есть, но про животных ни слова и это не дом в посёлке.",
+      "verdict": "New studio condo near Kathu, has everything, but not a word about pets and it is not a house in a village.",
       "score": 62, "data_quality": "good",
       "fields": { "pets": {"v": "unclear", "conf": "high", "ev": ""},
-                  "price_12m_thb": {"v": 16000, "conf": "high", "ev": "12 месяцев: 16,000 THB/month"} } } ],
+                  "price_12m_thb": {"v": 16000, "conf": "high", "ev": "12 months: 16,000 THB/month"} } } ],
   "proposed_new_fields": [
-    { "key": "electricity_rate", "label": "Свет ฿/kWh", "type": "text",
-      "why": "встречается в 3 из 8 листингов, разброс 4–8 ฿/kWh — это ±2000 THB/мес",
+    { "key": "electricity_rate", "label": "Electricity ฿/kWh", "type": "text",
+      "why": "appears in 3 of 8 listings, spread 4–8 ฿/kWh — that is ±2000 THB/month",
       "examples": ["Electricity 7 THB/unit", "ไฟฟ้า 5 บาท/หน่วย"] } ] }
 ```
 
-`ai-apply` **отвергает с ошибкой** любой ключ в `fields`, которого нет в реестре, перечисляя такие ключи. `proposed_new_fields` собираются и печатаются — это и есть триггер разговора о расширении схемы.
+`ai-apply` **rejects with an error** any key in `fields` that is not in the registry, listing those keys. `proposed_new_fields` are collected and printed — this is the trigger for the conversation about extending the schema.
 
-### Правила решений (`rules.py`)
+### Decision rules (`rules.py`)
 
-Авторежект ровно три штуки:
+Exactly three auto-rejects:
 
-| Условие | Reason |
+| Condition | Reason |
 |---|---|
-| `pets == "not_allowed"` | Животные запрещены |
-| `price > 35 000` | Сильно вне бюджета |
-| явная студия (`property_type == "studio"` или `bedrooms == 0`) | Студия |
+| `pets == "not_allowed"` | Pets forbidden |
+| `price > 35 000` | Far over budget |
+| an explicit studio (`property_type == "studio"` or `bedrooms == 0`) | Studio |
 
-Всё остальное — флажок, но не реджект. Явно:
+Everything else is a flag, not a reject. Explicitly:
 
-- **Больше комнат, чем просили, — никогда не минус.** Лишние комнаты повышают score.
-- **Неупомянутая гостиная — не повод для реджекта.** Большинство объявлений просто не пишут слово «living room». Это жёлтый флажок.
-- Кондо/апартаменты, только краткосрочная аренда, нет парковки, слабый интернет, нет зелёной зоны → флажок + отражение в вердикте, листинг остаётся активным.
-- 30 001–35 000 THB → активен, ячейка цены оранжевая.
-- `data_quality != "good"` → **никогда не реджект**, помечается как «нужен re-scrape».
+- **More rooms than asked for is never a minus.** Extra rooms raise the score.
+- **An unmentioned living room is not a reason to reject.** Most ads simply do not write the words "living room". It is a yellow flag.
+- Condo/apartment, short-term only, no parking, weak internet, no green area → a flag + reflected in the verdict, the listing stays active.
+- 30,001–35,000 THB → active, the price cell is orange.
+- `data_quality != "good"` → **never a reject**, marked as "needs a re-scrape".
 
-Цветовые классы (возвращает `rules.cell_class`):
+Colour classes (returned by `rules.cell_class`):
 
-| Состояние | Класс / цвет |
+| State | Class / colour |
 |---|---|
-| `pets = allowed` | `c-good` — зелёный |
-| `pets = unclear` / не упомянуто | `c-warn` — жёлтый |
-| `pets = not_allowed` | `c-bad` — красный + строка авторежектнута |
-| цена ≤30k / 30–35k / >35k | обычный / `c-warn` / `c-bad` |
-| поле пустое, добавлено **после** анализа этой строки (`added_in > row.schema_version`) | `c-stale` — **отдельный четвёртый цвет** (штриховка сине-серым) |
-| поле пустое, но существовало на момент анализа | `c-none` — обычный серый прочерк |
-| строка отклонена | `row-rejected` — приглушение, зачёркивание, красная левая граница |
+| `pets = allowed` | `c-good` — green |
+| `pets = unclear` / not mentioned | `c-warn` — yellow |
+| `pets = not_allowed` | `c-bad` — red + the row is auto-rejected |
+| price ≤30k / 30–35k / >35k | plain / `c-warn` / `c-bad` |
+| field empty, added **after** this row's analysis (`added_in > row.schema_version`) | `c-stale` — **a separate fourth colour** (blue-grey hatching) |
+| field empty, but it existed at analysis time | `c-none` — an ordinary grey dash |
+| row rejected | `row-rejected` — dimmed, struck through, red left border |
 
 ### CLI
 
@@ -249,34 +251,34 @@ rent-assistant ai-batch [--limit 25] [--all] [--ids ID...] [--out PATH]
 rent-assistant ai-apply PATH [--dry-run]
 rent-assistant ai-field list
 rent-assistant ai-field add --key K --label L --type enum --values a,b,c [--group G] [--after K] [--backfill]
-rent-assistant reject ID --reason "..."     # → data/decisions.json, перекрывает AI
+rent-assistant reject ID --reason "..."     # → $RENT_ASSISTANT_HOME/decisions.json, overrides the AI
 rent-assistant unreject ID
 rent-assistant shortlist ID [--reason "..."]
-rent-assistant export                       # имя прежнее, рендерит полную таблицу
+rent-assistant export                       # same name as before, renders the full table
 ```
 
-`--backfill` поднимает `schema_version` и помечает существующие строки устаревшими, чтобы `ai-batch` их подобрал; без флага старые строки просто получают цвет `c-stale`. Этот флаг и есть ответ на вопрос «переанализировать или оставить unknown», вшитый прямо в CLI.
+`--backfill` raises `schema_version` and marks the existing rows as stale so that `ai-batch` picks them up; without the flag the old rows simply get the `c-stale` colour. This flag is the answer to the question "re-analyse or leave as unknown", built right into the CLI.
 
 ### HTML
 
-Переписывается `export_html()` (`storage.py:207-341`), существующие приёмы сохраняются: self-contained файл, инлайн `const DATA`, Grid.js с unpkg, экранирование `</` / `<!--`, хелпер `esc()`.
+`export_html()` (`storage.py:207-341`) is rewritten; the existing techniques are kept: a self-contained file, inline `const DATA`, Grid.js from unpkg, escaping of `</` / `<!--`, the `esc()` helper.
 
-- **Все колонки видимы, горизонтальный скролл**, sticky-заголовок и sticky первая колонка, чтобы строка не терялась при скролле вправо.
-- Вкладки-фильтры: **Active** (по умолчанию) / Shortlist / Rejected / All со счётчиками.
-- Отклонённые строки несут свою причину в отдельной колонке **Reason** и визуально отбиты (приглушение + зачёркивание + красная граница), с пометкой, кто отклонил: `AI` или `вы`.
-- Вердикт — обрезанная ячейка, полный текст по hover/expand. Цитаты-доказательства (`ev`) выводятся как тултипы ячеек, чтобы любое утверждение AI прослеживалось до исходного текста.
-- Легенда цветов сверху страницы, покрывающая все состояния из таблицы выше.
+- **All columns visible, horizontal scroll**, a sticky header and a sticky first column so the row is not lost when scrolling right.
+- Filter tabs: **Active** (default) / Shortlist / Rejected / All with counters.
+- Rejected rows carry their reason in a separate **Reason** column and are set off visually (dimmed + struck through + red border), with a note of who rejected: `AI` or `you`.
+- The verdict is a truncated cell, full text on hover/expand. The evidence quotes (`ev`) are shown as cell tooltips so that any claim by the AI can be traced back to the source text.
+- A colour legend at the top of the page covering all states from the table above.
 
-Замечание: Grid.js грузится с CDN, странице нужен интернет. Это существующее поведение; вендорить — при необходимости, не в этой итерации.
+Note: Grid.js is loaded from a CDN, the page needs the internet. This is existing behaviour; vendor it if needed, not in this iteration.
 
 ## What Goes Where
 
-- **Implementation Steps** (`[ ]` checkboxes): весь код обогащения, реестр, правила, CLI, HTML, skill, тесты — всё, что делается в этом репо без сети.
-- **Post-Completion** (no checkboxes): пересканирование живого FB, первый реальный прогон AI-анализа, визуальная проверка HTML, планы на итерацию 3.
+- **Implementation Steps** (`[ ]` checkboxes): all enrichment code, the registry, the rules, CLI, HTML, the skill, tests — everything done in this repo without the network.
+- **Post-Completion** (no checkboxes): re-scraping live FB, the first real AI analysis run, a visual check of the HTML, plans for iteration 3.
 
 ## Implementation Steps
 
-### Task 1: Фикстуры реальных данных для тестов экстракторов
+### Task 1: Real-data fixtures for the extractor tests
 
 **Files:**
 - Create: `tests/fixtures/__init__.py`
@@ -284,41 +286,41 @@ rent-assistant export                       # имя прежнее, ренде�
 - Create: `tests/fixtures/text_lines_sidebar.json`
 - Create: `tests/fixtures/README.md`
 
-- [x] вытащить `raw_json` двух реальных листингов из `data/rentals.db` через `sqlite3`/python и сохранить как фикстуры: «хороший» `fb_id=9000000000000001` (The Origin Kathu, настоящее описание после маркера `Описание`) и «плохой» `fb_id=9000000000000002` (в `description` попал сайдбар «Выбор дня», настоящий текст — только в `text_lines`)
-- [x] если этих `fb_id` в БД нет — взять любые два: один с непустым `description` длиной НЕ 1288 и НЕ 962 символа, второй ровно с такой длиной (это сигнатура сайдбарного мусора); зафиксировать в `tests/fixtures/README.md`, какие именно взяты
-- [x] если `data/rentals.db` отсутствует — собрать фикстуры руками по образцам структуры из раздела Technical Details: `text_lines` содержит `"Описание"`, затем строки объявления, затем `"Информация о продавце"`
-- [x] в `tests/fixtures/README.md` описать происхождение фикстур и что `data/` в gitignore, поэтому фикстуры коммитятся
-- [x] написать `tests/test_fixtures.py`: обе фикстуры парсятся как JSON, содержат ключи `title` и `text_lines`, `text_lines` непустой список строк
-- [x] прогнать `pytest tests/ -q` — все зелёные
+- [x] pull the `raw_json` of two real listings out of `$RENT_ASSISTANT_HOME/rentals.db` through `sqlite3`/python and save them as fixtures: the "good" one `fb_id=9000000000000001` (The Origin Kathu, a real description after the `Описание` (Description) marker) and the "bad" one `fb_id=9000000000000002` (the "Выбор дня" (Pick of the day) sidebar ended up in `description`, the real text is only in `text_lines`)
+- [x] if these `fb_id`s are not in the DB — take any two: one with a non-empty `description` whose length is NOT 1288 and NOT 962 characters, the other with exactly such a length (that is the signature of the sidebar junk); record in `tests/fixtures/README.md` which ones were taken
+- [x] if `$RENT_ASSISTANT_HOME/rentals.db` is absent — build the fixtures by hand from the structure samples in Technical Details: `text_lines` contains `"Описание"`, then the lines of the ad, then `"Информация о продавце"` (Seller information)
+- [x] in `tests/fixtures/README.md` describe where the fixtures come from and that the data directory is gitignored, which is why the fixtures are committed
+- [x] write `tests/test_fixtures.py`: both fixtures parse as JSON, contain the keys `title` and `text_lines`, `text_lines` is a non-empty list of strings
+- [x] run `pytest tests/ -q` — all green
 
-### Task 2: Экстракторы описания, заголовка и даты публикации
+### Task 2: Extractors for the description, the title and the publication date
 
 **Files:**
 - Modify: `src/rent_assistant/extractors.py`
 - Modify: `tests/test_extractors.py`
 
-- [x] `description_from_text_lines(text_lines: list[str]) -> str | None` — вырезает срез между маркером `Описание`/`Description` и маркером `Информация о продавце`/`Seller information`; отбрасывает хвостовое `Ещё`/`See more`; возвращает `None`, если маркера нет
-- [x] `clean_fb_title(raw_title: str) -> str | None` — из `"(6) Marketplace — 1 Bed 1 Bath - Apartment | Facebook"` делает `"1 Bed 1 Bath - Apartment"`: снимает префикс `(N) Marketplace — ` (и `Marketplace | `) и суффикс ` | Facebook`; возвращает `None` для мусора вроде `"Недавно опубликовано"`
-- [x] расширить `_PUBLISHED_RE` русскими шаблонами `Опубликовано N минут/часов/дней/недель/месяцев назад` рядом с существующими английскими `... ago`; вернуть ISO-дату относительно переданного `now`
-- [x] написать тесты на `description_from_text_lines` на обеих фикстурах Task 1: на «хорошей» вернуть текст The Origin Kathu, на «плохой» — реальный текст объявления, а НЕ сайдбар «Выбор дня»
-- [x] написать тесты на `clean_fb_title` (нормальный заголовок, тайский заголовок, `"Недавно опубликовано"` → None, пустая строка) и на RU/EN парсинг дат (часы, дни, недели, неизвестный формат → None)
-- [x] прогнать `pytest tests/ -q` — все зелёные, существующие 67 тестов не сломаны
+- [x] `description_from_text_lines(text_lines: list[str]) -> str | None` — cuts the slice between the marker `Описание`/`Description` and the marker `Информация о продавце`/`Seller information`; drops a trailing `Ещё`/`See more`; returns `None` if the marker is absent
+- [x] `clean_fb_title(raw_title: str) -> str | None` — turns `"(6) Marketplace — 1 Bed 1 Bath - Apartment | Facebook"` into `"1 Bed 1 Bath - Apartment"`: strips the prefix `(N) Marketplace — ` (and `Marketplace | `) and the suffix ` | Facebook`; returns `None` for junk like `"Недавно опубликовано"` (Recently listed)
+- [x] extend `_PUBLISHED_RE` with the Russian patterns `Опубликовано N минут/часов/дней/недель/месяцев назад` (Listed N minutes/hours/days/weeks/months ago) next to the existing English `... ago`; return an ISO date relative to the `now` passed in
+- [x] write tests for `description_from_text_lines` on both fixtures from Task 1: on the "good" one return The Origin Kathu text, on the "bad" one — the real ad text, and NOT the "Выбор дня" sidebar
+- [x] write tests for `clean_fb_title` (a normal title, a Thai title, `"Недавно опубликовано"` → None, an empty string) and for RU/EN date parsing (hours, days, weeks, an unknown format → None)
+- [x] run `pytest tests/ -q` — all green, the existing 67 tests are not broken
 
-### Task 3: Подключение исправленных экстракторов к скраперам
+### Task 3: Wiring the fixed extractors into the scrapers
 
 **Files:**
 - Modify: `src/rent_assistant/scraper_detail.py`
 - Modify: `src/rent_assistant/scraper_list.py`
 
-- [x] в `scraper_detail._extract_description()` (`scraper_detail.py:118`) сначала пробовать `description_from_text_lines(raw_json["text_lines"])`; на старую эвристику «самый длинный текстовый блок» откатываться, только если маркер не найден
-- [x] в `scraper_detail` парсить `published_at` через обновлённый экстрактор и класть ISO-дату вместо NULL — `_extract_published_at()` теперь возвращает ISO-строку через `parse_published_at`, локальный EN-only `_PUBLISHED_RE` удалён
-- [x] в `scraper_list._pick_title()` использовать `clean_fb_title(raw_json["title"])`; если вернулся `None` — прежняя логика «первая не-ценовая строка»
-  - ⚠️ отклонение от формулировки: у карточки списка нет `raw_json["title"]` (это поле detail-страницы), поэтому `clean_fb_title` применяется к каждой не-ценовой строке карточки; первая, что пережила фильтр, становится заголовком, иначе — прежний фолбэк «первая не-ценовая строка». Эффект тот же: `"Недавно опубликовано"` больше не попадает в `title`, когда на карточке есть настоящий заголовок
-- [x] DESIGN: unit-тесты для Playwright-модулей не пишем осознанно (сеть + живой FB = хрупко); поведение покрыто тестами экстракторов на фикстурах в Task 2
-- [x] прогнать `pytest tests/ -q` — все зелёные (131 passed)
-- [x] MANUAL: `rent-assistant scrape --refresh` — перезалить 21 существующую строку корректным текстом (skipped — requires live FB / human action)
+- [x] in `scraper_detail._extract_description()` (`scraper_detail.py:118`) try `description_from_text_lines(raw_json["text_lines"])` first; fall back to the old "longest text block" heuristic only when the marker is not found
+- [x] in `scraper_detail` parse `published_at` through the updated extractor and store an ISO date instead of NULL — `_extract_published_at()` now returns an ISO string through `parse_published_at`, the local EN-only `_PUBLISHED_RE` is removed
+- [x] in `scraper_list._pick_title()` use `clean_fb_title(raw_json["title"])`; if it returns `None` — the old logic "the first non-price line"
+  - ⚠️ deviation from the wording: a list card has no `raw_json["title"]` (that is a detail-page field), so `clean_fb_title` is applied to every non-price line of the card; the first one that survives the filter becomes the title, otherwise — the old fallback "the first non-price line". The effect is the same: `"Недавно опубликовано"` no longer lands in `title` when the card has a real title
+- [x] DESIGN: we deliberately write no unit tests for the Playwright modules (network + live FB = fragile); the behaviour is covered by the extractor tests on the fixtures in Task 2
+- [x] run `pytest tests/ -q` — all green (131 passed)
+- [x] MANUAL: `rent-assistant scrape --refresh` — reload the 21 existing rows with correct text (skipped — requires live FB / human action)
 
-### Task 4: Реестр полей и файл требований
+### Task 4: The field registry and the requirements file
 
 **Files:**
 - Create: `config/ai_fields.json`
@@ -327,163 +329,163 @@ rent-assistant export                       # имя прежнее, ренде�
 - Create: `tests/test_ai_schema.py`
 - Modify: `src/rent_assistant/config.py`
 
-- [x] создать `config/ai_fields.json` со `schema_version: 1` и всеми полями из таблицы в Technical Details; у каждого поля `key`, `label`, `group`, `type`, `values` (для enum), `added_in: 1`, `prompt` — короткая инструкция для AI, что именно извлекать
-- [x] создать `config/requirements.md`: текст письма агенту дословно (пара + небольшая собака, переезд 01.12.2026, год контракта, 15–30k THB, дом/таунхаус в посёлке, меблировка, 1 спальня + гостиная, кухня, зелёная зона, парковка, интернет) плюс чеклист приоритетов, где животные помечены как критерий №1
-- [x] `src/rent_assistant/ai_schema.py`: `load_registry(path) -> Registry` с валидацией (уникальность `key`, известный `type`, `values` непуст для enum, `added_in <= schema_version`), `field_keys()`, `schema_version`
-- [x] `ai_schema.source_hash(listing: dict) -> str` — sha256 по `title | price_raw | district | description | len(text_lines)`, стабильный к порядку ключей
-- [x] добавить в `config.py`: `AI_DIR = RENT_ASSISTANT_HOME / "ai"`, `AI_FIELDS_PATH`, `REQUIREMENTS_PATH`, `BUDGET_HARD_MAX_THB = 35_000`
-- [x] написать `tests/test_ai_schema.py`: реальный `config/ai_fields.json` загружается и валиден, дубль `key` → ошибка, enum без `values` → ошибка, `source_hash` детерминирован и меняется при смене описания
-- [x] прогнать `pytest tests/ -q` — все зелёные
+- [x] create `config/ai_fields.json` with `schema_version: 1` and all fields from the table in Technical Details; each field has `key`, `label`, `group`, `type`, `values` (for enum), `added_in: 1`, `prompt` — a short instruction for the AI on what exactly to extract
+- [x] create `config/requirements.md`: the text of the letter to the agent verbatim (two adults and a small dog, the move-in date in the requirements letter, a one-year contract, 15–30k THB, house/townhouse in a village, furnishing, 1 bedroom + living room, kitchen, green area, parking, internet) plus a priority checklist where pets are marked as criterion #1
+- [x] `src/rent_assistant/ai_schema.py`: `load_registry(path) -> Registry` with validation (unique `key`, known `type`, non-empty `values` for enum, `added_in <= schema_version`), `field_keys()`, `schema_version`
+- [x] `ai_schema.source_hash(listing: dict) -> str` — sha256 over `title | price_raw | district | description | len(text_lines)`, stable against key order
+- [x] add to `config.py`: `AI_DIR = RENT_ASSISTANT_HOME / "ai"`, `AI_FIELDS_PATH`, `REQUIREMENTS_PATH`, `BUDGET_HARD_MAX_THB = 35_000`
+- [x] write `tests/test_ai_schema.py`: the real `config/ai_fields.json` loads and is valid, a duplicate `key` → error, an enum without `values` → error, `source_hash` is deterministic and changes when the description changes
+- [x] run `pytest tests/ -q` — all green
 
-### Task 5: Правила решений и цветовые классы
+### Task 5: Decision rules and colour classes
 
 **Files:**
 - Create: `src/rent_assistant/rules.py`
 - Create: `tests/test_rules.py`
 
-- [x] `decide(fields: dict, price_thb: int | None) -> tuple[str, str | None]` — возвращает `("active"|"rejected", reason)`; ровно три условия реджекта: `pets == "not_allowed"`, `price > BUDGET_HARD_MAX_THB`, явная студия (`property_type == "studio"` или `bedrooms == 0`)
-- [x] `cell_class(field_key, value, field_def, row_schema_version) -> str` — реализовать таблицу цветов: `c-good`/`c-warn`/`c-bad` для `pets`, пороги цены, `c-stale` когда `field_def["added_in"] > row_schema_version`, иначе `c-none` для пустых
-- [x] `score(fields) -> int` — 0-100 соответствие критериям из `requirements.md`; лишние комнаты и наличие зелёной зоны/парковки/охраны повышают, отсутствие информации не штрафует сильно
-- [x] написать тесты на каждое условие реджекта и, отдельными явными кейсами, на то что **НЕ** реджектится: 3 спальни (больше, чем просили) → active; `living_room` = `unclear` → active; `property_type` = `condo` → active; цена 33 000 → active с `c-warn`; `data_quality` = `sidebar_noise` → active
-- [x] написать тесты на `cell_class`: `pets=allowed` → `c-good`, `pets=unclear` → `c-warn`, поле с `added_in=2` на строке со `schema_version=1` → `c-stale`, поле с `added_in=1` без значения → `c-none`
-- [x] прогнать `pytest tests/ -q` — все зелёные
+- [x] `decide(fields: dict, price_thb: int | None) -> tuple[str, str | None]` — returns `("active"|"rejected", reason)`; exactly three reject conditions: `pets == "not_allowed"`, `price > BUDGET_HARD_MAX_THB`, an explicit studio (`property_type == "studio"` or `bedrooms == 0`)
+- [x] `cell_class(field_key, value, field_def, row_schema_version) -> str` — implement the colour table: `c-good`/`c-warn`/`c-bad` for `pets`, the price thresholds, `c-stale` when `field_def["added_in"] > row_schema_version`, otherwise `c-none` for empty
+- [x] `score(fields) -> int` — 0-100 match against the criteria in `requirements.md`; extra rooms and the presence of a green area/parking/security raise it, missing information is not penalised heavily
+- [x] write tests for each reject condition and, as separate explicit cases, for what is **NOT** rejected: 3 bedrooms (more than asked) → active; `living_room` = `unclear` → active; `property_type` = `condo` → active; price 33,000 → active with `c-warn`; `data_quality` = `sidebar_noise` → active
+- [x] write tests for `cell_class`: `pets=allowed` → `c-good`, `pets=unclear` → `c-warn`, a field with `added_in=2` on a row with `schema_version=1` → `c-stale`, a field with `added_in=1` and no value → `c-none`
+- [x] run `pytest tests/ -q` — all green
 
-### Task 6: Слой хранения для результатов AI
+### Task 6: Storage layer for AI results
 
 **Files:**
 - Modify: `src/rent_assistant/storage.py`
 - Modify: `tests/test_storage.py`
 
-- [x] в `init_db()` добавить `CREATE TABLE IF NOT EXISTS ai_analysis` и `decisions` по схеме из Technical Details, идемпотентно; существующая таблица `listings` не трогается
-- [x] `upsert_ai_analysis(conn, row: dict) -> str` — insert/update по `fb_id`, возвращает `"inserted"`/`"updated"`
-- [x] `fetch_pending(conn, registry) -> PendingListings` (NamedTuple `pending` / `no_raw`, распаковывается как кортеж) — листинги без строки в `ai_analysis`, либо с другим `source_hash`, либо со `schema_version` ниже текущей; исключить листинги без `description` и без `raw_json` и вернуть их отдельным списком «нет сырых данных» (нет описания И нет `text_lines` в `raw_json`); у каждого pending-элемента свежий `source_hash` и `pending_reason` = `new`/`changed`/`schema`
-- [x] `fetch_enriched(conn) -> list[dict]` — JOIN `listings` + `ai_analysis` + `decisions`, с распакованным `data_json`; решение пользователя перекрывает вердикт AI
-  - ⚠️ в схеме `ai_analysis` из Technical Details нет колонок под статус/причину авторежекта, поэтому `ai_status`/`ai_reason` считаются на чтении через `rules.decide` — правила меняются без переанализа
-- [x] написать тесты на in-memory SQLite: `init_db` создаёт три таблицы и повторный вызов не падает, upsert сохраняет и обновляет, `fetch_pending` корректно относит листинг к pending по каждому из трёх условий и отсеивает те, у которых нет сырых данных, `fetch_enriched` отдаёт решение пользователя поверх AI
-- [x] прогнать `pytest tests/ -q` — все зелёные (201 passed)
+- [x] in `init_db()` add `CREATE TABLE IF NOT EXISTS ai_analysis` and `decisions` per the schema in Technical Details, idempotently; the existing `listings` table is not touched
+- [x] `upsert_ai_analysis(conn, row: dict) -> str` — insert/update by `fb_id`, returns `"inserted"`/`"updated"`
+- [x] `fetch_pending(conn, registry) -> PendingListings` (a NamedTuple `pending` / `no_raw`, unpacks as a tuple) — listings with no row in `ai_analysis`, or with a different `source_hash`, or with a `schema_version` below the current one; exclude listings with no `description` and no `raw_json` and return them as a separate "no raw data" list (no description AND no `text_lines` in `raw_json`); every pending item carries a fresh `source_hash` and `pending_reason` = `new`/`changed`/`schema`
+- [x] `fetch_enriched(conn) -> list[dict]` — JOIN `listings` + `ai_analysis` + `decisions`, with `data_json` unpacked; the user's decision overrides the AI verdict
+  - ⚠️ the `ai_analysis` schema in Technical Details has no columns for the auto-reject status/reason, so `ai_status`/`ai_reason` are computed on read through `rules.decide` — the rules change without re-analysis
+- [x] write tests on in-memory SQLite: `init_db` creates three tables and a repeated call does not fail, upsert stores and updates, `fetch_pending` correctly classes a listing as pending under each of the three conditions and filters out those with no raw data, `fetch_enriched` returns the user's decision on top of the AI's
+- [x] run `pytest tests/ -q` — all green (201 passed)
 
-### Task 7: Решения пользователя вне БД
+### Task 7: The user's decisions outside the DB
 
 **Files:**
 - Create: `src/rent_assistant/decisions.py`
 - Create: `tests/test_decisions.py`
 
-- [x] `load_decisions(path) -> dict[str, dict]` / `save_decision(path, fb_id, status, reason)` — работа с `data/decisions.json`, атомарная запись через temp-файл + rename, отсутствующий файл = пустой словарь
-- [x] `sync_to_db(conn, decisions)` — заливает содержимое файла в таблицу `decisions` (файл — source of truth, таблица — зеркало для JOIN)
-- [x] валидация `status` — только `rejected` / `active` / `shortlist`, иначе `ValueError`
-- [x] написать тесты: запись и чтение по кругу, перезапись существующего решения, некорректный статус, отсутствующий файл, `sync_to_db` наполняет таблицу
-- [x] написать тест «переживает стирание БД»: сохранить решение, создать БД заново через `init_db`, вызвать `sync_to_db` — решение и его причина на месте
-- [x] прогнать `pytest tests/ -q` — все зелёные
+- [x] `load_decisions(path) -> dict[str, dict]` / `save_decision(path, fb_id, status, reason)` — work with `$RENT_ASSISTANT_HOME/decisions.json`, an atomic write through a temp file + rename, a missing file = an empty dict
+- [x] `sync_to_db(conn, decisions)` — loads the file's contents into the `decisions` table (the file is the source of truth, the table is a mirror for the JOIN)
+- [x] validation of `status` — only `rejected` / `active` / `shortlist`, otherwise `ValueError`
+- [x] write tests: write and read round trip, overwriting an existing decision, an invalid status, a missing file, `sync_to_db` fills the table
+- [x] write the "survives a DB wipe" test: save a decision, recreate the DB through `init_db`, call `sync_to_db` — the decision and its reason are in place
+- [x] run `pytest tests/ -q` — all green
 
-### Task 8: Сборка batch и приём результатов
+### Task 8: Batch building and result intake
 
 **Files:**
 - Create: `src/rent_assistant/ai_batch.py`
 - Create: `tests/test_ai_batch.py`
 
-- [x] `build_batch(conn, registry, requirements_md, limit, ids=None) -> dict` — формирует JSON batch по формату из Technical Details; в каждый item кладёт `description` (через `description_from_text_lines`, если колонка испорчена) и `text_lines`, плюс `source_hash`
-- [x] `write_batch(batch, out_dir) -> Path` — пишет `data/ai/batch-<ts>.json`, создаёт директорию при необходимости
-- [x] `apply_results(conn, registry, result: dict) -> ApplyReport` — валидирует `schema_version`, отвергает с ошибкой любой ключ в `fields`, которого нет в реестре (перечислив их), считает `decide`/`score` через `rules`, вызывает `upsert_ai_analysis`; возвращает счётчики и список `proposed_new_fields`
-- [x] при несовпадении `source_hash` в результате с текущим в БД — предупреждение в отчёт, запись всё равно принимается (данные могли обновиться между batch и apply)
-- [x] написать тесты: batch содержит только pending и не больше `limit`, испорченный `description` подменяется текстом из `text_lines`, `apply_results` кладёт строку в `ai_analysis`, неизвестный ключ поля → ошибка со списком ключей, `proposed_new_fields` пробрасываются в отчёт, несовпадение `source_hash` даёт предупреждение но не ошибку
-- [x] прогнать `pytest tests/ -q` — все зелёные
+- [x] `build_batch(conn, registry, requirements_md, limit, ids=None) -> dict` — builds the JSON batch in the format from Technical Details; puts `description` into each item (through `description_from_text_lines` when the column is corrupted) and `text_lines`, plus `source_hash`
+- [x] `write_batch(batch, out_dir) -> Path` — writes `$RENT_ASSISTANT_HOME/ai/batch-<ts>.json`, creates the directory if needed
+- [x] `apply_results(conn, registry, result: dict) -> ApplyReport` — validates `schema_version`, rejects with an error any key in `fields` not in the registry (listing them), computes `decide`/`score` through `rules`, calls `upsert_ai_analysis`; returns counters and the list of `proposed_new_fields`
+- [x] when the `source_hash` in the result differs from the current one in the DB — a warning in the report, the record is still accepted (the data may have changed between batch and apply)
+- [x] write tests: the batch contains only pending items and no more than `limit`, a corrupted `description` is replaced by text from `text_lines`, `apply_results` puts a row into `ai_analysis`, an unknown field key → an error with the list of keys, `proposed_new_fields` are passed through to the report, a `source_hash` mismatch gives a warning but not an error
+- [x] run `pytest tests/ -q` — all green
 
-### Task 9: CLI-команды
+### Task 9: CLI commands
 
 **Files:**
 - Modify: `src/rent_assistant/cli.py`
 - Create: `tests/test_cli_ai_field.py`
 
-- [x] `rent-assistant ai-status` — печатает analyzed / pending / stale / «нет сырых данных, нужен scrape --refresh» со счётчиками
-- [x] `rent-assistant ai-batch [--limit 25] [--all] [--ids ...] [--out PATH]` — собирает и пишет batch, печатает путь и количество; при нуле pending говорит об этом и выходит с кодом 0
-- [x] `rent-assistant ai-apply PATH [--dry-run]` — применяет результат, печатает отчёт: сколько принято, сколько авторежектнуто и по какой причине, какие новые поля предложены
-- [x] `rent-assistant ai-field list` и `rent-assistant ai-field add --key --label --type [--values] [--group] [--after] [--backfill]` — добавляет поле в `config/ai_fields.json`; с `--backfill` поднимает `schema_version` и помечает существующие строки устаревшими, без него старые строки просто получают `c-stale`
-  - ⚠️ уточнение механики: `schema_version` поднимается при **любом** добавлении поля (иначе `added_in` нового поля не может быть больше версии строки и `c-stale` недостижим — валидация реестра требует `added_in <= schema_version`). Разделяет два случая новый необязательный ключ реестра `analysis_version`: он догоняет `schema_version` только при `--backfill`, и именно он решает, попадают ли уже проанализированные строки обратно в очередь. Без `--backfill` они числятся `stale` (отдельный счётчик в `ai-status`, из batch исключены), с `--backfill` — снова `pending`. `ai_schema` лишний ключ игнорирует, менять слой хранения не потребовалось
-  - ⚠️ у `ai-field list/add` есть опция `--registry PATH` (по умолчанию `config/ai_fields.json`) — иначе тесты мутировали бы реальный реестр
-- [x] `rent-assistant reject ID --reason "..."`, `rent-assistant unreject ID`, `rent-assistant shortlist ID [--reason]` — пишут в `data/decisions.json` через `decisions.py`
-- [x] DESIGN: тесты на тонкие CLI-обёртки не пишем — логика покрыта юнит-тестами нижних слоёв; исключение — `ai-field add`, где есть реальная мутация реестра
-- [x] написать `tests/test_cli_ai_field.py`: `ai-field add` на копии реестра добавляет поле с корректным `added_in`, `--after` ставит поле в нужную позицию, дубликат ключа → ошибка, `--backfill` поднимает `schema_version`
-- [x] прогнать `pytest tests/ -q` и `rent-assistant --help` — новые команды видны
+- [x] `rent-assistant ai-status` — prints analyzed / pending / stale / "no raw data, needs scrape --refresh" with counters
+- [x] `rent-assistant ai-batch [--limit 25] [--all] [--ids ...] [--out PATH]` — builds and writes the batch, prints the path and the count; with zero pending says so and exits with code 0
+- [x] `rent-assistant ai-apply PATH [--dry-run]` — applies the result, prints a report: how many accepted, how many auto-rejected and for what reason, which new fields are proposed
+- [x] `rent-assistant ai-field list` and `rent-assistant ai-field add --key --label --type [--values] [--group] [--after] [--backfill]` — adds a field to `config/ai_fields.json`; with `--backfill` raises `schema_version` and marks the existing rows as stale, without it the old rows simply get `c-stale`
+  - ⚠️ a clarification of the mechanics: `schema_version` is raised on **every** field addition (otherwise the new field's `added_in` cannot exceed the row's version and `c-stale` is unreachable — registry validation requires `added_in <= schema_version`). The two cases are separated by a new optional registry key `analysis_version`: it catches up with `schema_version` only under `--backfill`, and it is what decides whether already analysed rows go back into the queue. Without `--backfill` they count as `stale` (a separate counter in `ai-status`, excluded from the batch), with `--backfill` — `pending` again. `ai_schema` ignores the extra key, no change to the storage layer was needed
+  - ⚠️ `ai-field list/add` have a `--registry PATH` option (default `config/ai_fields.json`) — otherwise the tests would mutate the real registry
+- [x] `rent-assistant reject ID --reason "..."`, `rent-assistant unreject ID`, `rent-assistant shortlist ID [--reason]` — write to `$RENT_ASSISTANT_HOME/decisions.json` through `decisions.py`
+- [x] DESIGN: no tests for the thin CLI wrappers — the logic is covered by the unit tests of the lower layers; the exception is `ai-field add`, where there is a real mutation of the registry
+- [x] write `tests/test_cli_ai_field.py`: `ai-field add` on a copy of the registry adds a field with the correct `added_in`, `--after` puts the field at the right position, a duplicate key → error, `--backfill` raises `schema_version`
+- [x] run `pytest tests/ -q` and `rent-assistant --help` — the new commands are visible
 
-### Task 10: Переписанный HTML-экспорт
+### Task 10: The rewritten HTML export
 
 **Files:**
 - Modify: `src/rent_assistant/storage.py`
 - Modify: `tests/test_storage.py`
 
-- [x] переписать `export_html()`: строит строки через `fetch_enriched`, для каждой ячейки берёт класс из `rules.cell_class`, инлайнит данные в `const DATA` с прежним экранированием `</` и `<!--` и хелпером `esc()`
-- [x] все колонки видимы с горизонтальным скроллом, sticky-заголовок и sticky первая колонка
-- [x] вкладки-фильтры Active (по умолчанию) / Shortlist / Rejected / All со счётчиками; колонка **Reason** всегда присутствует; отклонённые строки получают `row-rejected` (приглушение, зачёркивание, красная левая граница) и пометку кто отклонил — `AI` или `вы`
-- [x] вердикт — обрезанная ячейка с полным текстом по hover; цитаты `ev` выводятся как `title`-тултипы ячеек
-- [x] легенда цветов сверху страницы, покрывающая `c-good` / `c-warn` / `c-bad` / `c-stale` / `c-none` / `row-rejected`
-- [x] написать тест на синтетическом наборе из трёх строк (pets allowed / unclear / not_allowed): сгенерированный HTML содержит `c-good`, `c-warn`, `c-bad`, `row-rejected`, текст причины реджекта и все заголовки колонок из реестра
-- [x] прогнать `pytest tests/ -q` — все зелёные
-  - ⚠️ отказ от Grid.js: разметка теперь своя (`<table class="rt">` + ~120 строк JS на сортировку/поиск/вкладки). Причина: Grid.js не даёт стабильного хука на класс строки — `row-rejected` пришлось бы вешать пост-фактум через DOM, а sticky первая колонка на 37 колонках требует борьбы с его DOM. Побочный эффект — страница больше не требует интернета (CDN ушёл). Сохранены: self-contained файл, инлайн `const DATA`, экранирование `</` / `<!--`, хелпер `esc()`
-  - ⚠️ строка без анализа вообще получает `c-none`, а не `c-stale`: штриховка значит «поле появилось после анализа этой строки», а не «строку никто не смотрел»
+- [x] rewrite `export_html()`: builds the rows through `fetch_enriched`, takes each cell's class from `rules.cell_class`, inlines the data into `const DATA` with the same escaping of `</` and `<!--` and the `esc()` helper
+- [x] all columns visible with horizontal scroll, a sticky header and a sticky first column
+- [x] filter tabs Active (default) / Shortlist / Rejected / All with counters; the **Reason** column is always present; rejected rows get `row-rejected` (dimmed, struck through, red left border) and a note of who rejected — `AI` or `you`
+- [x] the verdict is a truncated cell with full text on hover; the `ev` quotes are shown as `title` tooltips on the cells
+- [x] a colour legend at the top of the page covering `c-good` / `c-warn` / `c-bad` / `c-stale` / `c-none` / `row-rejected`
+- [x] write a test on a synthetic set of three rows (pets allowed / unclear / not_allowed): the generated HTML contains `c-good`, `c-warn`, `c-bad`, `row-rejected`, the reject reason text and all column headers from the registry
+- [x] run `pytest tests/ -q` — all green
+  - ⚠️ Grid.js dropped: the markup is now our own (`<table class="rt">` + ~120 lines of JS for sorting/search/tabs). Reason: Grid.js gives no stable hook for a row class — `row-rejected` would have to be attached after the fact through the DOM, and a sticky first column over 37 columns means fighting its DOM. A side effect — the page no longer needs the internet (the CDN is gone). Kept: the self-contained file, inline `const DATA`, escaping of `</` / `<!--`, the `esc()` helper
+  - ⚠️ a row with no analysis at all gets `c-none`, not `c-stale`: hatching means "the field appeared after this row's analysis", not "nobody has looked at the row"
 
-### Task 11: Skill `/analyze`
+### Task 11: The `/analyze` skill
 
 **Files:**
 - Create: `.claude/skills/analyze/SKILL.md`
 
-- [x] frontmatter с `name: analyze` и описанием-триггером («проанализировать необработанные листинги»)
-- [x] шаги 1–3: `rent-assistant ai-status`; если есть листинги без сырых данных — сказать пользователю запустить `rent-assistant scrape --refresh` и остановиться; иначе `rent-assistant ai-batch --limit 25` и прочитать batch вместе с `config/requirements.md`
-- [x] шаги 4–6 (правила извлечения): факты строить по `text_lines` (срез после `Описание`), а не по возможно испорченной колонке `description`; выставлять `data_quality`; ничего не выдумывать — отсутствие доказательства означает `unclear`; про животных — `allowed` только при явном подтверждении, `not_allowed` только при явном запрете, всегда с цитатой в `ev`; лишние комнаты — плюс, а не минус; неупомянутая гостиная — не дефект; написать короткий вердикт по каждому листингу с учётом всего известного, включая то, для чего колонок ещё нет
-- [x] шаг 7 (эволюция схемы): если один и тот же полезный сигнал встретился в ≥2 листингах и поля для него нет — добавить в `proposed_new_fields`
-- [x] шаги 8–10: `rent-assistant ai-apply <result>`; если поля предложены — задать пользователю через `AskUserQuestion` два вопроса: (а) действительно ли это важно, (б) переанализировать старые листинги или оставить им `unknown` отдельным цветом; затем `rent-assistant ai-field add [--backfill]` и возврат к шагу 2 при backfill; в конце `rent-assistant export` и отчёт: счётчики, авторежекты с причинами, топ-5 по score
-- [x] DESIGN: автотестов на файл-промпт не пишем — проверяется реальным прогоном в Post-Completion
-- [x] прогнать `pytest tests/ -q` — все зелёные
+- [x] frontmatter with `name: analyze` and a trigger description ("analyze the unprocessed listings")
+- [x] steps 1–3: `rent-assistant ai-status`; if there are listings with no raw data — tell the user to run `rent-assistant scrape --refresh` and stop; otherwise `rent-assistant ai-batch --limit 25` and read the batch together with `config/requirements.md`
+- [x] steps 4–6 (extraction rules): build the facts from `text_lines` (the slice after `Описание`), not from the possibly corrupted `description` column; set `data_quality`; invent nothing — absence of evidence means `unclear`; on pets — `allowed` only on explicit confirmation, `not_allowed` only on an explicit ban, always with a quote in `ev`; extra rooms are a plus, not a minus; an unmentioned living room is not a defect; write a short verdict on each listing taking into account everything known, including what has no column yet
+- [x] step 7 (schema evolution): if the same useful signal appears in ≥2 listings and there is no field for it — add it to `proposed_new_fields`
+- [x] steps 8–10: `rent-assistant ai-apply <result>`; if fields are proposed — ask the user two questions through `AskUserQuestion`: (a) does this really matter, (b) re-analyse the old listings or leave them as `unknown` in a separate colour; then `rent-assistant ai-field add [--backfill]` and return to step 2 on backfill; at the end `rent-assistant export` and a report: counters, auto-rejects with reasons, the top 5 by score
+- [x] DESIGN: no automated tests for the prompt file — it is checked by a real run in Post-Completion
+- [x] run `pytest tests/ -q` — all green
 
 ### Task 12: Verify acceptance criteria
 
-**Автоматизируемое** (агент выполняет):
-- [x] `pytest tests/ -q` — весь набор зелёный, включая 67 тестов итерации 1 (248 tests pass; the iteration-1 suite on `main` is 76 tests, not 67 — all still green)
-- [x] `rent-assistant --help` показывает `ai-status`, `ai-batch`, `ai-apply`, `ai-field`, `reject`, `unreject`, `shortlist`
-- [x] `python -c "from rent_assistant.ai_schema import load_registry; r=load_registry(); print(r.schema_version, len(r.fields))"` — реестр грузится, поля на месте
-- [x] идемпотентность: на временной БД собрать batch из 3 листингов, применить синтетический результат, повторно вызвать `fetch_pending` — эти 3 не возвращаются; изменить `description` одного из них — возвращается ровно он
-- [x] эволюция схемы: `ai-field add --key balcony --label Balcony --type enum --values yes,no,unclear` без `--backfill` → в HTML старые строки получают `c-stale`, не `c-none`; повторить с `--backfill` → строки снова в pending
-- [x] решения переживают стирание БД: `reject` на временных данных, удалить файл БД, `init_db` + `sync_to_db` — решение и причина на месте
-- [x] `rent-assistant export` на БД без единой строки `ai_analysis` — валидный HTML без падения
+**Automatable** (the agent does it):
+- [x] `pytest tests/ -q` — the whole suite is green, including the 67 tests of iteration 1 (248 tests pass; the iteration-1 suite on `main` is 76 tests, not 67 — all still green)
+- [x] `rent-assistant --help` shows `ai-status`, `ai-batch`, `ai-apply`, `ai-field`, `reject`, `unreject`, `shortlist`
+- [x] `python -c "from rent_assistant.ai_schema import load_registry; r=load_registry(); print(r.schema_version, len(r.fields))"` — the registry loads, the fields are in place
+- [x] idempotence: on a temporary DB build a batch of 3 listings, apply a synthetic result, call `fetch_pending` again — these 3 do not come back; change the `description` of one of them — exactly that one comes back
+- [x] schema evolution: `ai-field add --key balcony --label Balcony --type enum --values yes,no,unclear` without `--backfill` → in the HTML the old rows get `c-stale`, not `c-none`; repeat with `--backfill` → the rows are pending again
+- [x] decisions survive a DB wipe: `reject` on temporary data, delete the DB file, `init_db` + `sync_to_db` — the decision and the reason are in place
+- [x] `rent-assistant export` on a DB with not a single `ai_analysis` row — valid HTML without a crash
 
-**Требует ручных действий** (агент помечает как skipped):
-- [x] MANUAL: `rent-assistant scrape --refresh` — перезалить листинги исправленными экстракторами (skipped — requires live FB / human action)
-- [x] MANUAL: проверить в sqlite3, что ни один `description` не равен сайдбарному boilerplate длиной 1288/962 символа, `title` больше нигде не `"Недавно опубликовано"`, `published_at` не NULL там, где FB показывал дату (skipped — requires live FB / human action)
-- [x] MANUAL: полный цикл `/analyze` в интерактивной сессии Claude Code (Opus, high effort) на 3–5 листингах (skipped — requires interactive AI session)
-- [x] MANUAL: открыть `data/rentals.html` — колонка Pets зелёная/жёлтая/красная как задумано, отклонённые строки визуально отличимы и с причинами, все колонки достижимы горизонтальным скроллом, легенда соответствует реальности (skipped — requires human review)
-- [x] MANUAL: проверить на реальных данных, что ни один листинг не отклонён за лишние комнаты и ни один — за неупомянутую гостиную (skipped — requires live data)
+**Requires manual action** (the agent marks as skipped):
+- [x] MANUAL: `rent-assistant scrape --refresh` — reload the listings with the fixed extractors (skipped — requires live FB / human action)
+- [x] MANUAL: check in sqlite3 that no `description` equals the sidebar boilerplate of 1288/962 characters, `title` is nowhere `"Недавно опубликовано"` any more, `published_at` is not NULL where FB showed a date (skipped — requires live FB / human action)
+- [x] MANUAL: the full `/analyze` cycle in an interactive Claude Code session (Opus, high effort) on 3–5 listings (skipped — requires interactive AI session)
+- [x] MANUAL: open `$RENT_ASSISTANT_HOME/rentals.html` — the Pets column is green/yellow/red as designed, rejected rows are visually distinct and carry reasons, all columns are reachable by horizontal scroll, the legend matches reality (skipped — requires human review)
+- [x] MANUAL: check on real data that no listing is rejected for extra rooms and none for an unmentioned living room (skipped — requires live data)
 
 ### Task 13: [Final] Update documentation
 
 **Files:**
 - Modify: `README.md`
 
-- [x] добавить в `README.md` раздел про AI-обогащение: цикл `ai-batch → анализ → ai-apply → export`, описание всех новых команд с примерами, где живут `config/ai_fields.json`, `config/requirements.md`, `data/decisions.json` и `data/ai/`
-- [x] описать, как расширять схему (`ai-field add`, смысл `--backfill`, что означает цвет `c-stale`) и как отклонять листинги вручную
-- [x] отметить, что это iteration 2, и линкануть на этот plan-файл
-- [x] переместить план: `mkdir -p docs/plans/completed && mv docs/plans/20260825-ai-enrichment.md docs/plans/completed/`
+- [x] add a section on AI enrichment to `README.md`: the cycle `ai-batch → analysis → ai-apply → export`, a description of all new commands with examples, where `config/ai_fields.json`, `config/requirements.md`, `$RENT_ASSISTANT_HOME/decisions.json` and `$RENT_ASSISTANT_HOME/ai/` live
+- [x] describe how to extend the schema (`ai-field add`, the meaning of `--backfill`, what the `c-stale` colour means) and how to reject listings by hand
+- [x] note that this is iteration 2 and link to this plan file
+- [x] move the plan: `mkdir -p docs/plans/completed && mv docs/plans/20260825-ai-enrichment.md docs/plans/completed/`
 
 ## Post-Completion
 
-*Требует ручных действий или относится к будущим итерациям.*
+*Requires manual action or belongs to future iterations.*
 
-**Что нужно сделать руками после автономного прогона** (собрано из всех `MANUAL:` пунктов выше):
+**What has to be done by hand after the autonomous run** (collected from all `MANUAL:` items above):
 
-1. `rent-assistant scrape --refresh` — перезалить 21 существующую строку с исправленными экстракторами. Без этого шага анализировать нечего: у 10 строк нет описания вовсе, у большинства остальных туда попал сайдбар.
-2. Проверить качество данных в sqlite3: сайдбарного boilerplate (1288 / 962 символа) быть не должно, `title` не должен быть `"Недавно опубликовано"`, `published_at` не должен быть NULL везде.
-3. Запустить `/analyze` в интерактивной сессии Claude Code (Opus, high thinking effort) сначала на 3–5 листингах — убедиться, что извлечение адекватно и цитаты `ev` действительно подтверждают значения.
-4. Открыть `data/rentals.html`, проверить цвета, вкладки, легенду и горизонтальный скролл.
-5. Убедиться на живых данных, что правила не режут лишнего: никаких реджектов за количество комнат больше запрошенного и за неупомянутую гостиную.
-6. Прогнать `/analyze` на полном объёме, ответить на вопросы про новые поля, если AI их предложит.
+1. `rent-assistant scrape --refresh` — reload the 21 existing rows with the fixed extractors. Without this step there is nothing to analyse: 10 rows have no description at all, in most of the rest the sidebar ended up there.
+2. Check the data quality in sqlite3: there must be no sidebar boilerplate (1288 / 962 characters), `title` must not be `"Недавно опубликовано"`, `published_at` must not be NULL everywhere.
+3. Run `/analyze` in an interactive Claude Code session (Opus, high thinking effort) on 3–5 listings first — make sure the extraction is adequate and the `ev` quotes really support the values.
+4. Open `$RENT_ASSISTANT_HOME/rentals.html`, check the colours, the tabs, the legend and the horizontal scroll.
+5. Make sure on live data that the rules do not cut too much: no rejects for more rooms than asked and for an unmentioned living room.
+6. Run `/analyze` on the full volume, answer the questions about new fields if the AI proposes any.
 
-**Известные ограничения этой итерации** (fix в следующих):
+**Known limitations of this iteration** (fixed in the next ones):
 
-- `--refresh` перекачивает detail-страницы, это медленно (3–7 сек на листинг, cap 60 за прогон) — на больших объёмах придётся гонять в несколько заходов.
-- Анализ не автоматизирован end-to-end: это интерактивный цикл в сессии Claude Code, а не cron-задача. Автономный прогон невозможен, пока в цикле есть `AskUserQuestion`.
-- `score` — эвристика по критериям из `requirements.md`, а не откалиброванная модель; служит для сортировки, не для решений.
+- `--refresh` re-downloads the detail pages, which is slow (3–7 seconds per listing, cap 60 per run) — on large volumes it has to be run in several passes.
+- The analysis is not automated end-to-end: it is an interactive cycle in a Claude Code session, not a cron job. An autonomous run is impossible while `AskUserQuestion` is in the loop.
+- `score` is a heuristic over the criteria in `requirements.md`, not a calibrated model; it serves for sorting, not for decisions.
 
-**Следующие итерации** (не в скоупе, для контекста):
+**Next iterations** (out of scope, for context):
 
-1. Парсинг FB-групп аренды Пхукета — второй источник в ту же БД.
-2. Планировщик Hermes: расписание + diff-нотификации о новых листингах, с прогоном анализа только по свежим.
-3. Неинтерактивный режим `/analyze` (новые поля копятся в очередь предложений вместо вопроса на месте) — предпосылка для автоматизации по расписанию.
-4. Мониторинг протухания сессии FB + автоматический retry с алертом.
+1. Scraping Phuket rental FB groups — a second source into the same DB.
+2. The Hermes scheduler: a schedule + diff notifications about new listings, with the analysis run only over the fresh ones.
+3. A non-interactive mode for `/analyze` (new fields accumulate in a proposal queue instead of a question on the spot) — a prerequisite for scheduled automation.
+4. Monitoring of FB session expiry + automatic retry with an alert.

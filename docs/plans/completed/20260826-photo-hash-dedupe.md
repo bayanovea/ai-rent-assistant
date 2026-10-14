@@ -1,128 +1,129 @@
-# Хэши первых трёх фото как признак дубликата
+# Hashes of the first three photos as a duplicate signal
 
 ## Overview
 
-Сразу после парсинга появляется дешёвый этап: у каждого объявления берутся
-**первые три снимка галереи**, от каждого считаются два хэша (MD5 исходных
-байтов с CDN и перцептивный dHash), хэши складываются в БД. Никакого
-распознавания содержимого — только точное сравнение хэшей между
-объявлениями.
+Right after scraping, a cheap stage appears: for every listing the
+**first three gallery shots** are taken, two hashes are computed for each
+(MD5 of the original CDN bytes and a perceptual dHash), and the hashes go
+into the DB. No content recognition at all — only exact comparison of
+hashes between listings.
 
-Зачем: `dedupe_listings` сейчас ловит дубль по тексту (`content_key`,
-`same_property`) и по фактам (project + price + bedrooms), и оба сигнала
-требуют либо совпадения текста, либо готового AI-анализа. Одна квартира,
-разошедшаяся по двум агентам с разным текстом и разной ценой, не ловится
-ничем — а её фотографии совпадают побайтово. Это уже измерено:
-`docs/photo-analysis.md`, раздел «Побочная находка: фото как признак
-дубликата» — у двух разных `fb_id` совпали все четыре MD5.
+Why: `dedupe_listings` today catches a duplicate by text (`content_key`,
+`same_property`) and by facts (project + price + bedrooms), and both signals
+need either matching text or a finished AI analysis. One flat that went out
+through two agents with different text and a different price is caught by
+nothing — while its photos match byte for byte. This has already been
+measured: `docs/photo-analysis.md`, section "Side finding: photos as a
+duplicate signal" — two different `fb_id`s had all four MD5s identical.
 
-Выгода: строк в таблице становится меньше **до** AI-прохода, потому что
-фото-сигнал не зависит от анализа. Меньше строк — меньше глазами.
+The gain: fewer rows in the table **before** the AI pass, because the photo
+signal does not depend on the analysis. Fewer rows — fewer to look at.
 
-Интеграция: новый сигнал `photos` внутри `_group_duplicates`, рядом с
-`exact` / `text` / `facts`, с теми же вето по этажу, корпусу и площади.
-Склейка идёт через существующую таблицу `duplicates`, то есть склеенный
-репост следующий `scrape` уже не откроет.
+Integration: a new signal `photos` inside `_group_duplicates`, next to
+`exact` / `text` / `facts`, with the same vetoes on floor, block and size.
+The merge goes through the existing `duplicates` table, so the next
+`scrape` no longer opens a merged repost.
 
 ## Context (from discovery)
 
-- `src/rent_assistant/cli.py:445` — точка внутри `scrape`, где детальная страница
-  уже прочитана и оплачен джиттер; там же вызывается `_download_photos`.
-- `src/rent_assistant/photos.py` — галерея на диске и `photos_hash`, ключ
-  идемпотентности **полного** фото-прохода. Новый этап его не трогает.
+- `src/rent_assistant/cli.py:445` — the point inside `scrape` where the detail
+  page has already been read and the jitter paid; `_download_photos` is
+  called there too.
+- `src/rent_assistant/photos.py` — the gallery on disk and `photos_hash`, the
+  idempotency key of the **full** photo pass. The new stage does not touch it.
 - `src/rent_assistant/storage.py:615` `dedupe_listings`, `:564` `_group_duplicates`,
-  `:495` `same_property`, `:446` `_contradicts` — сюда встраивается сигнал.
-- `src/rent_assistant/storage.py:701` `gallery_urls_of` — достаёт `gallery_urls` из
-  `raw_json`; на этом же построен `photos-fetch` (`cli.py:953`).
-- `docs/photo-analysis.md` — измерение, из которого растёт весь план.
+  `:495` `same_property`, `:446` `_contradicts` — the signal plugs in here.
+- `src/rent_assistant/storage.py:701` `gallery_urls_of` — pulls `gallery_urls` out
+  of `raw_json`; `photos-fetch` (`cli.py:953`) is built on the same thing.
+- `docs/photo-analysis.md` — the measurement the whole plan grows from.
 
-**Ловушка, ради которой этот план вообще осторожен.** Если положить три
-превью в `data/photos/<fb_id>/`, полный фото-проход навсегда решит, что
-галерея скачана: `_download_photos` пропускает непустой каталог
-(`cli.py:202`), а `photos_hash` считается от имён и размеров файлов. Поэтому
-новый этап **не пишет на диск вообще**: байты скачиваются, хэшируются и
-выбрасываются.
+**The trap this plan is careful about in the first place.** If three
+previews are put into `$RENT_ASSISTANT_HOME/photos/<fb_id>/`, the full photo
+pass will decide forever that the gallery is downloaded: `_download_photos`
+skips a non-empty directory (`cli.py:202`), and `photos_hash` is computed
+from file names and sizes. So the new stage **writes nothing to disk at
+all**: the bytes are downloaded, hashed and thrown away.
 
 ## Development Approach
 
-- **testing approach**: Regular (код, потом тесты в той же задаче)
-- каждая задача доводится до конца перед следующей
-- **CRITICAL: каждая задача содержит новые/обновлённые тесты**
-- **CRITICAL: все тесты проходят перед началом следующей задачи**
-- **CRITICAL: план обновляется, если по ходу меняется объём**
-- обратная совместимость: старые строки без хэшей просто не участвуют в
-  фото-сигнале, ничего не ломается
+- **testing approach**: Regular (code first, then tests in the same task)
+- every task is finished before the next one
+- **CRITICAL: every task contains new/updated tests**
+- **CRITICAL: all tests pass before the next task starts**
+- **CRITICAL: the plan is updated if the scope changes along the way**
+- backward compatibility: old rows without hashes simply do not take part
+  in the photo signal, nothing breaks
 
 ## Testing Strategy
 
-- **unit-тесты** обязательны в каждой задаче
-- e2e-тестов у проекта нет (CLI-инструмент, тесты в `tests/` через pytest)
-- команда прогона: `pytest` из каталога `scrapper/`
-- сетевые вызовы (`context.request.get`) мокаются, как это уже сделано в
+- **unit tests** are mandatory in every task
+- the project has no e2e tests (a CLI tool, tests in `tests/` via pytest)
+- the run command: `pytest` from the `scrapper/` directory
+- network calls (`context.request.get`) are mocked, as already done in
   `tests/test_photos.py`
 
 ## Progress Tracking
 
-- выполненное помечать `[x]` сразу
-- новые задачи с префиксом ➕
-- блокеры с префиксом ⚠️
+- mark completed items `[x]` immediately
+- new tasks get the prefix ➕
+- blockers get the prefix ⚠️
 
 ## Solution Overview
 
-**Два хэша на снимок, точное сравнение по обоим.**
+**Two hashes per shot, exact comparison on both.**
 
-- `md5` — по исходным байтам с CDN. Ловит буквальный репост: тот же файл,
-  перевыложенный тем же или другим агентом.
-- `dhash` — 64-битный difference hash (8×9 в градациях серого). Ловит
-  перезалив: та же картинка, прошедшая через чужой телефон, ресайз или
-  перекомпрессию.
+- `md5` — of the original CDN bytes. Catches a literal repost: the same
+  file, re-uploaded by the same or another agent.
+- `dhash` — a 64-bit difference hash (8×9 in greyscale). Catches a
+  re-upload: the same picture that went through somebody else's phone, a
+  resize or a recompression.
 
-Сравнение остаётся точным: строка хэша равна строке хэша. Расстояние
-Хэмминга не считаем — порог по расстоянию требует подбора и даёт ложные
-склейки на однотипных пустых интерьерах.
+The comparison stays exact: hash string equals hash string. No Hamming
+distance — a distance threshold needs tuning and gives false merges on
+look-alike empty interiors.
 
-**Порог склейки — два совпавших снимка из трёх.** Один общий снимок — это
-чаще всего фото комплекса, бассейна или логотип агентства, общие у разных
-квартир. Объявление с одним снимком в фото-сигнале не участвует по
-построению.
+**The merge threshold is two matching shots out of three.** One shared shot
+is most often a photo of the complex, the pool or an agency logo, shared
+between different flats. A listing with a single shot does not take part in
+the photo signal by construction.
 
-**Хэши-частотники исключаются.** Хэш, встретившийся более чем у
-`PHOTO_HASH_COMMON_MAX` объявлений, — это заставка агентства или общий вид
-комплекса, а не квартира. Такие хэши выкидываются из индекса до
-сопоставления, и `dedupe` печатает, сколько их было.
+**Frequent hashes are excluded.** A hash seen on more than
+`PHOTO_HASH_COMMON_MAX` listings is an agency splash or a general view of
+the complex, not a flat. Such hashes are dropped from the index before
+matching, and `dedupe` prints how many there were.
 
-**Вето прежние.** Пара, у которой `_contradicts` (разный этаж, разный
-корпус, площадь врозь больше допуска), не склеивается даже при совпавших
-фото.
+**The vetoes stay.** A pair where `_contradicts` holds (different floor,
+different block, size apart by more than the tolerance) is not merged even
+with matching photos.
 
-**Фото-сигнал не зависит от AI.** Поэтому он работает и при
-`dedupe --exact-only`: это не «near-duplicate rule» поверх извлечённых
-полей, а такой же жёсткий признак, как `content_key`.
+**The photo signal does not depend on the AI.** So it also works under
+`dedupe --exact-only`: it is not a "near-duplicate rule" on top of extracted
+fields but a hard signal of the same kind as `content_key`.
 
-**Почему три снимка скачиваются отдельно, а не переиспользуются из
-галереи.** В прогоне без `--no-photos` `download_and_resize` держит байты в
-руках, и напрашивается посчитать хэши там же. Не делаем: позиция снимка в
-галерее тогда зависела бы от того, какие URL отвалились, а `md5` — от того,
-считали мы его до или после ресайза. Три лишних GET внутри уже оплаченного
-джиттера стоят доли секунды и оставляют новый этап полностью ортогональным
-фото-проходу.
+**Why the three shots are downloaded separately and not reused from the
+gallery.** In a run without `--no-photos`, `download_and_resize` holds the
+bytes in its hands, and it is tempting to compute the hashes right there. We
+do not: the shot's position in the gallery would then depend on which URLs
+dropped out, and `md5` on whether we computed it before or after the resize.
+Three extra GETs inside the jitter already paid cost fractions of a second
+and keep the new stage fully orthogonal to the photo pass.
 
 ## Technical Details
 
-**Новый модуль `src/rent_assistant/fingerprint.py`** (не в `photos.py`: тот про
-файлы на диске для AI-прохода, этот — про хэши в БД):
+**New module `src/rent_assistant/fingerprint.py`** (not in `photos.py`: that one
+is about files on disk for the AI pass, this one is about hashes in the DB):
 
 ```python
-fingerprint(raw: bytes) -> tuple[str, str] | None   # (md5, dhash), None если не декодировалось
-dhash(image: Image.Image) -> str                     # 8x9 -> 64 бита -> 16 hex-символов
+fingerprint(raw: bytes) -> tuple[str, str] | None   # (md5, dhash), None if it did not decode
+dhash(image: Image.Image) -> str                     # 8x9 -> 64 bits -> 16 hex characters
 fetch_fingerprints(context, urls, limit) -> list[tuple[int, str, str]]  # (position, md5, dhash)
 ```
 
-`fetch_fingerprints` берёт `urls[:limit]`, качает через `context.request`
-(куки персистентного профиля — то же, на чём работает `photos.py`),
-пропускает упавшие URL, но **сохраняет исходную позицию** снимка в галерее.
+`fetch_fingerprints` takes `urls[:limit]`, downloads through `context.request`
+(the persistent profile's cookies — the same thing `photos.py` runs on),
+skips failed URLs, but **keeps the shot's original position** in the gallery.
 
-**Новая таблица:**
+**New table:**
 
 ```sql
 CREATE TABLE IF NOT EXISTS photo_hashes (
@@ -137,189 +138,190 @@ CREATE INDEX IF NOT EXISTS idx_photo_md5   ON photo_hashes(md5);
 CREATE INDEX IF NOT EXISTS idx_photo_dhash ON photo_hashes(dhash);
 ```
 
-**Новые константы в `config.py`:**
+**New constants in `config.py`:**
 
 ```python
-PHOTO_FINGERPRINT_COUNT: int = 3   # сколько первых снимков хэшировать
-PHOTO_MATCH_MIN: int = 2           # сколько совпавших снимков = один объект
-PHOTO_HASH_COMMON_MAX: int = 4     # хэш чаще этого — заставка, не квартира
+PHOTO_FINGERPRINT_COUNT: int = 3   # how many of the first shots to hash
+PHOTO_MATCH_MIN: int = 2           # how many matching shots = one property
+PHOTO_HASH_COMMON_MAX: int = 4     # a hash more frequent than this is a splash, not a flat
 ```
 
-**Сопоставление** (`storage._photo_matches`): инвертированный индекс
-`("m", md5) | ("d", dhash) -> {fb_id}`, ключи с числом объявлений больше
-`PHOTO_HASH_COMMON_MAX` выбрасываются, из оставшихся получаются
-кандидат-пары, по каждой считается число снимков A, у которых есть пара в B
-(жадно, один снимок B на один снимок A). Пара проходит при
-`matched >= PHOTO_MATCH_MIN`. Полный перебор пар не нужен — индекс даёт
-только тех, у кого есть общий хэш.
+**Matching** (`storage._photo_matches`): an inverted index
+`("m", md5) | ("d", dhash) -> {fb_id}`, keys with more listings than
+`PHOTO_HASH_COMMON_MAX` are dropped, the remaining ones yield candidate
+pairs, and for each pair the number of shots of A that have a match in B is
+counted (greedily, one shot of B per shot of A). A pair passes at
+`matched >= PHOTO_MATCH_MIN`. No full pairwise scan is needed — the index
+gives only those that share a hash.
 
-**Поток в `scrape`:** детальная страница прочитана → `fetch_fingerprints`
-(идёт всегда, в том числе под `--no-photos`; не идёт под `--dry-run`) →
-`upsert_listing` → при результате не `duplicate` пишем `save_photo_hashes`.
+**The flow in `scrape`:** detail page read → `fetch_fingerprints` (always
+runs, including under `--no-photos`; does not run under `--dry-run`) →
+`upsert_listing` → on a result other than `duplicate` write `save_photo_hashes`.
 
-**Бэкфилл `rent-assistant photo-hash`:** по строкам без хэшей, у которых в
-`raw_json.gallery_urls` что-то есть. Подписи CDN живут ~неделю — что не
-успело, чинится через `scrape --ids`, ровно как у `photos-fetch`.
+**Backfill `rent-assistant photo-hash`:** over rows without hashes that have
+something in `raw_json.gallery_urls`. CDN signatures live ~a week — what did
+not make it is repaired through `scrape --ids`, exactly as with `photos-fetch`.
 
 ## What Goes Where
 
-- **Implementation Steps** — код, тесты, документация внутри репозитория.
-- **Post-Completion** — прогон на живой БД и подбор порогов по факту.
+- **Implementation Steps** — code, tests, documentation inside the repository.
+- **Post-Completion** — a run on the live DB and tuning the thresholds on real data.
 
 ## Implementation Steps
 
-### Task 1: Модуль хэширования снимка
+### Task 1: The shot-hashing module
 
 **Files:**
 - Create: `src/rent_assistant/fingerprint.py`
 - Modify: `src/rent_assistant/config.py`
 - Create: `tests/test_fingerprint.py`
 
-- [x] добавить в `config.py` константы `PHOTO_FINGERPRINT_COUNT`,
-      `PHOTO_MATCH_MIN`, `PHOTO_HASH_COMMON_MAX` с комментарием, почему
-      порог именно два снимка
-- [x] создать `src/rent_assistant/fingerprint.py` с модульным docstring:
-      зачем два хэша и почему сюда, а не в `photos.py`
-- [x] реализовать `dhash(image)` — grayscale, resize до 9×8, сравнение
-      соседних пикселей по строке, 64 бита в 16 hex-символов
-- [x] реализовать `fingerprint(raw)` — `(md5_hex, dhash_hex)` или `None`
-      на недекодируемых байтах
-- [x] реализовать `fetch_fingerprints(context, urls, limit=None)` —
-      скачивание через `context.request.get`, пропуск неудач с сохранением
-      позиции, никакой записи на диск
-- [x] написать тесты `dhash`: одинаковая картинка → одинаковый хэш;
-      картинка, пересохранённая в JPEG с другим качеством → тот же хэш;
-      явно другая картинка → другой хэш
-- [x] написать тесты `fingerprint`: успех и мусорные байты (`None`)
-- [x] написать тесты `fetch_fingerprints` с фейковым `context`: лимит,
-      пропуск ответа `not ok`, сохранение позиций при дырке в середине
-- [x] прогнать `pytest` — зелёно перед задачей 2
+- [x] add the constants `PHOTO_FINGERPRINT_COUNT`, `PHOTO_MATCH_MIN`,
+      `PHOTO_HASH_COMMON_MAX` to `config.py` with a comment on why the
+      threshold is exactly two shots
+- [x] create `src/rent_assistant/fingerprint.py` with a module docstring:
+      why two hashes and why here rather than in `photos.py`
+- [x] implement `dhash(image)` — greyscale, resize to 9×8, comparison of
+      neighbouring pixels along the row, 64 bits into 16 hex characters
+- [x] implement `fingerprint(raw)` — `(md5_hex, dhash_hex)` or `None`
+      on undecodable bytes
+- [x] implement `fetch_fingerprints(context, urls, limit=None)` —
+      download through `context.request.get`, skip failures keeping the
+      position, no writing to disk
+- [x] write tests for `dhash`: the same picture → the same hash;
+      the picture re-saved as JPEG at a different quality → the same hash;
+      a clearly different picture → a different hash
+- [x] write tests for `fingerprint`: success and garbage bytes (`None`)
+- [x] write tests for `fetch_fingerprints` with a fake `context`: the limit,
+      skipping a `not ok` response, keeping positions with a hole in the middle
+- [x] run `pytest` — green before task 2
 
-### Task 2: Хранение хэшей в БД
-
-**Files:**
-- Modify: `src/rent_assistant/storage.py`
-- Modify: `tests/test_storage.py`
-
-- [x] добавить `_PHOTO_HASHES_SCHEMA` и оба индекса, подключить в
-      `init_db` рядом с остальными схемами (миграция не нужна:
-      `CREATE TABLE IF NOT EXISTS` создаёт таблицу и на старой БД)
-- [x] реализовать `save_photo_hashes(conn, fb_id, entries, now=None)` —
-      `INSERT OR REPLACE`, пустой список стирает прежние строки
-- [x] реализовать `photo_hashes_by_listing(conn)` → `dict[fb_id, list]`
-- [x] реализовать `listings_missing_photo_hashes(conn)` — строки без хэшей,
-      с `raw_json`, старые первыми
-- [x] реализовать `delete_photo_hashes(conn, fb_id)`
-- [x] написать тесты на запись/чтение/перезапись и на то, что
-      `init_db` над существующей БД без таблицы её создаёт
-- [x] написать тест `listings_missing_photo_hashes`: строка с хэшами не
-      возвращается, строка без — возвращается
-- [x] прогнать `pytest` — зелёно перед задачей 3
-
-### Task 3: Сигнал `photos` в dedupe
+### Task 2: Storing the hashes in the DB
 
 **Files:**
 - Modify: `src/rent_assistant/storage.py`
 - Modify: `tests/test_storage.py`
 
-- [x] реализовать `_photo_matches(hashes_by_id)` — инвертированный индекс,
-      отсев частотников, кандидат-пары, счёт совпавших снимков; вернуть
-      пары и число отсеянных хэшей
-- [x] встроить вызов в `_group_duplicates` после точного прохода,
-      **независимо от `fuzzy`**, с вето `_contradicts` и причиной `photos`
-- [x] прокинуть хэши в `_load_for_dedupe` (одним запросом, не по строке)
-- [x] в `dedupe_listings` удалять `photo_hashes` склеенных строк вместе с
-      `ai_analysis` и каталогом фото
-- [x] написать тест: два объявления с двумя совпавшими MD5 из трёх →
-      склеиваются с причиной `photos`
-- [x] написать тест: совпал один снимок из трёх → не склеиваются
-- [x] написать тест: совпадение по `dhash` при разных MD5 → склеиваются
-- [x] написать тест: хэш у пяти объявлений (частотник) → игнорируется,
-      склейки нет
-- [x] написать тест: два совпавших снимка, но разные этажи → `_contradicts`
-      побеждает, склейки нет
-- [x] написать тест: `fuzzy=False` — фото-сигнал всё равно работает
-- [x] прогнать `pytest` — зелёно перед задачей 4
+- [x] add `_PHOTO_HASHES_SCHEMA` and both indexes, wire them into
+      `init_db` next to the other schemas (no migration needed:
+      `CREATE TABLE IF NOT EXISTS` creates the table on an old DB too)
+- [x] implement `save_photo_hashes(conn, fb_id, entries, now=None)` —
+      `INSERT OR REPLACE`, an empty list erases the previous rows
+- [x] implement `photo_hashes_by_listing(conn)` → `dict[fb_id, list]`
+- [x] implement `listings_missing_photo_hashes(conn)` — rows without hashes,
+      with `raw_json`, oldest first
+- [x] implement `delete_photo_hashes(conn, fb_id)`
+- [x] write tests for write/read/overwrite and for `init_db` over an
+      existing DB without the table creating it
+- [x] write a test for `listings_missing_photo_hashes`: a row with hashes is
+      not returned, a row without is
+- [x] run `pytest` — green before task 3
 
-### Task 4: Этап внутри scrape
+### Task 3: The `photos` signal in dedupe
+
+**Files:**
+- Modify: `src/rent_assistant/storage.py`
+- Modify: `tests/test_storage.py`
+
+- [x] implement `_photo_matches(hashes_by_id)` — the inverted index,
+      dropping frequent hashes, candidate pairs, counting matching shots;
+      return the pairs and the number of dropped hashes
+- [x] wire the call into `_group_duplicates` after the exact pass,
+      **independently of `fuzzy`**, with the `_contradicts` veto and the
+      reason `photos`
+- [x] pass the hashes into `_load_for_dedupe` (one query, not per row)
+- [x] in `dedupe_listings` delete the `photo_hashes` of merged rows together
+      with `ai_analysis` and the photo directory
+- [x] write a test: two listings with two matching MD5s out of three →
+      merged with the reason `photos`
+- [x] write a test: one shot out of three matches → not merged
+- [x] write a test: a `dhash` match with different MD5s → merged
+- [x] write a test: a hash on five listings (a frequent one) → ignored,
+      no merge
+- [x] write a test: two matching shots but different floors → `_contradicts`
+      wins, no merge
+- [x] write a test: `fuzzy=False` — the photo signal still works
+- [x] run `pytest` — green before task 4
+
+### Task 4: The stage inside scrape
 
 **Files:**
 - Modify: `src/rent_assistant/cli.py`
 - Modify: `tests/test_cli.py`
 
-- [x] добавить `_fetch_photo_hashes(context, detail)` рядом с
-      `_download_photos` — тонкая обёртка над `fingerprint.fetch_fingerprints`
-      с `gallery_urls` из `detail["raw_json"]`
-- [x] вызвать её сразу после успешного `scrape_detail`, **до** ветки
-      `--no-photos` (три снимка — не галерея), пропуская `--dry-run`
-- [x] писать хэши через `save_photo_hashes` после успешного
-      `upsert_listing`, кроме результата `duplicate`
-- [x] добавить в итоговую строку прогона счётчик `photo hashes: N`
-- [x] написать тест: прогон с `--no-photos` всё равно пишет хэши
-- [x] написать тест: `--dry-run` не ходит за снимками и не пишет в БД
-- [x] написать тест: объявление без `gallery_urls` проходит без ошибки
-- [x] прогнать `pytest` — зелёно перед задачей 5
+- [x] add `_fetch_photo_hashes(context, detail)` next to
+      `_download_photos` — a thin wrapper over `fingerprint.fetch_fingerprints`
+      with `gallery_urls` from `detail["raw_json"]`
+- [x] call it right after a successful `scrape_detail`, **before** the
+      `--no-photos` branch (three shots are not a gallery), skipping `--dry-run`
+- [x] write the hashes through `save_photo_hashes` after a successful
+      `upsert_listing`, except on the result `duplicate`
+- [x] add the counter `photo hashes: N` to the run's summary line
+- [x] write a test: a run with `--no-photos` still writes hashes
+- [x] write a test: `--dry-run` does not fetch shots and does not write to the DB
+- [x] write a test: a listing without `gallery_urls` passes without an error
+- [x] run `pytest` — green before task 5
 
-### Task 5: Команда `rent-assistant photo-hash` (бэкфилл)
+### Task 5: The `rent-assistant photo-hash` command (backfill)
 
 **Files:**
 - Modify: `src/rent_assistant/cli.py`
 - Modify: `tests/test_cli.py`
 
-- [x] добавить команду `photo-hash` с `--limit` (по умолчанию 100),
-      `--all` и `--ids`, по образцу `photos-fetch` (`cli.py:883`)
-- [x] брать цели из `listings_missing_photo_hashes`, url'ы — через
-      `gallery_urls_of`, пауза между объявлениями по
+- [x] add the `photo-hash` command with `--limit` (default 100),
+      `--all` and `--ids`, following `photos-fetch` (`cli.py:883`)
+- [x] take the targets from `listings_missing_photo_hashes`, the URLs through
+      `gallery_urls_of`, the pause between listings by
       `PHOTO_FETCH_DELAY_MIN_SEC` / `MAX`
-- [x] отдельно сообщать про строки без `gallery_urls` и про протухшие
-      подписи, с подсказкой `rent-assistant scrape --ids <fb_id>`
-- [x] добавить в `ai-status` строку «Фото-хэши: N из M» — чтобы очередь
-      бэкфилла была видна
-- [x] написать тест: команда пропускает строки, у которых хэши уже есть
-- [x] написать тест: `--ids` достаёт мимо очереди
-- [x] написать тест: строка без `gallery_urls` попадает в отчёт, а не в
-      падение
-- [x] прогнать `pytest` — зелёно перед задачей 6
+- [x] report separately the rows without `gallery_urls` and the expired
+      signatures, with the hint `rent-assistant scrape --ids <fb_id>`
+- [x] add the line "Photo hashes: N of M" to `ai-status` — so the backfill
+      queue is visible
+- [x] write a test: the command skips rows that already have hashes
+- [x] write a test: `--ids` reaches past the queue
+- [x] write a test: a row without `gallery_urls` lands in the report, not in
+      a crash
+- [x] run `pytest` — green before task 6
 
 ### Task 6: Verify acceptance criteria
 
-- [x] проверить, что новый этап ничего не пишет в `data/photos/` —
-      grep по `PHOTOS_DIR` и `photos_dir` в новом коде
-- [x] проверить, что `photos_hash` и очередь фото-прохода не изменились:
+- [x] check that the new stage writes nothing into `$RENT_ASSISTANT_HOME/photos/` —
+      grep for `PHOTOS_DIR` and `photos_dir` in the new code
+- [x] check that `photos_hash` and the photo-pass queue did not change:
       `pytest tests/test_photos.py tests/test_photo_batch.py`
-- [x] проверить, что склеенная фото-сигналом строка не возвращается
-      следующим скрейпом (запись в `duplicates` + `duplicate_fb_ids`)
-- [x] прогнать полный `pytest`
+- [x] check that a row merged by the photo signal does not come back on the
+      next scrape (a row in `duplicates` + `duplicate_fb_ids`)
+- [x] run the full `pytest`
 
-### Task 7: [Final] Документация
+### Task 7: [Final] Documentation
 
 **Files:**
 - Modify: `README.md`
 - Modify: `CLAUDE.md`
 - Modify: `docs/photo-analysis.md`
 
-- [x] README: в разделе про дедуп добавить четвёртый уровень — совпадение
-      снимков; описать `photo-hash` рядом с `photos-fetch`
-- [x] CLAUDE.md: в раздел «Photos» — почему хэш-этап не пишет в
-      `PHOTOS_DIR` и что случится, если написать; в «Scrape» — почему хэши
-      считаются от исходных байтов, а не от ресайзнутых файлов
-- [x] `docs/photo-analysis.md`: раздел «Побочная находка» переписать как
-      реализованный, со ссылкой на этот план
-- [x] перенести план в `docs/plans/completed/`
+- [x] README: in the dedupe section add the fourth level — matching
+      shots; describe `photo-hash` next to `photos-fetch`
+- [x] CLAUDE.md: in the "Photos" section — why the hash stage does not write
+      into `PHOTOS_DIR` and what happens if it does; in "Scrape" — why the
+      hashes are computed from the original bytes, not from the resized files
+- [x] `docs/photo-analysis.md`: rewrite the "Side finding" section as
+      implemented, with a link to this plan
+- [x] move the plan to `docs/plans/completed/`
 
 ## Post-Completion
 
-*Требует живой БД и ручной проверки — без чекбоксов*
+*Needs a live DB and a manual check — no checkboxes*
 
-**Подбор порогов на реальных данных:**
-- прогнать `rent-assistant photo-hash --all`, затем `rent-assistant dedupe --dry-run` и
-  глазами проверить первые 10–15 групп с причиной `photos`
-- если пойдут ложные склейки — поднимать `PHOTO_MATCH_MIN` до 3 или
-  снижать `PHOTO_HASH_COMMON_MAX`
-- если фото-сигнал не находит ничего сверх текстового — записать это в
-  `docs/photo-analysis.md`: отрицательный результат тоже измерение
+**Tuning the thresholds on real data:**
+- run `rent-assistant photo-hash --all`, then `rent-assistant dedupe --dry-run` and
+  check by eye the first 10–15 groups with the reason `photos`
+- if false merges appear — raise `PHOTO_MATCH_MIN` to 3 or
+  lower `PHOTO_HASH_COMMON_MAX`
+- if the photo signal finds nothing beyond the text one — write that into
+  `docs/photo-analysis.md`: a negative result is a measurement too
 
-**Бюджет времени:**
-- замерить, насколько подорожал `scrape` на объявление (ожидание — доли
-  секунды внутри существующего джиттера); если заметно, обсудить перенос
-  этапа в отдельный прогон `photo-hash`
+**Time budget:**
+- measure how much more expensive `scrape` became per listing (expected:
+  fractions of a second inside the existing jitter); if noticeable, discuss
+  moving the stage into a separate `photo-hash` run

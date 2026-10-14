@@ -1,145 +1,147 @@
-# Анализ фотографий объявлений — второй проход поверх текстового
+# Photo analysis of listings — a second pass on top of the text one
 
 ## Context
 
-Сейчас пайплайн видит только текст объявления. Из-за этого `condition` почти у всех `unclear` (про состояние в тексте не пишут никогда), `furnished` верит на слово, а `living_room` / `parking` / `green_area` остаются пустыми там, где картинка ответила бы сразу. Фотографии до модели не доходят: `cover_image_url` вытаскивается в `scraper_list.py:124-129` и умирает — `upsert_listing` его не пишет (`storage.py:344-357`), галерею детальной страницы `scraper_detail.py` не трогает вовсе.
+Today the pipeline sees only the text of the ad. Because of that, `condition` is `unclear` on almost every row (nobody ever writes about the condition in the text), `furnished` is taken on trust, and `living_room` / `parking` / `green_area` stay empty where a picture would answer at once. The photos never reach the model: `cover_image_url` is extracted in `scraper_list.py:124-129` and dies there — `upsert_listing` does not write it (`storage.py:344-357`), and `scraper_detail.py` does not touch the detail-page gallery at all.
 
-Главная ценность фото — **проверка утверждений текста, а не новые факты**: «fully furnished» пишут все, фото показывает, что за этим стоит. Плюс сигнал, которого нет ни в одном поле: 3D-рендер вместо реального снимка.
+The main value of the photos is **checking the claims of the text, not new facts**: everybody writes "fully furnished", the photo shows what stands behind it. Plus one signal that no field carries: a 3D render instead of a real shot.
 
-Наивный вариант (вся галерея, нативное разрешение) стоит ×12 по токенам и ×4 по времени. План строится вокруг трёх ограничителей, которые сводят это к ×2.8: **6 фотографий, 1024 px, и только для выживших после текстового прохода**. Целевой темп — 50 объявлений за вечер; на старте объём больше, потому что 46 неотклонённых объявлений в БД нужно доснять.
+The naive variant (the whole gallery, native resolution) costs ×12 in tokens and ×4 in time. The plan is built around three limiters that bring it down to ×2.8: **6 photos, 1024 px, and only for the survivors of the text pass**. The target pace is 50 listings per evening; at the start the volume is larger, because 46 non-rejected listings in the DB need their photos fetched.
 
-## Ключевые решения
+## Key decisions
 
-| Решение | Значение | Почему |
+| Decision | Value | Why |
 |---|---|---|
-| Сколько фото | 6 на объявление | Галерея избыточна: 3 ракурса одной спальни. Берём №1 (обложка) + 5 равномерно по остатку — галереи обычно идут обходом комнат |
-| Размер | 1024 px по длинной стороне, JPEG q80 | ~1050 токенов/фото, ~6.3k на объявление. Плесень в углу и фактура стен ещё различимы |
-| Кто смотрит | Сабагент на **Sonnet**, один на объявление | Картинки не попадают в контекст оркестратора вообще. До ~12 параллельно → 50 объявлений за минуты |
-| Когда | После `ai-apply`, только для не-rejected | Автореджект (4 условия, `rules.py:101-121`) снимает ~26% — токены на них тратить незачем |
-| Хранение | Колонки на `ai_analysis`, не отдельная таблица | Одна строка на квартиру — то, на чём держится дедуп (`dedupe_listings`, `storage.py:529`) |
+| How many photos | 6 per listing | The gallery is redundant: 3 angles of the same bedroom. Take no. 1 (the cover) + 5 spread evenly over the rest — galleries usually walk through the rooms |
+| Size | 1024 px on the long edge, JPEG q80 | ~1050 tokens/photo, ~6.3k per listing. Mould in a corner and wall texture are still visible |
+| Who looks | A subagent on **Sonnet**, one per listing | Images never enter the orchestrator's context at all. Up to ~12 in parallel → 50 listings in minutes |
+| When | After `ai-apply`, only for non-rejected | Auto-reject (4 conditions, `rules.py:101-121`) removes ~26% — no reason to spend tokens on them |
+| Storage | Columns on `ai_analysis`, not a separate table | One row per flat — that is what dedupe relies on (`dedupe_listings`, `storage.py:529`) |
 
-**Скачивание ≠ токены.** Скачать лишнее фото стоит секунды и мегабайты, отдать лишнее в контекст — дорого. Поэтому точка разреза проходит между «файлы на диске» и «сабагент их читает», а не внутри скрейпинга.
+**Downloading ≠ tokens.** Downloading an extra photo costs seconds and megabytes; handing an extra one into the context is expensive. So the cut is between "files on disk" and "a subagent reads them", not inside the scraping.
 
-## Что уже есть и переиспользуется
+## What already exists and is reused
 
-- `rules.decide(fields, price_thb, data_quality)` (`rules.py:82`) — чистая функция над плоским словарём полей. Фотополя лягут в тот же словарь, сигнатура не меняется.
-- `rules.cell_class(key, value, field_def, row_schema_version)` (`rules.py:126`) — механика `c-stale` / `c-none`. Для фотоколонок передаём другую версию.
-- Полосы происхождения в экспорте: поле `src` (`fb` / `ai` / `sys`), склейка соседних в `renderHead()` (`storage.py:1059-1068`), `edge` считается в `html_columns()` (`storage.py:1288-1292`). Добавляется четвёртое значение.
-- Тултипы `ev` → атрибут `title=` (`storage.py:981`). Формат строковый, менять нечего — меняется содержимое.
-- Паттерн миграции: `PRAGMA table_info` + `ALTER TABLE` в `_migrate()` (`storage.py:240-271`), образец — ветка `content_key` на 262-270.
-- `_analysis_version()` (`cli.py:443`) и его бамп в `ai_field_add_cmd` (`cli.py:825-827`) — образец для `photo_analysis_version`.
-- `_write_registry()` (`cli.py:849-867`) — атомарная запись через `mkstemp` + валидация до `os.replace`. Переиспользуется как есть.
-- `write_batch()` (`ai_batch.py:146-165`) — имя из `generated_at`, суффикс при коллизии. Фото-батч зеркалит схему под именем `photo-batch-<ts>.json`.
-- `context.request.get(url)` в Playwright делит куки с персистентным контекстом — обязательно для подписанных `fbcdn` ссылок.
+- `rules.decide(fields, price_thb, data_quality)` (`rules.py:82`) — a pure function over a flat dict of fields. Photo fields go into the same dict, the signature does not change.
+- `rules.cell_class(key, value, field_def, row_schema_version)` (`rules.py:126`) — the `c-stale` / `c-none` mechanics. For photo columns we pass a different version.
+- Origin bands in the export: the `src` field (`fb` / `ai` / `sys`), merging of neighbours in `renderHead()` (`storage.py:1059-1068`), `edge` computed in `html_columns()` (`storage.py:1288-1292`). A fourth value is added.
+- `ev` tooltips → the `title=` attribute (`storage.py:981`). The format is a string, nothing to change — the content changes.
+- Migration pattern: `PRAGMA table_info` + `ALTER TABLE` in `_migrate()` (`storage.py:240-271`), the `content_key` branch at 262-270 is the model.
+- `_analysis_version()` (`cli.py:443`) and its bump in `ai_field_add_cmd` (`cli.py:825-827`) — the model for `photo_analysis_version`.
+- `_write_registry()` (`cli.py:849-867`) — atomic write via `mkstemp` + validation before `os.replace`. Reused as is.
+- `write_batch()` (`ai_batch.py:146-165`) — name from `generated_at`, suffix on collision. The photo batch mirrors the schema under the name `photo-batch-<ts>.json`.
+- `context.request.get(url)` in Playwright shares cookies with the persistent context — required for the signed `fbcdn` links.
 
-**Почему один реестр, а не второй файл `config/photo_fields.json`.** Поля вроде `condition`, `furnished`, `kitchen` заполняются обоими проходами. В двух реестрах они существовали бы в двух копиях, которые немедленно разъедутся по `values` и `added_in`, а `unknown_keys` начал бы ронять результаты одного прохода на полях другого. Измерение `source` внутри единого реестра решает то же самое одним ключом.
+**Why one registry and not a second file `config/photo_fields.json`.** Fields like `condition`, `furnished`, `kitchen` are filled by both passes. In two registries they would exist as two copies that immediately drift apart in `values` and `added_in`, and `unknown_keys` would start failing the results of one pass on the fields of the other. A `source` dimension inside a single registry solves the same thing with one key.
 
-**Ловушки, которые стоили бы отладки:**
-- Фикстура `home` (`test_cli.py:20-35`) патчит каждую константу `config` по отдельности — пути вычисляются на импорте, подмены одного `RENT_ASSISTANT_HOME` недостаточно. Новую `PHOTOS_DIR` нужно добавить туда же, иначе тесты запишут фотографии в настоящий `data/`.
-- Детерминизм в тестах достигается инъекцией `now=` / `requirements_md=` в сигнатуры, а не `freezegun` и не моками. Новые функции должны принимать те же параметры.
-- `conftest.py` в `tests/` нет; фикстуры живут в своих файлах.
+**Traps that would have cost debugging:**
+- The `home` fixture (`test_cli.py:20-35`) patches every `config` constant separately — the paths are computed at import, substituting `RENT_ASSISTANT_HOME` alone is not enough. The new `PHOTOS_DIR` has to be added there too, otherwise the tests write photos into the real `$RENT_ASSISTANT_HOME`.
+- Determinism in the tests is achieved by injecting `now=` / `requirements_md=` into signatures, not with `freezegun` and not with mocks. New functions must accept the same parameters.
+- There is no `conftest.py` in `tests/`; fixtures live in their own files.
 
-## Технические детали
+## Technical details
 
-### Реестр полей
+### The field registry
 
-`config/ai_fields.json` получает у поля необязательный ключ `source`: `"text"` (дефолт при отсутствии — все 28 текущих полей остаются валидны), `"photo"`, `"both"`. Верхнеуровневый `photo_analysis_version` работает как `analysis_version`: растёт только при `ai-field add --source photo --backfill` и решает, перезапрашивать ли фото-проход.
+`config/ai_fields.json` gets an optional `source` key on a field: `"text"` (the default when absent — all 28 current fields stay valid), `"photo"`, `"both"`. The top-level `photo_analysis_version` works like `analysis_version`: it grows only on `ai-field add --source photo --backfill` and decides whether the photo pass is re-queued.
 
-Поля с `source: "both"` (например `condition`, `furnished`, `kitchen`) заполняет текстовый проход, а фото-проход перекрывает или подтверждает.
+Fields with `source: "both"` (for example `condition`, `furnished`, `kitchen`) are filled by the text pass, and the photo pass overrides or confirms them.
 
-### Формат `ev` для фотополей
+### The `ev` format for photo fields
 
-У значения с фотографии нет дословной цитаты. `ev` остаётся строкой, но становится указателем с описанием:
+A value taken from a photo has no verbatim quote. `ev` stays a string but becomes a pointer with a description:
 
 ```
-"ev": "фото 3: облупившаяся краска над изголовьем, пятно на потолке"
+"ev": "photo 3: peeling paint above the headboard, a stain on the ceiling"
 ```
 
-Проверяемость сохраняется — пользователь открывает третий файл и смотрит сам. Рендеринг тултипа не трогаем.
+Verifiability is kept — the user opens the third file and looks for themselves. The tooltip rendering is not touched.
 
-### Схема БД
+### DB schema
 
-`ai_analysis` получает пять колонок одной веткой `_migrate`:
+`ai_analysis` gets five columns in one `_migrate` branch:
 
-| Колонка | Смысл |
+| Column | Meaning |
 |---|---|
-| `photo_data_json` | поля, взятые с фотографий, тот же формат `{key: {"v","conf","ev"}}` |
-| `photos_hash` | ключ идемпотентности: SHA-256 от отсортированных `имя+размер` файлов в `data/photos/<fb_id>/` |
-| `photo_schema_version` | версия реестра, которую видел фото-проход |
+| `photo_data_json` | fields taken from the photos, same format `{key: {"v","conf","ev"}}` |
+| `photos_hash` | idempotency key: SHA-256 of the sorted `name+size` of the files in `$RENT_ASSISTANT_HOME/photos/<fb_id>/` |
+| `photo_schema_version` | the registry version the photo pass saw |
 | `photos_analyzed_at` | ISO UTC |
-| `photo_model` | какая модель смотрела |
+| `photo_model` | which model looked |
 
-Плюс `photo_comment` — 1-2 фразы про то, что видно и чего текст не сказал (аналог `comment`).
+Plus `photo_comment` — 1-2 sentences about what is visible and what the text did not say (the counterpart of `comment`).
 
-Фото на диске: `data/photos/<fb_id>/01.jpg` … `06.jpg`. ~1.2 MB на объявление, ~60 MB на 50.
+Photos on disk: `$RENT_ASSISTANT_HOME/photos/<fb_id>/01.jpg` … `06.jpg`. ~1.2 MB per listing, ~60 MB per 50.
 
-### Слияние
+### Merging
 
-В `fetch_enriched` (`storage.py:732`): `fields = {**data_json, **photo_data_json}` — фото перекрывает текст. Дальше существующий `rules.decide` работает без изменений.
+In `fetch_enriched` (`storage.py:732`): `fields = {**data_json, **photo_data_json}` — photo overrides text. From there the existing `rules.decide` works unchanged.
 
-**Важная асимметрия:** `decide` пересчитывается на каждом чтении (`storage.py:774`), а `score` — нет, он пишется только при apply (`ai_batch.py:355`). Значит `photo-apply` обязан пересчитать и записать `score` по слитым полям, иначе фотопризнаки не попадут в сортировку.
+**An important asymmetry:** `decide` is recomputed on every read (`storage.py:774`), `score` is not — it is written only at apply (`ai_batch.py:355`). So `photo-apply` must recompute and write `score` over the merged fields, otherwise the photo signals never reach the sort order.
 
-### Исполнение прохода
+### Running the pass
 
-`rent-assistant photo-batch` пишет JSON, скилл поднимает по сабагенту на объявление:
+`rent-assistant photo-batch` writes JSON, the skill launches one subagent per listing:
 
 ```
-Agent(subagent_type: "general-purpose", model: "sonnet", prompt: <инструкция + пути к 6 файлам>)
+Agent(subagent_type: "general-purpose", model: "sonnet", prompt: <instruction + paths to 6 files>)
 ```
 
-Сабагент читает фото через `Read`, возвращает компактный JSON по одному объявлению. Оркестратор собирает результаты в `result-<ts>.json` и зовёт `photo-apply`. Картинки в его контекст не попадают.
+The subagent reads the photos via `Read` and returns a compact JSON for one listing. The orchestrator collects the results into `result-<ts>.json` and calls `photo-apply`. Images never enter its context.
 
-## Что где
+## What goes where
 
-**Implementation Steps** — всё внутри репозитория: код, тесты, скиллы, README.
-**Post-Completion** — ручная проверка на живом FB и решение по добавленным полям.
+**Implementation Steps** — everything inside the repository: code, tests, skills, README.
+**Post-Completion** — manual check on live FB and the decision on added fields.
 
 ## Implementation Steps
 
-### Task 1: Спайк — как достать URL-ы галереи
+### Task 1: Spike — how to get the gallery URLs
 
-Определяет форму всего первого шага. Если ссылки лежат в исходнике страницы, скрейпинг почти не замедляется; если нужен лайтбокс — +10-15 с на объявление.
+Defines the shape of the whole first step. If the links are in the page source, scraping barely slows down; if the lightbox is needed — +10-15 s per listing.
 
 **Files:**
-- Create: `/private/tmp/claude-501/-Users-bayanovea-AI-rent-assistant-scrapper/09e3e7e5-1dae-4916-92f4-844c9f6fba74/scratchpad/probe_gallery.py` (одноразовый, в репозиторий не идёт)
+- Create: a one-off probe script in a scratch directory (`probe_gallery.py`, does not go into the repository)
 
-- [x] написать скрипт: открыть 2-3 реальные детальные страницы через `browser.launch_persistent`, сдампить `page.content()` и все `img[src]`
-- [x] грепнуть дамп по `scontent` / `fbcdn`, посчитать сколько уникальных URL-ов видно без кликов и какие у них размеры в имени
-- [x] если без кликов < 6 — проверить, что даёт открытие лайтбокса (клик по обложке + `ArrowRight`), замерить время на 10 фото
-- [x] зафиксировать вывод прямо в этом файле плана (⚠️ или ➕), выбрать стратегию для Task 2
-- [x] тестов нет — спайк одноразовый, удалить после (скрипты удалены)
+- [x] write the script: open 2-3 real detail pages through `browser.launch_persistent`, dump `page.content()` and every `img[src]`
+- [x] grep the dump for `scontent` / `fbcdn`, count how many unique URLs are visible without clicks and what sizes their names carry
+- [x] if fewer than 6 without clicks — check what opening the lightbox gives (click on the cover + `ArrowRight`), time it for 10 photos
+- [x] record the conclusion right in this plan file (⚠️ or ➕), choose the strategy for Task 2
+- [x] no tests — the spike is one-off, delete afterwards (scripts deleted)
 
-➕ **Вывод спайка (прогон на 3 живых объявлениях, 25.08.2026):** галерея видна
-в DOM **без единого клика** — 11 / 10 / 28 уникальных URL-ов соответственно,
-то есть всегда ≥ 6. Лайтбокс не нужен, скрейпинг не замедляется (страница и так
-грузится 6-7.5 с, извлечение URL-ов ~0 с). Попытка кликнуть по обложке вообще
-проваливается — оверлей перехватывает pointer events, ещё один довод против
-лайтбокса.
+➕ **Spike conclusion (run on 3 live listings, 25.08.2026):** the gallery is visible
+in the DOM **without a single click** — 11 / 10 / 28 unique URLs respectively,
+that is, always ≥ 6. The lightbox is not needed, scraping does not slow down (the
+page takes 6-7.5 s to load anyway, extracting the URLs takes ~0 s). An attempt to
+click the cover fails outright — an overlay intercepts the pointer events, one
+more argument against the lightbox.
 
-**Стратегия для Task 3 (`extract_gallery_urls`)**, локале-независимая:
+**Strategy for Task 3 (`extract_gallery_urls`)**, locale-independent:
 
-1. взять все `img`, у которых `src` содержит `/t39.30808-6/` и непустой `alt`;
-2. сгруппировать по `alt` и взять самую многочисленную группу (≥ 2 элементов).
-   У фото галереи `alt` общий — `"Фото <заголовок объявления>"`; у карточек
-   «похожие объявления» каждый `alt` свой (`"<название> в группе <группа>"`),
-   поэтому мода однозначно попадает в галерею. Аватарки и иконки отсеиваются
-   ещё на шаге 1 (они лежат в `t39.30808-1` / `t1.30497-1`);
-3. дедуп по `src` с сохранением порядка DOM — он совпадает с порядком галереи.
+1. take every `img` whose `src` contains `/t39.30808-6/` and whose `alt` is non-empty;
+2. group by `alt` and take the largest group (≥ 2 elements).
+   Gallery photos share one `alt` — `"Фото <listing title>"` ("Photo <listing
+   title>"); the "similar listings" cards each have their own
+   (`"<name> в группе <group>"`, "<name> in the group <group>"), so the mode
+   lands in the gallery unambiguously. Avatars and icons are filtered out
+   already in step 1 (they live in `t39.30808-1` / `t1.30497-1`);
+3. dedupe by `src` keeping DOM order — it matches the gallery order.
 
-⚠️ Отброшенные варианты: `aria-label`-нумерация (`"Смотреть фото 26"`) —
-локале-зависима и ловит лишнее (46 совпадений там, где фото 28); фильтр по
-`cstp=mx` — тащит все 565×565 карточки похожих объявлений.
+⚠️ Rejected variants: `aria-label` numbering (`"Смотреть фото 26"`, "View
+photo 26") — locale-dependent and catches extra items (46 matches where there
+are 28 photos); filtering on `cstp=mx` — drags in all the 565×565 cards of
+similar listings.
 
-➕ **Размер отдаваемых картинок** — 960×N по длинной стороне (`ctp=s960x717`),
-то есть плановые 1024 px это фактически «не увеличивать»: Pillow только
-ужимает то, что больше, апскейла быть не должно.
+➕ **Size of the served images** — 960×N on the long edge (`ctp=s960x717`),
+so the planned 1024 px is effectively "do not upscale": Pillow only shrinks
+what is larger, there must be no upscaling.
 
-➕ **`context.request.get` на подписанных CDN-URL-ах работает** (проверено):
-HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на файл, 6 файлов
-качаются за 1.1-2.3 с. Отдельный HTTP-клиент с прокидыванием кук не нужен.
+➕ **`context.request.get` works on signed CDN URLs** (verified):
+HTTP 200, the body is a valid JPEG (`ff d8 ff`), 45-175 KB per file, 6 files
+download in 1.1-2.3 s. A separate HTTP client with cookie plumbing is not needed.
 
 
-### Task 2: Модуль `photos.py` — скачивание, ресайз, пути, хеш
+### Task 2: The `photos.py` module — download, resize, paths, hash
 
 **Files:**
 - Create: `src/rent_assistant/photos.py`
@@ -148,80 +150,80 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 - Modify: `src/rent_assistant/config.py`
 - Modify: `tests/test_cli.py`
 
-- [x] добавить `pillow>=10` в `dependencies` в `pyproject.toml`
-- [x] в `config.py` добавить `PHOTOS_DIR = RENT_ASSISTANT_HOME / "photos"` (рядом с `AI_DIR`, :52), `PHOTO_MAX_COUNT = 6`, `PHOTO_LONG_EDGE_PX = 1024`, `PHOTO_JPEG_QUALITY = 80`
-- [x] **добавить `PHOTOS_DIR` в фикстуру `home`** (`tests/test_cli.py:20-35`) — без этого тесты пишут в настоящий `data/`
-- [x] `photos_dir(fb_id) -> Path` — путь `data/photos/<fb_id>/`
-- [x] `pick_photo_urls(urls) -> list[str]` — берёт первый URL плюс 5 равномерно по остатку, максимум `PHOTO_MAX_COUNT`
-- [x] `download_and_resize(context, urls, fb_id) -> list[Path]` — качает через `context.request.get(url)` (делит куки с персистентным контекстом), ресайзит Pillow-ом до 1024 px по длинной стороне, пишет `01.jpg`…`06.jpg`, конвертирует в RGB; битый/недоступный URL пропускает, не роняя объявление
-- [x] `photos_hash(fb_id) -> str | None` — SHA-256 от отсортированных `имя+размер`, `None` если каталога нет или он пуст
-- [x] `purge_photos(fb_id) -> None` — удаляет каталог объявления
-- [x] написать тесты на `pick_photo_urls` (0/1/3/6/20 URL-ов), `photos_hash` (стабильность, чувствительность к составу, `None` на пустом), `purge_photos` — все на `tmp_path`
-- [x] написать тест на `download_and_resize` с фейковым `context.request` и синтетическим PNG: проверить длинную сторону ≤ 1024, формат JPEG, имена файлов, пропуск битого URL
-- [x] прогнать тесты — должны пройти до Task 3
+- [x] add `pillow>=10` to `dependencies` in `pyproject.toml`
+- [x] in `config.py` add `PHOTOS_DIR = RENT_ASSISTANT_HOME / "photos"` (next to `AI_DIR`, :52), `PHOTO_MAX_COUNT = 6`, `PHOTO_LONG_EDGE_PX = 1024`, `PHOTO_JPEG_QUALITY = 80`
+- [x] **add `PHOTOS_DIR` to the `home` fixture** (`tests/test_cli.py:20-35`) — without this the tests write into the real `$RENT_ASSISTANT_HOME`
+- [x] `photos_dir(fb_id) -> Path` — the path `$RENT_ASSISTANT_HOME/photos/<fb_id>/`
+- [x] `pick_photo_urls(urls) -> list[str]` — takes the first URL plus 5 spread evenly over the rest, at most `PHOTO_MAX_COUNT`
+- [x] `download_and_resize(context, urls, fb_id) -> list[Path]` — downloads through `context.request.get(url)` (shares cookies with the persistent context), resizes with Pillow to 1024 px on the long edge, writes `01.jpg`…`06.jpg`, converts to RGB; a broken/unavailable URL is skipped without failing the listing
+- [x] `photos_hash(fb_id) -> str | None` — SHA-256 of the sorted `name+size`, `None` if the directory is missing or empty
+- [x] `purge_photos(fb_id) -> None` — removes the listing's directory
+- [x] write tests for `pick_photo_urls` (0/1/3/6/20 URLs), `photos_hash` (stability, sensitivity to the contents, `None` on empty), `purge_photos` — all on `tmp_path`
+- [x] write a test for `download_and_resize` with a fake `context.request` and a synthetic PNG: check the long edge ≤ 1024, JPEG format, file names, skipping a broken URL
+- [x] run the tests — must pass before Task 3
 
-### Task 3: Извлечение галереи в скрейпере
+### Task 3: Gallery extraction in the scraper
 
 **Files:**
 - Modify: `src/rent_assistant/scraper_detail.py`
 - Modify: `src/rent_assistant/cli.py`
 - Modify: `tests/test_extractors.py`
 
-- [x] в `scraper_detail.py` добавить `extract_gallery_urls(page) -> list[str]` по стратегии из Task 1; best-effort, как остальные селекторы в файле — при неудаче пустой список, не исключение
-- [x] отдавать URL-ы в `raw_json` под ключом `gallery_urls` (в `scrape_detail`, рядом с `text_lines`) — так они переживают до момента скачивания и видны при отладке
-- [x] в цикле скрейпа `cli.py:264-269` после `scrape_detail` вызвать `photos.download_and_resize`, если галерея непустая и каталог фото ещё не заполнен
-- [x] добавить флаг `--no-photos` к `scrape` для быстрых прогонов без картинок
-- [x] уважать существующий бюджет задержек: скачивание идёт внутри уже отсчитанного джиттера, отдельных пауз не добавлять
-- [x] написать тест на `extract_gallery_urls` с фейковой страницей (успех, пустая галерея, исключение из селектора)
-- [x] написать тест на то, что `--no-photos` не создаёт каталогов
-- [x] прогнать тесты
+- [x] in `scraper_detail.py` add `extract_gallery_urls(page) -> list[str]` following the strategy from Task 1; best-effort, like the other selectors in the file — on failure an empty list, not an exception
+- [x] return the URLs in `raw_json` under the key `gallery_urls` (in `scrape_detail`, next to `text_lines`) — so they survive until the download and are visible when debugging
+- [x] in the scrape loop `cli.py:264-269`, after `scrape_detail`, call `photos.download_and_resize` if the gallery is non-empty and the photo directory is not yet filled
+- [x] add the `--no-photos` flag to `scrape` for fast runs without images
+- [x] respect the existing delay budget: the download runs inside the jitter already counted, no separate pauses are added
+- [x] write a test for `extract_gallery_urls` with a fake page (success, empty gallery, an exception from the selector)
+- [x] write a test that `--no-photos` creates no directories
+- [x] run the tests
 
-### Task 4: Реестр полей — измерение `source`
+### Task 4: The field registry — the `source` dimension
 
 **Files:**
 - Modify: `src/rent_assistant/ai_schema.py`
 - Modify: `config/ai_fields.json`
 - Modify: `tests/test_ai_schema.py`
 
-- [x] в `ai_schema.py` добавить `KNOWN_SOURCES = {"text", "photo", "both"}` и валидацию ключа `source` в `load_registry` (отсутствие = `"text"`)
-- [x] добавить `Registry.fields_for(source) -> tuple[dict, ...]` — возвращает поля, которые данный проход должен заполнять (`photo` матчит `photo` и `both`)
-- [x] в `config/ai_fields.json` проставить `"source": "both"` полям `condition`, `furnished`, `kitchen`, `living_room`, `parking`, `green_area`, `pool_gym`; остальные 21 оставить без ключа
-- [x] добавить новое поле `photo_quality` (`enum`: `real` / `render` / `other_unit` / `floorplan` / `unclear`, `source: "photo"`) — сигнал «3D-рендер вместо реального фото», которого сейчас нет нигде
-- [x] поднять `schema_version` до 2, добавить `photo_analysis_version: 2`
-- [x] написать тесты: невалидный `source` роняет реестр, дефолт `"text"`, `fields_for("photo")` возвращает `both`+`photo` и не возвращает `text`
-- [x] прогнать тесты
+- [x] in `ai_schema.py` add `KNOWN_SOURCES = {"text", "photo", "both"}` and validation of the `source` key in `load_registry` (absent = `"text"`)
+- [x] add `Registry.fields_for(source) -> tuple[dict, ...]` — returns the fields the given pass must fill (`photo` matches `photo` and `both`)
+- [x] in `config/ai_fields.json` set `"source": "both"` on the fields `condition`, `furnished`, `kitchen`, `living_room`, `parking`, `green_area`, `pool_gym`; leave the other 21 without the key
+- [x] add the new field `photo_quality` (`enum`: `real` / `render` / `other_unit` / `floorplan` / `unclear`, `source: "photo"`) — the "3D render instead of a real photo" signal that exists nowhere today
+- [x] raise `schema_version` to 2, add `photo_analysis_version: 2`
+- [x] write tests: an invalid `source` fails the registry, the default is `"text"`, `fields_for("photo")` returns `both`+`photo` and does not return `text`
+- [x] run the tests
 
-### Task 5: Очередь фото-прохода
+### Task 5: The photo-pass queue
 
 **Files:**
 - Modify: `src/rent_assistant/storage.py`
 - Modify: `src/rent_assistant/cli.py`
 - Modify: `tests/test_storage.py`
 
-- [x] в `_migrate()` добавить ветку по образцу `content_key` (`storage.py:262-270`): пять колонок в `ai_analysis` — `photo_data_json`, `photos_hash`, `photo_schema_version`, `photos_analyzed_at`, `photo_model` — плюс `photo_comment`
-- [x] `fetch_pending_photos(conn, registry) -> PendingPhotos` — NamedTuple `(pending, no_photos)`. Кандидат попадает в очередь, если: анализ текста есть, `rules.decide` по текущим полям даёт **не** `rejected`, каталог фото непуст, и (`photos_hash` не совпал ИЛИ `photo_schema_version < photo_analysis_version` ИЛИ прохода не было). Причины: `new` / `changed` / `schema`
-- [x] объявления без фото на диске — в `no_photos`, им нужен `scrape --refresh`
-- [x] расширить `ai-status`: после текущей сводки печатать блок «Фото» — сколько проанализировано / в очереди с разбивкой причин / без фото
-- [x] написать тесты на `fetch_pending_photos`: rejected не попадает; без фото уходит в `no_photos`; смена `photos_hash` возвращает в очередь; повтор после apply даёт пустую очередь (идемпотентность); рост `photo_analysis_version` возвращает всех
-- [x] написать тест на миграцию: старая БД без новых колонок открывается и получает их
-- [x] прогнать тесты
+- [x] in `_migrate()` add a branch following the `content_key` model (`storage.py:262-270`): five columns in `ai_analysis` — `photo_data_json`, `photos_hash`, `photo_schema_version`, `photos_analyzed_at`, `photo_model` — plus `photo_comment`
+- [x] `fetch_pending_photos(conn, registry) -> PendingPhotos` — a NamedTuple `(pending, no_photos)`. A candidate enters the queue if: the text analysis exists, `rules.decide` over the current fields gives **not** `rejected`, the photo directory is non-empty, and (`photos_hash` does not match OR `photo_schema_version < photo_analysis_version` OR there was no pass). Reasons: `new` / `changed` / `schema`
+- [x] listings with no photos on disk go to `no_photos`; they need `scrape --refresh`
+- [x] extend `ai-status`: after the current summary print a "Photos" block — how many analysed / queued with a breakdown by reason / without photos
+- [x] write tests for `fetch_pending_photos`: rejected does not enter; without photos goes to `no_photos`; a change of `photos_hash` re-queues; a repeat after apply gives an empty queue (idempotency); a bump of `photo_analysis_version` brings everyone back
+- [x] write a migration test: an old DB without the new columns opens and receives them
+- [x] run the tests
 
-### Task 6: `photo-batch` — сборка батча
+### Task 6: `photo-batch` — building the batch
 
 **Files:**
 - Create: `src/rent_assistant/photo_batch.py`
 - Create: `tests/test_photo_batch.py`
 - Modify: `src/rent_assistant/cli.py`
 
-- [x] `build_photo_batch(conn, registry, *, limit, ids, now=None) -> dict` — верхний уровень: `schema_version`, `photo_analysis_version`, `generated_at`, `requirements_md`, `fields` (только `fields_for("photo")`), `items`. Параметр `now=` обязателен для детерминизма тестов
-- [x] item: `fb_id`, `url`, `photos_hash`, `photos` (список путей), `current_fields` (текущие значения текстового прохода **только по фотополям** — модель должна видеть, что текст уже наобещал, чтобы поймать расхождение), `listing_title`
-- [x] `write_photo_batch(batch, out_dir=None) -> Path` — по образцу `write_batch` (`ai_batch.py:146`): имя `photo-batch-<ts>.json` из цифр `generated_at`, суффикс `-2` при коллизии
-- [x] команда `rent-assistant photo-batch` с флагами `--limit` (дефолт 25), `--all`, `--ids`, `--out` — зеркало `ai-batch` (`cli.py:534`), включая ветку «пусто → echo + return с кодом 0»
-- [x] `validate_photo_results(results, registry)` — обязательны `fb_id` и `photos_hash`; `fields` — объект; незнакомые реестру ключи и enum вне `values` роняют файл целиком (как `_validate_results`, `ai_batch.py:222`); **`verdict` не требуется** — вердикт остаётся за текстовым проходом
-- [x] написать тесты: структура батча, отсечение rejected, `--ids`, попадание только фотополей в `fields`, все ветки валидации
-- [x] прогнать тесты
+- [x] `build_photo_batch(conn, registry, *, limit, ids, now=None) -> dict` — top level: `schema_version`, `photo_analysis_version`, `generated_at`, `requirements_md`, `fields` (only `fields_for("photo")`), `items`. The `now=` parameter is required for test determinism
+- [x] item: `fb_id`, `url`, `photos_hash`, `photos` (list of paths), `current_fields` (the current values of the text pass **for the photo fields only** — the model has to see what the text already promised, to catch the discrepancy), `listing_title`
+- [x] `write_photo_batch(batch, out_dir=None) -> Path` — following `write_batch` (`ai_batch.py:146`): the name `photo-batch-<ts>.json` from the digits of `generated_at`, suffix `-2` on collision
+- [x] the command `rent-assistant photo-batch` with the flags `--limit` (default 25), `--all`, `--ids`, `--out` — a mirror of `ai-batch` (`cli.py:534`), including the branch "empty → echo + return with code 0"
+- [x] `validate_photo_results(results, registry)` — `fb_id` and `photos_hash` are required; `fields` is an object; keys unknown to the registry and an enum outside `values` fail the whole file (like `_validate_results`, `ai_batch.py:222`); **`verdict` is not required** — the verdict stays with the text pass
+- [x] write tests: batch structure, rejected cut off, `--ids`, only photo fields land in `fields`, every validation branch
+- [x] run the tests
 
-### Task 7: `photo-apply` — запись и пересчёт
+### Task 7: `photo-apply` — writing and recomputing
 
 **Files:**
 - Modify: `src/rent_assistant/photo_batch.py`
@@ -229,55 +231,55 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 - Modify: `src/rent_assistant/cli.py`
 - Modify: `tests/test_photo_batch.py`
 
-- [x] `upsert_photo_analysis(conn, row, *, now)` в `storage.py` по образцу `upsert_ai_analysis` (`storage.py:613`)
-- [x] `apply_photo_results(conn, registry, result, *, dry_run, now) -> PhotoApplyReport` — пишет `photo_data_json`, `photo_comment`, `photos_hash`, `photo_schema_version` (версию **из файла результата**, как в `ai_batch.py:347-349`), затем по слитым `{**data_json, **photo_data_json}` пересчитывает `rules.decide` и **`rules.score`** и перезаписывает `verdict`-независимые `status` / `reason` / `score`
-- [x] отдельно считать в отчёте расхождения: поля, где фото перекрыло непустое значение текста — это главный продукт прохода, его надо показывать пользователю
-- [x] несовпадение `photos_hash` в результате с текущим на диске → **пропуск записи** с предупреждением. Это намеренное расхождение с текстовым проходом: `apply_results` при расхождении хеша всё равно пишет и сохраняет репортнутый хеш (`ai_batch.py:351`), потому что текст можно перечитать. Здесь же анализ описывает уже не те картинки, и записывать его — значит присвоить объявлению чужие наблюдения
-- [x] команда `rent-assistant photo-apply <path>` с `--dry-run`, печатает: применено, расхождений, новых автореджектов с причинами, пропущено, `proposed_new_fields`
-- [x] написать тесты: фото перекрывает текст; `score` меняется после apply; фото роняет объявление в `rejected` через `size_sqm`/`property_type`; `--dry-run` не пишет; несовпадение хеша пропускается; идемпотентность повторного apply
-- [x] прогнать тесты
+- [x] `upsert_photo_analysis(conn, row, *, now)` in `storage.py` following `upsert_ai_analysis` (`storage.py:613`)
+- [x] `apply_photo_results(conn, registry, result, *, dry_run, now) -> PhotoApplyReport` — writes `photo_data_json`, `photo_comment`, `photos_hash`, `photo_schema_version` (the version **from the result file**, as in `ai_batch.py:347-349`), then over the merged `{**data_json, **photo_data_json}` recomputes `rules.decide` and **`rules.score`** and overwrites the `verdict`-independent `status` / `reason` / `score`
+- [x] count the discrepancies separately in the report: fields where the photo overrode a non-empty text value — this is the main product of the pass and has to be shown to the user
+- [x] a `photos_hash` in the result that does not match the current one on disk → **skip the write** with a warning. This is a deliberate difference from the text pass: `apply_results` on a hash mismatch still writes and stores the reported hash (`ai_batch.py:351`), because the text can be re-read. Here the analysis describes pictures that are no longer the ones on disk, and writing it would assign somebody else's observations to the listing
+- [x] the command `rent-assistant photo-apply <path>` with `--dry-run`, prints: applied, discrepancies, new auto-rejects with reasons, skipped, `proposed_new_fields`
+- [x] write tests: photo overrides text; `score` changes after apply; a photo drops a listing into `rejected` via `size_sqm`/`property_type`; `--dry-run` does not write; a hash mismatch is skipped; a repeated apply is idempotent
+- [x] run the tests
 
-### Task 8: Слияние в экспорте и четвёртая полоса
+### Task 8: Merging in the export and the fourth band
 
 **Files:**
 - Modify: `src/rent_assistant/storage.py`
 - Modify: `tests/test_storage.py`
 
-- [x] в `fetch_enriched` (`storage.py:732`) парсить `photo_data_json` и класть в `fields` слиянием `{**data_json, **photo_data_json}`; запомнить множество перекрытых ключей в `photo_keys`
-- [x] в `html_columns` присваивать фотополям `src: "photo"`, добавить `photo_comment` колонку в ту же полосу
-- [x] добавить `photo` в `SRC_LABELS` (`storage.py:915`, подпись «Фото — анализ») и CSS-классы `.src-photo` по образцу `.src-ai` (`storage.py:846-854`)
-- [x] в `html_row` (`storage.py:1296`) для фотоколонок передавать в `rules.cell_class` **`photo_schema_version`**, а не `ai_schema_version` — иначе новые фотополя будут штриховаться у всех подряд
-- [x] пометить ячейки, где фото перекрыло непустое текстовое значение — переиспользовать существующий паттерн бейджа (`storage.py:1020-1022`), подпись «текст: <старое значение>» в тултипе
-- [x] дополнить легенду (`storage.py:898-907`) строкой про фотополосу и бейдж расхождения
-- [x] написать тесты на сырой HTML (стиль `test_export_html_stale_only_for_fields_added_after_analysis`, `test_storage.py:522`): полоса рендерится, `edge` на границе, `c-stale` для фотополя считается по своей версии, бейдж расхождения появляется
-- [x] прогнать тесты
+- [x] in `fetch_enriched` (`storage.py:732`) parse `photo_data_json` and put it into `fields` by merging `{**data_json, **photo_data_json}`; remember the set of overridden keys in `photo_keys`
+- [x] in `html_columns` give the photo fields `src: "photo"`, add the `photo_comment` column to the same band
+- [x] add `photo` to `SRC_LABELS` (`storage.py:915`, label "Photo analysis") and the CSS classes `.src-photo` following `.src-ai` (`storage.py:846-854`)
+- [x] in `html_row` (`storage.py:1296`) pass **`photo_schema_version`** to `rules.cell_class` for the photo columns, not `ai_schema_version` — otherwise the new photo fields get hatched on every row
+- [x] mark the cells where the photo overrode a non-empty text value — reuse the existing badge pattern (`storage.py:1020-1022`), the label "text: <old value>" in the tooltip
+- [x] extend the legend (`storage.py:898-907`) with a line about the photo band and the discrepancy badge
+- [x] write tests on the raw HTML (in the style of `test_export_html_stale_only_for_fields_added_after_analysis`, `test_storage.py:522`): the band renders, `edge` on the boundary, `c-stale` for a photo field is computed against its own version, the discrepancy badge appears
+- [x] run the tests
 
-### Task 9: Уборка фотографий
+### Task 9: Photo cleanup
 
 **Files:**
 - Modify: `src/rent_assistant/ai_batch.py`
 - Modify: `src/rent_assistant/storage.py`
 - Modify: `tests/test_storage.py`
 
-- [x] в `apply_results` (`ai_batch.py:260`) после автореджекта звать `photos.purge_photos(fb_id)` — отклонённому фото больше не понадобятся, а снятие через `unreject` всё равно потребует `--refresh`
-- [x] в `dedupe_listings` (`storage.py:529`) чистить каталоги фото не-канонических вместе с удалением строк `ai_analysis` (`storage.py:579-580`)
-- [x] написать тесты: автореджект удаляет каталог; дедуп удаляет каталог поглощённого, но не канонического
-- [x] прогнать тесты
+- [x] in `apply_results` (`ai_batch.py:260`) after an auto-reject call `photos.purge_photos(fb_id)` — a rejected listing will not need its photos again, and bringing it back via `unreject` will require `--refresh` anyway
+- [x] in `dedupe_listings` (`storage.py:529`) clean the photo directories of the non-canonical rows together with deleting their `ai_analysis` rows (`storage.py:579-580`)
+- [x] write tests: an auto-reject removes the directory; dedupe removes the absorbed row's directory but not the canonical one's
+- [x] run the tests
 
-### Task 10: Скилл фото-анализа
+### Task 10: The photo-analysis skill
 
 **Files:**
 - Create: `.claude/skills/photo-analyze/SKILL.md`
 - Modify: `.claude/skills/analyze/SKILL.md`
 
-- [x] написать `photo-analyze/SKILL.md` по структуре `analyze/SKILL.md`: front matter с триггерами, затем нумерованная процедура — проверить очередь → собрать батч → веер сабагентов → собрать результат → применить → экспорт → отчёт
-- [x] зафиксировать веер: **по одному сабагенту на объявление**, `Agent(subagent_type: "general-purpose", model: "sonnet")`, независимые запускать одним сообщением; в промпте сабагента — пути к 6 файлам, подмножество реестра с `prompt`, текущие значения текста и требование вернуть только JSON
-- [x] перенести в инструкцию сабагента дисциплину текстового скилла: «ничего не выдумывай», `unclear` лучше правдоподобной догадки, `ev` обязателен для каждого непустого значения — в формате `"фото N: что видно"`
-- [x] прописать `photo_quality`: `render` для 3D-визуализаций, `floorplan` для планировок, `other_unit` если снят явно другой юнит — и что при `render` остальные поля заполнять нельзя
-- [x] прописать границу полномочий как в текстовом скилле: `verdict`, `score` и `status` сабагент не трогает, их считает `rules.py`
-- [x] прописать раздел про `proposed_new_fields` и последующий `ai-field add --source photo --backfill`
-- [x] в `analyze/SKILL.md` в шаг 10 добавить переход: после экспорта, если очередь фото непуста — предложить запустить `/photo-analyze`
-- [x] тестов нет — это документ; проверка в Task 12 на живом прогоне
+- [x] write `photo-analyze/SKILL.md` following the structure of `analyze/SKILL.md`: front matter with triggers, then a numbered procedure — check the queue → build the batch → fan out subagents → collect the result → apply → export → report
+- [x] fix the fan-out: **one subagent per listing**, `Agent(subagent_type: "general-purpose", model: "sonnet")`, independent ones launched in a single message; the subagent prompt carries the paths to the 6 files, the registry subset with `prompt`, the current text values, and the requirement to return JSON only
+- [x] carry the text skill's discipline into the subagent instruction: "invent nothing", `unclear` is better than a plausible guess, `ev` is required for every non-empty value — in the format `"photo N: what is visible"`
+- [x] spell out `photo_quality`: `render` for 3D visualisations, `floorplan` for floor plans, `other_unit` if a clearly different unit is shown — and that under `render` the other fields must not be filled
+- [x] spell out the boundary of authority as in the text skill: the subagent does not touch `verdict`, `score` and `status`, `rules.py` computes them
+- [x] write the section about `proposed_new_fields` and the subsequent `ai-field add --source photo --backfill`
+- [x] in `analyze/SKILL.md` step 10 add the hand-off: after the export, if the photo queue is non-empty — offer to run `/photo-analyze`
+- [x] no tests — it is a document; verified in Task 12 on a live run
 
 ### Task 11: `ai-field add --source`
 
@@ -285,36 +287,36 @@ HTTP 200, тело — валидный JPEG (`ff d8 ff`), 45-175 KB на фай
 - Modify: `src/rent_assistant/cli.py`
 - Modify: `tests/test_cli_ai_field.py`
 
-- [x] добавить флаг `--source` к `ai-field add` через `click.Choice(sorted(ai_schema.KNOWN_SOURCES))`, дефолт `text` — ровно как сделан `--type` (`cli.py:734`)
-- [x] при `--backfill` бампить `photo_analysis_version` вместо `analysis_version`, если поле имеет `source` `photo` или `both`; для `both` — обе версии
-- [x] запись реестра оставить через существующий `_write_registry` (`cli.py:849`) — атомарность и валидация до подмены уже там; сохранить опцию `--registry` (тесты работают на копии реального реестра, `test_cli_ai_field.py:20-25`)
-- [x] `ai-field list` печатает колонку источника
-- [x] написать тесты: `--source photo --backfill` двигает только `photo_analysis_version`; `--source both --backfill` двигает обе; дефолт не трогает фото-версию
-- [x] прогнать тесты
+- [x] add the `--source` flag to `ai-field add` via `click.Choice(sorted(ai_schema.KNOWN_SOURCES))`, default `text` — exactly like `--type` is done (`cli.py:734`)
+- [x] under `--backfill` bump `photo_analysis_version` instead of `analysis_version` if the field has `source` `photo` or `both`; for `both` — both versions
+- [x] keep writing the registry through the existing `_write_registry` (`cli.py:849`) — atomicity and validation before the swap are already there; keep the `--registry` option (the tests work on a copy of the real registry, `test_cli_ai_field.py:20-25`)
+- [x] `ai-field list` prints a source column
+- [x] write tests: `--source photo --backfill` moves only `photo_analysis_version`; `--source both --backfill` moves both; the default does not touch the photo version
+- [x] run the tests
 
-### Task 12: Проверка приёмочных критериев
+### Task 12: Verify acceptance criteria
 
-- [x] `rent-assistant scrape --max 5` на живом FB (пропущено — не автоматизируется: нужен живой вход в FB; ограничители покрыты тестами `test_photos.py`)
-- [x] полный цикл на 5 объявлениях (пропущено — требует живого скрейпа и веера сабагентов с реальными картинками)
-- [x] осмотр `rentals.html` в браузере (пропущено — ручная проверка; разметка полосы, тултипы и бейдж расхождения покрыты тестами на сырой HTML в `test_storage.py`)
-- [x] rejected не попадают в `photo-batch`, каталоги вычищены — покрыто тестами (`test_storage.py::test_fetch_pending_photos_*`, `test_photo_cleanup.py`)
-- [x] замер реального расхода токенов и времени (пропущено — нужен живой прогон; оценка ×2.8 из плана остаётся расчётной)
-- [x] прогнать весь набор: `pytest` — 385 passed
-- [x] идемпотентность: повторный `photo-batch` после `photo-apply` даёт пустую очередь — `test_storage.py::test_fetch_pending_photos_is_idempotent_after_a_pass`, `test_photo_batch.py::test_apply_photo_results_is_idempotent`
+- [x] `rent-assistant scrape --max 5` on live FB (skipped — not automatable: needs a live FB login; the limiters are covered by the `test_photos.py` tests)
+- [x] full cycle on 5 listings (skipped — needs a live scrape and a subagent fan-out with real images)
+- [x] inspect `rentals.html` in the browser (skipped — manual check; the band markup, tooltips and discrepancy badge are covered by the raw-HTML tests in `test_storage.py`)
+- [x] rejected rows do not enter `photo-batch`, directories are cleaned — covered by tests (`test_storage.py::test_fetch_pending_photos_*`, `test_photo_cleanup.py`)
+- [x] measure real token and time spend (skipped — needs a live run; the ×2.8 estimate in the plan stays a calculation)
+- [x] run the whole suite: `pytest` — 385 passed
+- [x] idempotency: a repeated `photo-batch` after `photo-apply` gives an empty queue — `test_storage.py::test_fetch_pending_photos_is_idempotent_after_a_pass`, `test_photo_batch.py::test_apply_photo_results_is_idempotent`
 
-### Task 13: [Final] Документация
+### Task 13: [Final] Documentation
 
-- [x] README: раздел «Анализ фотографий» — команды, ограничители (6 / 1024 / только выжившие), выбор модели и почему Sonnet, стоимость прогона
-- [x] README: `data/photos/` в разделе Local state, `pillow` в Install
-- [x] CLAUDE.md: если по ходу вскрылись нетривиальные паттерны (поведение `context.request` с подписанными URL, устройство веера сабагентов) — записать
-- [x] перенести план в `docs/plans/completed/`
+- [x] README: the "Photo analysis" section — commands, limiters (6 / 1024 / survivors only), the model choice and why Sonnet, cost of a run
+- [x] README: `$RENT_ASSISTANT_HOME/photos/` in the Local state section, `pillow` in Install
+- [x] CLAUDE.md: if non-trivial patterns surfaced along the way (the behaviour of `context.request` with signed URLs, how the subagent fan-out is built) — write them down
+- [x] move the plan to `docs/plans/completed/`
 
 ## Post-Completion
 
-**Ручная проверка:**
-- Прогнать фото-проход на 46 неотклонённых объявлениях, которые уже в БД. Им нужен `rent-assistant scrape --refresh` (детальный кап 60 за прогон, `config.py:37`), то есть ~10-15 минут скрейпа перед первым фото-проходом.
-- Оценить качество Sonnet на спорных случаях из прошлых сессий — в первую очередь The Origin `9000000000000001` (kitchenette vs full kitchen). Если систематически ошибается — поднять сабагентов до Opus 5 с `effort: medium`, это одна строка в скилле.
+**Manual check:**
+- Run the photo pass on the 46 non-rejected listings already in the DB. They need `rent-assistant scrape --refresh` (detail cap 60 per run, `config.py:37`), that is, ~10-15 minutes of scraping before the first photo pass.
+- Assess Sonnet's quality on the contested cases from past sessions — first of all The Origin `9000000000000001` (kitchenette vs full kitchen). If it is systematically wrong — raise the subagents to Opus 5 with `effort: medium`, one line in the skill.
 
-**Решения после первого прогона:**
-- Какие новые поля предложит модель по фотографиям — добавлять через `ai-field add --source photo --backfill`.
-- Хватает ли 6 фотографий и 1024 px, или для `condition` нужен больший размер. Обе величины — константы в `config.py`.
+**Decisions after the first run:**
+- Which new fields the model proposes from the photos — add through `ai-field add --source photo --backfill`.
+- Whether 6 photos and 1024 px are enough, or `condition` needs a larger size. Both values are constants in `config.py`.
