@@ -4,9 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-rent-assistant"
-version = "0.1.0"
-description = "FB Marketplace Phuket rentals scraper with AI enrichment"
+version = "0.2.0"
+description = "Scrapes long-term rental ads into a local database, has Claude Code read them against one requirements letter, and exports a scored, filterable HTML table"
 readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "bayanovea", email = "bayanovea@gmail.com" }]
 requires-python = ">=3.11"
 dependencies = [
     "playwright>=1.45",
@@ -14,6 +16,9 @@ dependencies = [
     "python-dateutil>=2.9",
     "pillow>=10",
 ]
+
+[project.urls]
+Repository = "https://github.com/bayanovea/ai-rent-assistant"
 
 [project.optional-dependencies]
 dev = [
