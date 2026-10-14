@@ -123,8 +123,8 @@ def _merge_listing(list_card: dict[str, Any], detail: dict[str, Any] | None) -> 
             merged["price_raw"] = detail["price_raw"]
         # The card title wins when it survives `clean_fb_title` — it is the
         # seller's own wording. When it does not (a card carrying nothing but
-        # "Недавно опубликовано"), the detail page's <title> is the only real
-        # headline we have.
+        # the "recently listed" badge), the detail page's <title> is the only
+        # real headline we have.
         if detail.get("title") and not clean_fb_title(merged.get("title")):
             merged["title"] = detail["title"]
     return merged
@@ -159,7 +159,7 @@ def main() -> None:
     help=(
         "Name a second account's own browser profile (its own cookies, "
         "never mixed with the default one) — e.g. --profile partner for a "
-        "partner's independent Facebook login. Omit for the main account."
+        "second person in the household. Omit for the main account."
     ),
 )
 def login_cmd(profile: str | None) -> None:
@@ -1191,7 +1191,7 @@ def ai_status_cmd() -> None:
         if len(no_photos) > 10:
             click.echo(f"    ... and {len(no_photos) - 10} more")
 
-    # A proposal is inert until the user confirms it, so `Предложены` is a
+    # A proposal is inert until the user confirms it, so `Proposed` is a
     # queue of questions to answer, not of work already done.
     click.echo("Buildings:")
     click.echo(f"  Unresearched: {unresearched}")
@@ -2145,7 +2145,7 @@ def buildings_set_cmd(
         _sync_decisions(conn)
         _sync_buildings(conn, store)
         affected = _affected_listings(conn, store).get(stored_key, 0)
-        # An ad that says "с животными можно" outright survives the rule, so
+        # An ad that says "pets allowed" outright survives the rule, so
         # counting the building's coverage as rejections would overstate what
         # this confirmation does — and this is the number the user decides on.
         survivors = [

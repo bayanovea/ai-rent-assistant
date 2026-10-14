@@ -55,10 +55,10 @@ def _add_listing(conn, fb_id: str, **overrides):
         "url": f"https://www.facebook.com/marketplace/item/{fb_id}",
         "title": "2 Bed 1 Bath - House",
         "price_thb": 22000,
-        "price_raw": "22 000 ฿/месяц",
+        "price_raw": "22 000 ฿/month",
         "district": "Kathu, Phuket",
-        "description": "Дом в посёлке, 2 спальни. Собаки разрешены.",
-        "raw_json": json.dumps({"text_lines": ["Описание", "Дом в посёлке."]}),
+        "description": "House in a village, 2 bedrooms. Dogs allowed.",
+        "raw_json": json.dumps({"text_lines": ["Описание", "House in a village."]}),
     }
     listing.update(overrides)
     storage.upsert_listing(conn, listing)
@@ -74,7 +74,7 @@ def _analyse(conn, registry, fb_id: str):
             "results": [
                 {
                     "fb_id": fb_id,
-                    "verdict": "Годится.",
+                    "verdict": "View.",
                     "data_quality": "good",
                     "fields": {"pets": {"v": "allowed"}},
                 }
@@ -221,7 +221,7 @@ def test_decisions_file_is_group_readable(home):
     _add_listing(conn, "1")
     conn.close()
 
-    assert _run("reject", "1", "--reason", "далеко").exit_code == 0
+    assert _run("reject", "1", "--reason", "too far").exit_code == 0
 
     assert config.DECISIONS_PATH.stat().st_mode & 0o077 == 0o044
 
@@ -308,7 +308,7 @@ def test_contact_accepts_several_postings_comma_separated(home):
     conn.commit()
     conn.close()
 
-    result = _run("contact", "1", "--posting", "2, 3", "--note", "только этим двум")
+    result = _run("contact", "1", "--posting", "2, 3", "--note", "only these two")
 
     assert result.exit_code == 0
     entry = json.loads(config.DECISIONS_PATH.read_text(encoding="utf-8"))["1"]
@@ -371,14 +371,14 @@ def test_mark_viewed_keeps_status_and_stage_survives_reject(home):
     _add_listing(conn, "1")
     conn.close()
 
-    assert _run("shortlist", "1", "--reason", "хороший район").exit_code == 0
-    assert _run("mark-viewed", "1", "--note", "тесновато").exit_code == 0
-    assert _run("reject", "1", "--reason", "соседи с собаками").exit_code == 0
+    assert _run("shortlist", "1", "--reason", "good district").exit_code == 0
+    assert _run("mark-viewed", "1", "--note", "a bit cramped").exit_code == 0
+    assert _run("reject", "1", "--reason", "neighbours with dogs").exit_code == 0
 
     entry = json.loads(config.DECISIONS_PATH.read_text(encoding="utf-8"))["1"]
     assert entry["status"] == "rejected"
     assert entry["stage"] == "viewed"
-    assert entry["stage_note"] == "тесновато"
+    assert entry["stage_note"] == "a bit cramped"
 
 
 def test_clear_stage_leaves_status_alone(home):
@@ -510,7 +510,7 @@ def _stub_scrape(monkeypatch, gallery_urls):
         lambda ctx, url: {
             "url": url,
             "title": "2 Bed 1 Bath - House",
-            "description": "Дом в посёлке.",
+            "description": "House in a village.",
             "published_at": None,
             "price_raw": "22 000 ฿",
             "raw_json": {"text_lines": [], "gallery_urls": gallery_urls},
@@ -652,7 +652,7 @@ def _detail(url: str) -> dict:
     return {
         "url": url,
         "title": "2 Bed 1 Bath - House",
-        "description": f"Дом в посёлке, объявление {url.rstrip('/').rsplit('/', 1)[-1]}.",
+        "description": f"House in a village, listing {url.rstrip('/').rsplit('/', 1)[-1]}.",
         "published_at": None,
         "price_raw": "22 000 ฿",
         "raw_json": {"text_lines": [], "gallery_urls": []},
@@ -871,7 +871,7 @@ def test_ids_reach_a_known_listing_without_touching_the_feed(home, monkeypatch):
         "SELECT description FROM listings WHERE fb_id = ?", ("1",)
     ).fetchone()
     conn.close()
-    assert row["description"] == "Дом в посёлке, объявление 1."
+    assert row["description"] == "House in a village, listing 1."
 
 
 def test_an_id_with_no_listing_behind_it_is_skipped(home, monkeypatch):
@@ -903,7 +903,7 @@ def _group_detail(url: str) -> dict:
     return {
         "url": url,
         "title": f"Villa {post_id}",
-        "description": f"Пост из группы, объявление {post_id}.",
+        "description": f"Group post, listing {post_id}.",
         "published_at": None,
         "price_raw": "22 000 ฿",
         "raw_json": {"text_lines": [], "gallery_urls": [], "group": "phuketrentsale"},
@@ -952,7 +952,7 @@ def test_scrape_groups_stores_the_group_source(home, monkeypatch):
     conn.close()
     assert row["source"] == "group:phuketrentsale"
     assert row["title"] == "Villa 1"
-    assert row["description"] == "Пост из группы, объявление 1."
+    assert row["description"] == "Group post, listing 1."
 
 
 def test_scrape_groups_unknown_group_is_refused(home, monkeypatch):
@@ -1085,7 +1085,7 @@ def test_scrape_ids_reuses_the_stored_url_and_source_for_a_group_row(home, monke
     conn = storage.init_db(config.DB_PATH)
     row = conn.execute("SELECT description FROM listings WHERE fb_id = '1'").fetchone()
     conn.close()
-    assert row["description"] == "Пост из группы, объявление 1."
+    assert row["description"] == "Group post, listing 1."
 
 
 # --- photos-fetch --------------------------------------------------------
@@ -1326,7 +1326,7 @@ def _photo_ready(home):
             "results": [
                 {
                     "fb_id": "1",
-                    "verdict": "Годится.",
+                    "verdict": "View.",
                     "data_quality": "good",
                     # The claim the pictures are there to check.
                     "fields": {"pets": {"v": "allowed"}, "furnished": {"v": "full"}},
@@ -1343,7 +1343,7 @@ def _photo_result(tmp_path, fields, **entry_overrides):
     entry = {
         "fb_id": "1",
         "photos_hash": photos.photos_hash("1"),
-        "comment": "Свет хороший, ремонт старый.",
+        "comment": "Good light, dated renovation.",
         "fields": fields,
     }
     entry.update(entry_overrides)
@@ -1364,7 +1364,7 @@ def _photo_result(tmp_path, fields, **entry_overrides):
 def test_photo_apply_writes_and_reports_disagreements(home, tmp_path):
     _photo_ready(home)
     path = _photo_result(
-        tmp_path, {"furnished": {"v": "none", "conf": "high", "ev": "фото 1: пусто"}}
+        tmp_path, {"furnished": {"v": "none", "conf": "high", "ev": "photo 1: empty"}}
     )
 
     result = _run("photo-apply", str(path))
@@ -1381,7 +1381,7 @@ def test_photo_apply_writes_and_reports_disagreements(home, tmp_path):
 def test_photo_apply_dry_run_writes_nothing(home, tmp_path):
     _photo_ready(home)
     path = _photo_result(
-        tmp_path, {"condition": {"v": "worn", "conf": "high", "ev": "фото 2"}}
+        tmp_path, {"condition": {"v": "worn", "conf": "high", "ev": "photo 2"}}
     )
 
     result = _run("photo-apply", str(path), "--dry-run")
@@ -1398,7 +1398,7 @@ def test_photo_apply_skips_a_stale_photos_hash(home, tmp_path):
     _photo_ready(home)
     path = _photo_result(
         tmp_path,
-        {"condition": {"v": "worn", "conf": "high", "ev": "фото 2"}},
+        {"condition": {"v": "worn", "conf": "high", "ev": "photo 2"}},
         photos_hash="gone",
     )
 
@@ -1493,7 +1493,7 @@ def _condo(fb_id: str, project: str = "The Base Central Phuket", *, pets="unclea
     """One analysed listing advertising a flat in ``project``."""
     conn = storage.init_db(config.DB_PATH)
     try:
-        _add_listing(conn, fb_id, description="Квартира в кондо.")
+        _add_listing(conn, fb_id, description="Flat in a condo.")
         storage.upsert_ai_analysis(
             conn,
             {
@@ -1502,7 +1502,7 @@ def _condo(fb_id: str, project: str = "The Base Central Phuket", *, pets="unclea
                 "analyzed_at": "2026-08-25T10:00:00Z",
                 "source_hash": f"hash-{fb_id}",
                 "model": "claude-opus-5 (claude-code)",
-                "verdict": "Подходит, квартира в кондо.",
+                "verdict": "View, a flat in a condo.",
                 "data_quality": "good",
                 "data_json": {
                     "project_name": {"v": project},
@@ -1522,7 +1522,7 @@ def _result_file(home, **overrides):
         "area": "Phuket Town",
         "policy": "not_allowed",
         "confidence": "high",
-        "note": "УК: no pets of any kind.",
+        "note": "Management: no pets of any kind.",
         "sources": [
             {
                 "url": "https://example.com/rules",
@@ -1759,7 +1759,7 @@ def test_buildings_set_finds_the_building_by_name_and_takes_aliases(home):
         "--policy",
         "negotiable",
         "--note",
-        "УК: только мелкие собаки",
+        "Management: small dogs only",
         "--alias",
         "base central",
     )
@@ -1768,7 +1768,7 @@ def test_buildings_set_finds_the_building_by_name_and_takes_aliases(home):
     entry = buildings.load_buildings(config.BUILDINGS_PATH)["the-base-central-phuket"]
     assert entry["policy"] == "negotiable"
     assert entry["aliases"] == ["base central"]
-    assert entry["note"] == "УК: только мелкие собаки"
+    assert entry["note"] == "Management: small dogs only"
 
     # negotiable keeps the listing — the user's stated rule.
     conn = storage.init_db(config.DB_PATH)
