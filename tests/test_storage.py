@@ -146,13 +146,13 @@ def test_upsert_allows_null_price_and_unicode(conn):
             fb_id="unicode-1",
             price_thb=None,
             price_raw=None,
-            description="Вилла у моря — 🌴 chill vibes",
+            description="Villa by the sea — 🌴 chill vibes",
             title="Studio in Kata",
         ),
     )
     row = conn.execute("SELECT * FROM listings WHERE fb_id = ?", ("unicode-1",)).fetchone()
     assert row["price_thb"] is None
-    assert row["description"] == "Вилла у моря — 🌴 chill vibes"
+    assert row["description"] == "Villa by the sea — 🌴 chill vibes"
 
 
 def test_upsert_dedup_no_duplicate_rows(conn):
@@ -231,7 +231,7 @@ def test_export_html_empty_db(conn, tmp_path: Path):
     text = out.read_text(encoding="utf-8")
     assert "<title>rent-assistant listings</title>" in text
     assert "const DATA = [];" in text
-    # Открывают таблицу ради лучшего, поэтому она сортируется сама.
+    # The table is opened to see the best, so it sorts itself.
     assert 'let sorts = [{ key: "score", dir: -1 }];' in text
 
 
@@ -239,8 +239,9 @@ def test_export_html_ships_the_filter_panel(conn, tmp_path: Path):
     out = tmp_path / "rentals.html"
     storage.export_html(conn, out)
     text = out.read_text(encoding="utf-8")
-    # Фильтры и мульти-сортировка живут целиком в шаблоне; тест сторожит те
-    # узлы, по которым скрипт находит панель — без них она молча не соберётся.
+    # Filters and multi-sort live entirely in the template; the test guards
+    # the nodes the script finds the panel by — without them it silently
+    # never builds.
     assert 'id="filters"' in text
     assert 'id="flt-grid"' in text
     assert 'id="flt-reset"' in text
@@ -250,13 +251,13 @@ def test_export_html_hides_the_help_behind_two_buttons(conn, tmp_path: Path):
     out = tmp_path / "rentals.html"
     storage.export_html(conn, out)
     text = out.read_text(encoding="utf-8")
-    # Хоткеи и легенда занимали три строки над таблицей и читались дважды за
-    # всю жизнь файла. Тест сторожит узлы, по которым скрипт открывает их:
-    # без data-pop кнопка перестала бы открывать что-либо молча.
+    # Hotkeys and the legend took three lines above the table and were read
+    # twice in the file's whole life. The test guards the nodes the script
+    # opens them by: without data-pop the button would silently open nothing.
     assert 'class="help" data-pop="keys"' in text
     assert 'class="help" data-pop="legend"' in text
     assert "function toggleHelp(name)" in text
-    # Счётчик строк живёт на вкладках, отдельного заголовка над таблицей нет.
+    # The row counter lives on the tabs; there is no separate heading above the table.
     assert "<h1" not in text
 
 
@@ -264,10 +265,10 @@ def test_export_html_ships_the_preset_row(conn, tmp_path: Path):
     out = tmp_path / "rentals.html"
     storage.export_html(conn, out)
     text = out.read_text(encoding="utf-8")
-    # Пресеты рисуются из PRESETS в выпадающий список — включён всегда не
-    # больше одного, и пустой пункт снимает набор.
+    # Presets are drawn from PRESETS into a select — never more than one is
+    # on, and the empty item clears the set.
     assert '<select id="presets"' in text
-    assert '<option value=\"\">Пресет…</option>' in text
+    assert '<option value=\"\">Preset…</option>' in text
     assert [line for line in text.splitlines() if line.startswith('    key: "')] == [
         '    key: "fresh",',
         '    key: "candidates",',
@@ -283,8 +284,8 @@ def test_export_html_opens_the_cursor_row_in_a_tab(conn, tmp_path: Path):
     out = tmp_path / "rentals.html"
     storage.export_html(conn, out)
     text = out.read_text(encoding="utf-8")
-    # Строка открывается в соседней вкладке и курсор при этом не уезжает —
-    # иначе вернувшись из объявления вы решаете уже про соседа.
+    # The row opens in a new tab and the cursor does not move — otherwise,
+    # coming back from the listing, you would decide about its neighbour.
     assert 'if (key === "o") {' in text
     assert 'window.open(row.url, "_blank", "noopener")' in text
 
@@ -293,15 +294,16 @@ def test_export_html_queues_dedupe_by_a_key(conn, tmp_path: Path):
     out = tmp_path / "rentals.html"
     storage.export_html(conn, out)
     text = out.read_text(encoding="utf-8")
-    # `d` — про строку под курсором («это я уже видел»), `Shift+D` — про всю
-    # базу. Строчная поэтому стоит после проверки курсора, заглавная до неё.
+    # `d` is about the row under the cursor ("I have already seen this"),
+    # `Shift+D` about the whole base. So the lower-case key sits after the
+    # cursor check and the upper-case one before it.
     assert 'if (key === "D") { ev.preventDefault(); toggleDedupeAll(); return; }' in text
     assert 'if (key === "d") { ev.preventDefault(); toggleDedupeRow(cursorId); return; }' in text
     assert text.index('key === "D"') < text.index("if (!cursorId) return;")
     assert text.index("if (!cursorId) return;") < text.index('key === "d"')
     assert 'lines.push("rent-assistant dedupe " + id)' in text
     assert 'lines.push("rent-assistant dedupe")' in text
-    # Очередь живёт со штампом сборки — иначе она не сбросится сама.
+    # The queue lives with the build stamp — otherwise it never clears itself.
     assert 'const GENERATED_AT = "__GENERATED_AT__"' not in text
     assert "const GENERATED_AT = " in text
 
@@ -373,7 +375,7 @@ def _make_analysis(**overrides):
         "analyzed_at": "2026-08-25T10:00:00Z",
         "source_hash": "hash-a",
         "model": "claude-opus-5 (claude-code)",
-        "verdict": "Дом в посёлке, про животных ни слова.",
+        "verdict": "A house in a village, not a word about pets.",
         "score": 62,
         "data_quality": "good",
         "data_json": {"pets": {"v": "unclear", "conf": "high", "ev": ""}},
@@ -411,13 +413,13 @@ def test_upsert_ai_analysis_inserts_and_updates(conn):
     assert storage.upsert_ai_analysis(conn, _make_analysis()) == "inserted"
     assert (
         storage.upsert_ai_analysis(
-            conn, _make_analysis(verdict="Пересмотрел: студия.", score=10)
+            conn, _make_analysis(verdict="Re-read: a studio.", score=10)
         )
         == "updated"
     )
     rows = conn.execute("SELECT * FROM ai_analysis").fetchall()
     assert len(rows) == 1
-    assert rows[0]["verdict"] == "Пересмотрел: студия."
+    assert rows[0]["verdict"] == "Re-read: a studio."
     assert rows[0]["score"] == 10
     assert json.loads(rows[0]["data_json"])["pets"]["v"] == "unclear"
 
@@ -491,7 +493,7 @@ def test_fetch_pending_separates_listings_without_raw_data(conn):
         _make_listing(
             fb_id="only-text-lines",
             description=None,
-            raw_json='{"text_lines": ["Описание", "Дом в посёлке"]}',
+            raw_json='{"text_lines": ["Описание", "A house in a village"]}',
         ),
     )
     storage.upsert_listing(conn, _make_listing(fb_id="has-description"))
@@ -509,7 +511,7 @@ def test_fetch_enriched_joins_analysis_and_fields(conn):
     assert len(rows) == 1
     row = rows[0]
     assert row["title"] == "Cozy 2BR villa in Rawai"
-    assert row["verdict"].startswith("Дом в посёлке")
+    assert row["verdict"].startswith("A house in a village")
     # Recomputed from the fields and the district, not the stored 62.
     assert row["score"] == rules.score(row["fields"], "Rawai")
     assert row["fields"]["pets"]["v"] == "unclear"
@@ -604,14 +606,14 @@ def test_fetch_enriched_user_decision_overrides_ai(conn):
     conn.execute(
         "INSERT INTO decisions (fb_id, status, reason, decided_at) "
         "VALUES (?, ?, ?, ?)",
-        ("1234567890", "shortlist", "Хозяин сказал, что с собакой можно",
+        ("1234567890", "shortlist", "The owner said a dog is fine",
          "2026-08-25T12:00:00Z"),
     )
     conn.commit()
 
     row = storage.fetch_enriched(conn)[0]
     assert row["status"] == "shortlist"
-    assert row["reason"] == "Хозяин сказал, что с собакой можно"
+    assert row["reason"] == "The owner said a dog is fine"
     assert row["decided_by"] == "user"
     # the AI verdict stays visible next to it
     assert row["ai_status"] == "rejected"
@@ -635,7 +637,7 @@ def test_export_html_colours_pets_and_marks_rejected(conn, tmp_path: Path):
                 fb_id=fb_id,
                 schema_version=registry.schema_version,
                 data_json={
-                    "pets": {"v": pets, "conf": "high", "ev": "цитата: " + pets},
+                    "pets": {"v": pets, "conf": "high", "ev": "quote: " + pets},
                     "price_month_thb": {"v": 22000, "conf": "high", "ev": ""},
                 },
             ),
@@ -650,7 +652,7 @@ def test_export_html_colours_pets_and_marks_rejected(conn, tmp_path: Path):
     assert rows["lwarn"]["cells"]["pets"]["c"] == rules.CLASS_WARN
     assert rows["lbad"]["cells"]["pets"]["c"] == rules.CLASS_BAD
     # every AI claim is traceable to the quote behind it
-    assert rows["lgood"]["cells"]["pets"]["ev"] == "цитата: allowed"
+    assert rows["lgood"]["cells"]["pets"]["ev"] == "quote: allowed"
 
     assert rows["lgood"]["status"] == "active"
     assert rows["lbad"]["status"] == "rejected"
@@ -674,8 +676,8 @@ def test_export_html_colours_pets_and_marks_rejected(conn, tmp_path: Path):
     assert len(labels) == (
         len(storage._FIXED_COLUMNS) + len(registry.fields) - len(merged)
     )
-    # `Качество данных` is no longer one of them: it rides on the ID cell.
-    assert "Качество данных" not in labels
+    # `Data quality` is no longer one of them: it rides on the ID cell.
+    assert "Data quality" not in labels
 
 
 def test_export_html_shows_the_source_column_with_labels(conn, tmp_path: Path):
@@ -738,15 +740,16 @@ def test_export_html_marks_user_rejection_as_user(conn, tmp_path: Path):
     assert row["decided_by"] == "user"
     assert row["cells"]["reason"]["t"] == "Too far from the school"
     assert "Too far from the school" in text
-    # Свой отказ надо уметь отделить от машинного: их на вкладке в полсотни
-    # раз больше. Значение короткое — панель фильтров даёт по нему чипы.
+    # Your own rejection must be separable from the machine's: the tab has
+    # fifty times more of those. The value is short, so the filter panel
+    # gives it chips.
     assert row["cells"]["decided_by"]["t"] == "you"
 
 
 def test_the_decider_is_a_column_bound_to_the_rejected_tabs(conn, tmp_path: Path):
-    # Кто вынес вердикт, раньше было суффиксом «(вы)» в хвосте «Причины»:
-    # мимо поиска и мимо фильтров. Теперь это колонка — и она живёт только
-    # там, где среди своих отказов лежат машинные.
+    # Who made the verdict used to be a "(you)" suffix at the end of
+    # "Reason": past the search and past the filters. Now it is a column —
+    # and it lives only where machine rejections lie among your own.
     registry = ai_schema.load_registry()
     storage.upsert_listing(conn, _make_listing(fb_id="auto"))
     storage.upsert_ai_analysis(
@@ -765,19 +768,19 @@ def test_the_decider_is_a_column_bound_to_the_rejected_tabs(conn, tmp_path: Path
 
     rows = {r["fb_id"]: r for r in _inline_payload(text, "DATA")}
     assert rows["auto"]["cells"]["decided_by"]["t"] == "AI"
-    # Никто не решал — пустая ячейка, а не выдуманный автор.
+    # Nobody decided — an empty cell, not an invented author.
     assert rows["untouched"]["cells"]["decided_by"]["t"] == ""
 
     columns = {c["key"]: c for c in _inline_payload(text, "COLUMNS")}
     assert columns["decided_by"]["tabs"] == ["rejected", "all"]
     assert columns["reason"]["tabs"] == ["rejected", "all"]
-    # На Longlist и Shortlist решали только вы — там колонка не нужна.
+    # On Longlist and Shortlist only you decided — no column needed there.
     assert "longlist" not in columns["decided_by"]["tabs"]
 
 
 def test_a_marked_listing_leaves_the_active_queue(conn, tmp_path: Path):
-    # Active — очередь на разбор. Оценка 4 уводит строку в longlist, и
-    # строка с оценкой в очереди уже не лежит.
+    # Active is the review queue. A rating of 4 moves the row to longlist,
+    # and a rated row no longer sits in the queue.
     storage.upsert_listing(conn, _make_listing(fb_id="middling"))
     conn.execute(
         "INSERT INTO decisions (fb_id, status, reason, rating, decided_at) "
@@ -794,8 +797,8 @@ def test_a_marked_listing_leaves_the_active_queue(conn, tmp_path: Path):
     row = _inline_payload(text, "DATA")[0]
     assert row["status"] == "longlist"
     assert row["cells"]["rating"]["n"] == 4.0
-    # Вкладка и полоса на строке — иначе средний вариант нечем отличить
-    # от лучшего.
+    # A tab and a bar on the row — otherwise an average option cannot be
+    # told from the best one.
     assert 'data-tab="longlist"' in text
     assert "row-longlist" in text
 
@@ -877,8 +880,8 @@ def test_fetch_enriched_merges_photo_fields_over_text(conn):
         conn,
         "p1",
         {
-            "furnished": {"v": "partial", "ev": "фото 2: пустая спальня"},
-            "photo_quality": {"v": "real", "ev": "фото 1: реальный снимок"},
+            "furnished": {"v": "partial", "ev": "photo 2: empty bedroom"},
+            "photo_quality": {"v": "real", "ev": "photo 1: a real shot"},
         },
     )
 
@@ -915,7 +918,7 @@ def test_export_html_marks_the_photo_columns(conn, tmp_path: Path):
             data_json={"furnished": {"v": "full", "ev": "fully furnished"}},
         ),
     )
-    _attach_photos(conn, "p1", {"furnished": {"v": "partial", "ev": "фото 2"}})
+    _attach_photos(conn, "p1", {"furnished": {"v": "partial", "ev": "photo 2"}})
 
     out = tmp_path / "rentals.html"
     storage.export_html(conn, out, registry)
@@ -949,7 +952,7 @@ def test_export_html_photo_override_badge_is_absent_without_disagreement(
             data_json={"furnished": {"v": "partial", "ev": "partly furnished"}},
         ),
     )
-    _attach_photos(conn, "p2", {"furnished": {"v": "partial", "ev": "фото 2"}})
+    _attach_photos(conn, "p2", {"furnished": {"v": "partial", "ev": "photo 2"}})
 
     out = tmp_path / "rentals.html"
     storage.export_html(conn, out, registry)
@@ -1002,7 +1005,7 @@ def test_export_html_photo_fields_reach_the_verdict(conn, tmp_path: Path):
             data_json={"pets": {"v": "allowed", "ev": "pets ok"}},
         ),
     )
-    _attach_photos(conn, "p3", {"pets": {"v": "not_allowed", "ev": "фото 3: знак"}})
+    _attach_photos(conn, "p3", {"pets": {"v": "not_allowed", "ev": "photo 3: a sign"}})
 
     item = storage.fetch_enriched(conn)[0]
     assert item["status"] == "rejected"
@@ -1041,7 +1044,8 @@ def test_export_html_prices_coloured_against_budget(conn, tmp_path: Path):
         ("Ban Ket Ho, Phuket, Thailand", "Ban Ket Ho"),
         ("Patong", "Patong"),
         # The island and the province name no district — better an empty cell
-        # than "Пхукет" repeated down the whole column.
+        # than "Phuket" repeated down the whole column. The Russian spelling
+        # is what the FB `district` field carries in that locale.
         ("Пхукет", ""),
         ("Changwat Phuket, Phuket, Thailand", ""),
         (None, ""),
@@ -1121,7 +1125,7 @@ def test_the_verdict_column_is_a_tag_with_the_sentence_behind_it(conn, tmp_path:
 def test_the_district_rating_is_a_column_so_the_preset_can_filter_on_it(
     conn, tmp_path: Path
 ):
-    # Free-text `Район` has hundreds of values and no order; "хороший район"
+    # Free-text `District` has hundreds of values and no order; "a good district"
     # is only expressible as a filter once the 1-5 scale is a column.
     registry = ai_schema.load_registry()
     for fb_id, area in (("kathu", "Kathu"), ("chalong", "Chalong"), ("nowhere", "")):
@@ -1152,7 +1156,7 @@ def test_the_district_rating_is_a_column_so_the_preset_can_filter_on_it(
 
 
 def test_unclear_reads_as_the_grey_dash_except_for_pets(conn, tmp_path: Path):
-    # "Не сказано" is what the dash already means, and the word takes as much
+    # "Not stated" is what the dash already means, and the word takes as much
     # room on screen as a real answer — on five columns where it is the most
     # common value. Pets is the exception: not knowing is the reason to call.
     registry = ai_schema.load_registry()
@@ -1237,14 +1241,14 @@ def test_verdict_and_comment_are_stored_side_by_side(conn):
     storage.upsert_ai_analysis(
         conn,
         _make_analysis(
-            verdict="Стоит посмотреть — дом с гостиной",
-            comment="Дом 2 спальни в Раваи, интернет включён в цену.",
+            verdict="View — a house with a living room",
+            comment="2-bedroom house in Rawai, internet included in the price.",
         ),
     )
 
     row = storage.fetch_enriched(conn)[0]
-    assert row["verdict"] == "Стоит посмотреть — дом с гостиной"
-    assert row["comment"] == "Дом 2 спальни в Раваи, интернет включён в цену."
+    assert row["verdict"] == "View — a house with a living room"
+    assert row["comment"] == "2-bedroom house in Rawai, internet included in the price."
 
 
 # --- reposts: one flat, one row -----------------------------------------
@@ -1297,7 +1301,8 @@ def test_same_ad_at_a_different_price_is_a_separate_listing(conn):
 
 
 def test_thin_text_is_never_treated_as_a_repost(conn):
-    # Two listings whose scrape caught only the "Выбор дня" sidebar share that
+    # Two listings whose scrape caught only the "Выбор дня" (Facebook's
+    # Russian-locale "Pick of the day") sidebar share that
     # text without being the same flat — fingerprinting them would merge
     # unrelated ads, so a body this short yields no key at all.
     assert storage.content_key({"description": "Выбор дня"}) is None
@@ -1327,7 +1332,7 @@ def test_dedupe_listings_keeps_the_copy_carrying_the_most_work(conn):
     storage.upsert_ai_analysis(conn, _make_analysis(fb_id="analysed"))
     conn.execute(
         "INSERT INTO decisions (fb_id, status, reason, decided_at) VALUES (?,?,?,?)",
-        ("decided", "shortlist", "звонил хозяину", "2026-08-25T12:00:00Z"),
+        ("decided", "shortlist", "called the owner", "2026-08-25T12:00:00Z"),
     )
     conn.commit()
 
@@ -1419,8 +1424,8 @@ def _analysed(conn, fb_id: str, body: str, price: int, data_quality="good", **fi
     return listing
 
 
-# Длинное объявление: сигнал `text` не смотрит на тексты короче
-# ``_TEXT_MATCH_MIN_WORDS``, поэтому `_AD` для него уже не годится.
+# A long ad: the `text` signal ignores texts shorter than
+# ``_TEXT_MATCH_MIN_WORDS``, so `_AD` is no longer enough for it.
 _LONG_AD = (
     "🔥 Condo for rent near Central Phuket, 1 bedroom, fully furnished, "
     "pool and gym, 12-month contract, contact us for a viewing. "
@@ -1445,15 +1450,15 @@ def _decided(conn, fb_id: str, status: str = "shortlist", rating: float = 5.0):
     conn.execute(
         "INSERT INTO decisions (fb_id, status, reason, rating, decided_at)"
         " VALUES (?,?,?,?,?)",
-        (fb_id, status, "смотрели", rating, "2026-08-29T10:00:00Z"),
+        (fb_id, status, "viewed", rating, "2026-08-29T10:00:00Z"),
     )
     conn.commit()
 
 
 def test_dedupe_one_merges_the_row_into_the_copy_you_already_decided_on(conn):
-    # «Это я уже видел» с точки зрения таблицы: строка под курсором ещё в
-    # «Разобрать», а её копия лежит в Shortlist — выжить должна копия с
-    # решением, иначе вердикт уходит вместе со строкой.
+    # "I have already seen this" as the table sees it: the row under the
+    # cursor is still in Review, and its copy sits in Shortlist — the copy
+    # with the decision must survive, or the verdict leaves with the row.
     _analysed(conn, "seen", _LONG_AD, 17000, project_name="Phanason Green Place",
               bedrooms=1, size_sqm=48)
     _analysed(conn, "cursor", _LONG_AD_EDITED, 17000,
@@ -1469,15 +1474,15 @@ def test_dedupe_one_merges_the_row_into_the_copy_you_already_decided_on(conn):
     storage.dedupe_one(conn, "cursor")
     left = [r["fb_id"] for r in conn.execute("SELECT fb_id FROM listings")]
     assert left == ["seen"]
-    # Копия запомнена как репост, иначе следующий скрейп принесёт её обратно.
+    # The copy is remembered as a repost, or the next scrape brings it back.
     assert storage.duplicate_fb_ids(conn) == {"cursor"}
 
 
 def test_dedupe_one_ignores_the_group_veto_the_whole_base_pass_obeys(conn):
-    # Ровно то, ради чего построчная команда и нужна. Вето авто-прохода
-    # проверяется против всей группы: «cursor» и «seen» — одна квартира, но
-    # «third» с другим этажом уже в группе, и пару она разводит. По строке
-    # группа — это то, на что показали вы, и третьего в ней нет.
+    # Exactly what the per-row command exists for. The auto pass checks its
+    # veto against the whole group: "cursor" and "seen" are one flat, but
+    # "third" with another floor is already in the group and splits the pair.
+    # Per row, the group is what you pointed at, and there is no third in it.
     _analysed(conn, "a-cursor", _LONG_AD, 17000,
               project_name="Phanason Green Place", bedrooms=1)
     _analysed(conn, "b-third", _LONG_AD_EDITED + " 5th floor", 17000,
@@ -1486,7 +1491,7 @@ def test_dedupe_one_ignores_the_group_veto_the_whole_base_pass_obeys(conn):
               project_name="Phanason Green Place", bedrooms=1)
     _decided(conn, "c-seen")
 
-    # Авто-проход дотягивается только до «third» — «seen» остаётся строкой.
+    # The auto pass only reaches "third" — "seen" stays a row.
     assert storage.dedupe_listings(conn, dry_run=True) == [
         {"canonical": "b-third", "removed": ["a-cursor"], "reason": "text"}
     ]
@@ -1497,8 +1502,9 @@ def test_dedupe_one_ignores_the_group_veto_the_whole_base_pass_obeys(conn):
 
 
 def test_dedupe_one_suggests_instead_of_guessing_when_no_signal_matches(conn):
-    # Сигналы молчат — площадь расходится на порядок, — и строка остаётся на
-    # месте: команда показывает ближайшие, разобранные впереди похожих.
+    # No signal fires — the size differs by an order of magnitude — and the
+    # row stays put: the command shows the nearest, reviewed ones ahead of
+    # similar ones.
     _analysed(conn, "cursor", _AD, 17000, project_name="Phanason Green Place",
               bedrooms=1, size_sqm=48)
     _analysed(conn, "seen", _AD_C, 17000, project_name="Phanason Green Place",
@@ -1513,17 +1519,17 @@ def test_dedupe_one_suggests_instead_of_guessing_when_no_signal_matches(conn):
     assert [c["fb_id"] for c in result.candidates] == ["seen", "other"]
     first = result.candidates[0]
     assert first["status"] == "rejected" and first["rating"] == 2.0
-    # Почему авто-проход её не взял, видно в самой подсказке.
+    # Why the auto pass did not take it is visible in the hint itself.
     assert first["contradicts"] is True
     assert "same project" in first["why"]
 
 
 def test_dedupe_one_into_merges_the_pair_you_named(conn):
-    # Явная пара не спрашивает сигналы и не спрашивает, кто несёт больше
-    # работы: выживает названная строка — там уже лежит ваше решение.
+    # An explicit pair asks neither the signals nor who carries more work:
+    # the named row survives — your decision already sits there.
     _analysed(conn, "cursor", _AD, 17000, project_name="Phanason Green Place",
               bedrooms=1, size_sqm=48)
-    _analysed(conn, "seen", _AD_C, 31000, project_name="Другой Дом",
+    _analysed(conn, "seen", _AD_C, 31000, project_name="Other House",
               bedrooms=3, size_sqm=140)
     conn.execute("DELETE FROM ai_analysis WHERE fb_id = 'seen'")
     conn.commit()
@@ -1541,20 +1547,20 @@ def test_dedupe_one_refuses_an_id_that_is_not_in_the_table(conn):
     _analysed(conn, "cursor", _AD, 17000, project_name="Phanason Green Place",
               bedrooms=1)
     with pytest.raises(LookupError):
-        storage.dedupe_one(conn, "нет-такого")
+        storage.dedupe_one(conn, "no-such-id")
     with pytest.raises(LookupError):
-        storage.dedupe_one(conn, "cursor", into="нет-такого")
+        storage.dedupe_one(conn, "cursor", into="no-such-id")
     with pytest.raises(ValueError):
         storage.dedupe_one(conn, "cursor", into="cursor")
 
 
 def test_two_agents_writing_their_own_text_are_not_merged_unasked(conn):
-    # Раньше это была склейка по `facts`: тот же проект, та же цена, столько
-    # же спален. Ровно так 27 августа в одну строку ушли три разных дома в
-    # Phanason Grandville Bangjo — мубан на сотни одинаковых трёхспальных
-    # домов по 30 000, где ни одно объявление не называет ни этажа, ни
-    # корпуса, ни площади, так что вето было нечем поднять. Теперь пара
-    # остаётся стоять, а команда предлагает её глазами.
+    # This used to be a merge on `facts`: same project, same price, same
+    # number of bedrooms. That is exactly how, on 27 August, three different
+    # houses in Phanason Grandville Bangjo went into one row — a moobaan of
+    # hundreds of identical three-bedroom houses at 30 000, where no ad names
+    # a floor, a building or a size, so there was nothing to raise the veto
+    # with. Now the pair stays standing, and the command offers it to the eye.
     _analysed(conn, "agent-a", _AD, 30000, project_name="Panason Grand",
               bedrooms=3, property_type="house")
     _analysed(conn, "agent-b", _AD_B, 30000, project_name="Panason Grand Bang Jo",
@@ -1569,9 +1575,9 @@ def test_two_agents_writing_their_own_text_are_not_merged_unasked(conn):
 
 
 def test_a_third_listing_no_longer_chains_two_project_spellings(conn):
-    # Транзитивность и была тем, что довело склейку до трёх строк: крайние
-    # написания не совпадают друг с другом (0.667), но среднее совпадает с
-    # обоими и сшивает их через себя.
+    # Transitivity is what took the merge to three rows: the outer spellings
+    # do not match each other (0.667), but the middle one matches both and
+    # stitches them together through itself.
     for fb_id, project in (
         ("a", "Panason Grand"),
         ("b", "Panason Grand Bang Jo"),
@@ -1602,7 +1608,7 @@ def test_an_ad_naming_no_floor_does_not_chain_two_floors_together(conn):
 
 
 def test_different_floors_of_one_project_stay_apart(conn):
-    # Тот же текст с точностью до этажа — и всё же две квартиры.
+    # The same text up to the floor — and still two flats.
     _analysed(conn, "floor-2", _LONG_AD + " 2nd Floor", 15000,
               project_name="D Condo Reef", bedrooms=1, size_sqm=28)
     _analysed(conn, "floor-1", _LONG_AD + " 1st Floor", 15000,
@@ -1630,9 +1636,9 @@ def test_sizes_far_apart_stay_apart_however_alike_the_text(conn):
 
 
 def test_a_short_ad_never_matches_on_text(conn):
-    # Порог 0.9 на двадцатисловном объявлении допускает одно расхождение, а
-    # самые короткие объявления в базе — это шаблон агентства, у которого
-    # своего только код. Ниже `_TEXT_MATCH_MIN_WORDS` сигнал молчит.
+    # A 0.9 threshold on a twenty-word ad allows one difference, and the
+    # shortest ads in the base are an agency template whose only own content
+    # is a reference code. Below `_TEXT_MATCH_MIN_WORDS` the signal is silent.
     _analysed(conn, "card-a", "Vacant house for rent Dao Rung Villa CLS963 "
               "empty house 3 bedroom 2 bathroom", 28000,
               project_name="Dao Rung Villa", bedrooms=3, property_type="house")
@@ -1644,8 +1650,9 @@ def test_a_short_ad_never_matches_on_text(conn):
 
 
 def test_a_trailing_word_in_the_project_name_still_reaches_the_shortlist(conn):
-    # `_same_project` больше ничего не сливает, но список кандидатов под `d`
-    # держится на нём: один агент пишет полное имя посёлка, другой обрезает.
+    # `_same_project` merges nothing any more, but the candidate list under
+    # `d` rests on it: one agent writes the village's full name, another
+    # trims it.
     _analysed(conn, "long", _AD, 26000, project_name="Pruksa Ville Thalang Hillside",
               bedrooms=3, property_type="house")
     _analysed(conn, "short", _AD_B, 26000, project_name="Pruksa Ville Thalang",
@@ -1658,8 +1665,8 @@ def test_a_trailing_word_in_the_project_name_still_reaches_the_shortlist(conn):
 
 
 def test_one_house_priced_a_thousand_apart_reaches_the_shortlist(conn):
-    # Каждый агент добавляет к одному дому свою маржу — допуск живёт дальше,
-    # в оценке кандидатов.
+    # Every agent adds its own margin to the same house — the tolerance
+    # lives on, in the candidate score.
     _analysed(conn, "cheap", _AD, 25000, project_name="Pruksa Ville Thalang",
               bedrooms=3, property_type="house")
     _analysed(conn, "pricey", _AD_B, 26000, project_name="Pruksa Ville Thalang",
@@ -1671,8 +1678,8 @@ def test_one_house_priced_a_thousand_apart_reaches_the_shortlist(conn):
 
 
 def test_two_condo_units_priced_a_thousand_apart_are_not_the_same_price(conn):
-    # Внутри кондо тот же допуск свёл бы два разных юнита, поэтому там его нет
-    # — и в оценке кандидатов тоже.
+    # Inside a condo the same tolerance would merge two different units, so
+    # it is absent there — in the candidate score too.
     _analysed(conn, "unit-a", _AD, 15000, project_name="The Base Downtown",
               bedrooms=1, property_type="condo")
     _analysed(conn, "unit-b", _AD_B, 16000, project_name="The Base Downtown",
@@ -1685,7 +1692,8 @@ def test_two_condo_units_priced_a_thousand_apart_are_not_the_same_price(conn):
 def test_sidebar_noise_never_matches_on_text(conn):
     # When the scrape stored the Facebook sidebar instead of the ad, that text
     # is identical across listings — a house and a condo in another project
-    # would read 100% alike and collapse into one.
+    # would read 100% alike and collapse into one. The sidebar text is
+    # Facebook's own UI in the Russian locale, as the scraper stored it.
     sidebar = (
         "Выбор дня Пхукет 40 км Недавно опубликовано 12 000 ฿ 1 Bed 1 Bath "
         "Apartment Sale Rent Phuket Property MacBook Air 2015 Phuket Market "
@@ -1951,7 +1959,7 @@ def test_fetch_pending_photos_skips_a_hand_rejected_listing(conn, photos_home):
     # a single image is worth paying for.
     _text_analysed(conn, "user-said-no")
     _shoot(photos_home, "user-said-no")
-    _decide(conn, "user-said-no", "rejected", "уже сдана")
+    _decide(conn, "user-said-no", "rejected", "already rented")
 
     pending, no_photos = storage.fetch_pending_photos(conn, _registry())
     assert pending == []
@@ -1964,7 +1972,7 @@ def test_fetch_pending_photos_keeps_what_the_user_kept(conn, photos_home):
     forbidden = {"v": "not_allowed", "conf": "high", "ev": ""}
     _text_analysed(conn, "user-said-yes", pets=forbidden)
     _shoot(photos_home, "user-said-yes")
-    _decide(conn, "user-said-yes", "active", "договорился про собаку")
+    _decide(conn, "user-said-yes", "active", "agreed about the dog")
 
     pending, _ = storage.fetch_pending_photos(conn, _registry())
     assert [p["fb_id"] for p in pending] == ["user-said-yes"]
@@ -2297,7 +2305,7 @@ def _building(**overrides):
         "policy": "not_allowed",
         "status": "confirmed",
         "confidence": "high",
-        "note": "УК: no pets of any kind.",
+        "note": "Management: no pets of any kind.",
         "sources": [
             {
                 "url": "https://example.com/rules",
@@ -2364,11 +2372,11 @@ def test_sync_buildings_inserts_the_whole_entry(conn):
 
 def test_sync_buildings_updates_a_changed_entry(conn):
     storage.sync_buildings_to_db(conn, _building())
-    storage.sync_buildings_to_db(conn, _building(policy="negotiable", note="Спросить УК"))
+    storage.sync_buildings_to_db(conn, _building(policy="negotiable", note="Ask the management"))
     rows = conn.execute("SELECT policy, note FROM buildings").fetchall()
     assert len(rows) == 1
     assert rows[0]["policy"] == "negotiable"
-    assert rows[0]["note"] == "Спросить УК"
+    assert rows[0]["note"] == "Ask the management"
 
 
 def test_sync_buildings_deletes_what_the_file_no_longer_has(conn):
@@ -2485,7 +2493,7 @@ def test_pending_buildings_counts_only_listings_still_worth_keeping(conn):
     # Rejected by hand.
     _in_building(conn, "user-out", "The Base Central Phuket")
     decisions.sync_to_db(
-        conn, {"user-out": {"status": "rejected", "reason": "Не тот дом"}}
+        conn, {"user-out": {"status": "rejected", "reason": "Wrong house"}}
     )
 
     queue = storage.fetch_pending_buildings(conn, {})
@@ -2769,7 +2777,7 @@ def test_conflicts_drop_hand_rejected_and_unreadable_rows(conn):
     # The user threw this one out: it is not worth arguing about any more.
     conn.execute(
         "INSERT INTO decisions (fb_id, status, reason, decided_at) VALUES (?,?,?,?)",
-        ("a1", "rejected", "не нравится", "2026-08-26T10:00:00Z"),
+        ("a1", "rejected", "do not like it", "2026-08-26T10:00:00Z"),
     )
     # This one was read off the sidebar, so its "pets allowed" is not evidence.
     conn.execute(
@@ -2795,7 +2803,7 @@ def test_enriched_score_never_moves_with_the_building(conn, policy, status):
     assert _enriched_by_id(conn)["a1"]["score"] == before
 
 
-# --- buildings in the table: the badge on «Проект/посёлок» ------------------
+# --- buildings in the table: the badge on "Project/village" -----------------
 
 
 def _export_rows(conn, tmp_path: Path):
@@ -2943,7 +2951,7 @@ def test_save_conversation_round_trip(conn):
         thread_id="t1",
         fb_id="123",
         posting_fb_id="123",
-        peer_name="Seller",
+        peer_name="Landlord",
         messages=_messages(("out", "Hello!"), ("in", "Hi")),
         state="replied",
         needs_action=False,

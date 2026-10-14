@@ -185,16 +185,17 @@ def _now_iso() -> str:
 
 
 def _now_stamp() -> str:
-    """Момент сборки таблицы для шапки — местным временем, без секунд.
+    """The moment the table was built, for its header: local time, no seconds.
 
-    В шапке он отвечает на один вопрос: «эти строки сегодняшние?». ISO с
-    буквой Z отвечал на него медленнее, чем читается.
+    In the header it answers one question: "are these rows from today?". An
+    ISO stamp with a trailing Z answered it slower than it reads.
     """
     return datetime.now().astimezone().strftime("%d.%m.%Y %H:%M")
 
 
-# An ad shorter than this is not a fingerprint: "Выбор дня" or a bare price
-# line would collapse unrelated listings into one.
+# An ad shorter than this is not a fingerprint: a Facebook page marker such
+# as "Выбор дня" (Russian locale) or a bare price line would collapse
+# unrelated listings into one.
 _CONTENT_KEY_MIN_CHARS = 60
 
 
@@ -213,7 +214,7 @@ def marketplace_url(fb_id: str) -> str:
 
 
 def source_label(source: str | None) -> str:
-    """Human label for the export's «Источник» column and its filter chips."""
+    """Human label for the export's "Source" column and its filter chips."""
     if not source or source == "marketplace":
         return "market"
     if source.startswith("group:"):
@@ -240,6 +241,7 @@ _FLOOR_PATTERNS = (
 _BUILDING_PATTERNS = (
     re.compile(r"building\s+([a-z])\b", re.I),
     re.compile(r"(?:ตึก|อาคาร)\s*([a-zA-Z])"),
+    # Ad text in Russian: "корпус" is "building (block)".
     re.compile(r"корпус\s+([a-zA-Z])", re.I),
 )
 
@@ -1012,8 +1014,8 @@ class ManualMerge(NamedTuple):
     candidates: list[dict[str, Any]]
 
 
-# Сколько строк показать, когда сигналы молчат. Список читают глазами, и
-# шестая строка в нём уже не про эту квартиру.
+# How many rows to show when no signal fires. The list is read by eye, and
+# the sixth row in it is already not about this flat.
 _MANUAL_CANDIDATES = 5
 _CANDIDATE_TEXT_RATIO = 0.4
 
@@ -1120,9 +1122,9 @@ def _candidates_for(
             "rating": decision["rating"] if decision else None,
             "why": why,
             "contradicts": _contradicts(target["_signature"], item["_signature"]),
-            # Своё решение весит больше любого признака: строку, которую вы
-            # уже разобрали, вы и вспомнили — похожая, но нетронутая строка
-            # в этот момент не при чём.
+            # Your own decision weighs more than any feature: the row you
+            # already reviewed is the one you remembered — a similar but
+            # untouched row is beside the point at that moment.
             "points": points + (3 if decision else 0),
         })
     scored.sort(key=lambda c: (-c["points"], c["fb_id"]))
@@ -2171,7 +2173,7 @@ def fetch_pets_conflicts(
 ) -> list[dict[str, Any]]:
     """Return the buildings whose ads keep contradicting a ``not_allowed`` rule.
 
-    One ad promising "с животными можно" in a building researched as forbidding
+    One ad promising "pets allowed" in a building researched as forbidding
     them is noise — a landlord with a permission, or a copy-paste amenity list.
     Several of them in the same tower is a different claim: that the research
     read the wrong house rule, or the wrong building. This function collects
@@ -2393,15 +2395,16 @@ def export_csv(conn: sqlite3.Connection, path: Path | str) -> Path:
 
 
 _HTML_TEMPLATE = r"""<!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <title>rent-assistant listings</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 1rem 1.25rem; color: #222; font-size: 12px; }
-  /* Шапка — одна карточка из двух полос: «что смотрим» (вкладки) и «чем
-     сужаем» (поиск, фильтры, решения). Всё, что раньше стояло двумя абзацами
-     мелкого текста над таблицей, ушло под «Клавиши» и «Легенду». */
+  /* The header is one card of two strips: "what we look at" (tabs) and "how
+     we narrow it" (search, filters, decisions). Everything that used to sit
+     in two paragraphs of small text above the table went under "Keys" and
+     "Legend". */
   .top { border: 1px solid #d7deec; border-radius: 6px; background: #fbfcfe; padding: 6px 9px; margin-bottom: 0.5rem; display: flex; flex-direction: column; gap: 6px; }
   .bar { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
   .bar + .bar { border-top: 1px solid #e7ebf3; padding-top: 6px; }
@@ -2423,8 +2426,8 @@ _HTML_TEMPLATE = r"""<!doctype html>
   #presets { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 8px; font-size: 12px; cursor: pointer; color: #33405c; }
   #presets:hover { background: #eef2fa; }
   #presets.on { background: #137333; border-color: #137333; color: #fff; }
-  /* Тёмный фон выбранного пресета не должен утекать в раскрытый список:
-     белым по белому там читать нечего. */
+  /* The dark background of the selected preset must not leak into the
+     opened list: white on white reads as nothing. */
   #presets option { background: #fff; color: #33405c; }
   #dec { border: 1px solid #e0c48a; background: #fffdf5; border-radius: 4px; padding: 3px 12px; font-size: 12px; cursor: pointer; color: #7a5c14; white-space: nowrap; }
   #dec:hover { background: #fdf6e3; }
@@ -2434,9 +2437,9 @@ _HTML_TEMPLATE = r"""<!doctype html>
   #dec-cmd { width: 100%; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; border: 1px solid #e0d6bd; border-radius: 3px; padding: 6px 8px; background: #fff; color: #333; resize: vertical; }
   #dec-copy, #dec-clear { border: 1px solid #ccd; background: #fff; border-radius: 4px; padding: 2px 10px; font-size: 11px; cursor: pointer; color: #33405c; }
   #dec-copy:hover, #dec-clear:hover { background: #eef2fa; }
-  /* Панель фильтров: по одному блоку на колонку, вид блока выбирает
-     filterSpec — диапазон для чисел и дат, чипы для перечислений, поле
-     подстроки для всего остального. */
+  /* Filter panel: one block per column; filterSpec picks the block's kind —
+     a range for numbers and dates, chips for enumerations, a substring field
+     for everything else. */
   #filters { display: none; border: 1px solid #dde; border-radius: 4px; background: #fbfcfe; padding: 0.6rem 0.75rem; margin-bottom: 0.6rem; }
   #filters.on { display: block; }
   .flt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0.5rem 0.9rem; }
@@ -2453,9 +2456,9 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .flt-tools { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.6rem; font-size: 11px; color: #666; }
   #flt-reset { border: 1px solid #ccd; background: #fff; border-radius: 4px; padding: 2px 10px; font-size: 11px; cursor: pointer; color: #33405c; }
   #flt-reset:hover { background: #eef2fa; }
-  /* Легенда и хоткеи — по кнопке, а не строкой над таблицей: их читают
-     дважды за первую неделю и никогда потом, а места они занимали больше,
-     чем первый экран строк. Наведение открывает, клик прикалывает. */
+  /* Legend and hotkeys live behind a button, not in a line above the table:
+     they are read twice in the first week and never again, and they took
+     more space than the first screen of rows. Hover opens, click pins. */
   .help { position: relative; display: inline-flex; }
   .hint { border: 1px solid #b9c2d6; background: #fff; border-radius: 4px; padding: 3px 10px; font-size: 12px; cursor: help; color: #33405c; white-space: nowrap; }
   .hint:hover, .help.open .hint { background: #eef2fa; }
@@ -2476,16 +2479,16 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .sw.bar-short { border-left: 3px solid #f9ab00; }
   .sw.bar-long { border-left: 3px solid #4285f4; }
   .sw.bar-inprog { border-left: 3px solid #34a853; }
-  /* Клавиши — сеткой «клавиша → что делает»: колонка кнопок читается
-     взглядом, перечисление через запятую приходилось разбирать. */
+  /* Keys as a grid "key → what it does": a column of keys is read at a
+     glance, a comma-separated list had to be parsed. */
   .kk { display: grid; grid-template-columns: max-content 1fr; gap: 5px 14px; align-items: baseline; font-size: 11px; color: #6a7488; }
   .kk .d { color: #444; }
   .kk .keys { white-space: nowrap; text-align: right; }
   kbd { display: inline-block; min-width: 17px; text-align: center; font-family: inherit; font-size: 10.5px; line-height: 16px; padding: 0 5px; margin-right: 2px; border: 1px solid #c8cedd; border-bottom-width: 2px; border-radius: 4px; background: #f7f8fb; color: #33405c; }
   .kk .or { color: #a7aebd; margin: 0 3px 0 1px; }
   kbd.mini { min-width: 0; padding: 0 4px; margin-right: 5px; vertical-align: 0; }
-  /* Шапка ушла с трёх строк на одну — таблице достаётся то, что она
-     освободила, поэтому высота считается от окна, а не 78vh на глаз. */
+  /* The header went from three lines to one — the table gets what it freed,
+     so the height is computed from the window, not 78vh by eye. */
   .wrap { overflow: auto; max-height: calc(100vh - 130px); border: 1px solid #dde; border-radius: 4px; }
   table.rt { border-collapse: separate; border-spacing: 0; white-space: nowrap; }
   .rt th, .rt td { border-bottom: 1px solid #eef0f4; border-right: 1px solid #f3f4f7; padding: 5px 8px; text-align: left; vertical-align: top; font-weight: normal; }
@@ -2498,7 +2501,7 @@ _HTML_TEMPLATE = r"""<!doctype html>
      at text. FB / AI / decision were three shades of the same pale grey, and
      the bands they drew pinned the column order to "whoever filled it" — the
      layout cost more than the distinction was worth. Where a single value
-     came from is still on the cell itself, as the `fb` and `≠ текст` badges. */
+     came from is still on the cell itself, as the `fb` and `≠ text` badges. */
   .rt th.src-photo, .rt td.src-photo { background: #f3faf8; }
   .rt td:first-child, .rt th:first-child { position: sticky; left: 0; z-index: 1; background: #fff; box-shadow: 1px 0 0 #dde; }
   .rt thead th:first-child { z-index: 4; background: #eef0f4; }
@@ -2526,23 +2529,24 @@ _HTML_TEMPLATE = r"""<!doctype html>
   .clip.w-comment { max-width: 340px; color: #555; }
   .rt td.open .clip { max-width: 460px; white-space: normal; overflow: visible; text-overflow: clip; cursor: zoom-out; }
   .rt tbody td.open, .rt tbody tr:hover td.open { background: #fffdf3; }
-  /* «Кто решил» на вкладке отказов: своих 23 среди 1083 машинных надо
-     видеть, не читая, поэтому «вы» — чип, а «AI» — серый шёпот. */
+  /* "Decided by" on the Rejected tab: your own 23 among 1083 machine ones
+     must be visible without reading, so "you" is a chip and "AI" is a grey
+     whisper. */
   .who-you { background: #e8f0fe; color: #1a4fa0; border-radius: 3px; padding: 0 5px; font-weight: 600; }
   .who-ai { color: #9aa0a8; }
   .num { font-variant-numeric: tabular-nums; text-align: right; }
   .badge { font-size: 9px; color: #8a7fa8; border: 1px solid #d8cfe8; border-radius: 3px; padding: 0 3px; margin-left: 4px; vertical-align: 1px; }
   .badge.fb { color: #4a7099; border-color: #cbd9e8; }
   .badge.was { color: #1f6f68; border-color: #bfdcd6; cursor: help; }
-  /* Правило кондо о животных — бейдж на «Проект/посёлок», не колонка. */
+  /* The condo's pets rule is a badge on "Project/village", not a column. */
   .bpol { font-size: 9px; border: 1px solid #d8cfe8; border-radius: 3px; padding: 0 3px; margin-left: 4px; vertical-align: 1px; cursor: help; white-space: nowrap; }
   .bpol.c-good { border-color: #b7dfc2; }
   .bpol.c-warn { border-color: #f0dca6; }
   .bpol.c-bad { border-color: #f2c6c2; }
   .bpol.c-none { border-color: #dfe2e8; }
-  /* Исследование только предложило правило — вы его ещё не подтвердили, и оно
-     ничего не отклоняет. Пунктир и курсив, чтобы предложение нельзя было
-     прочитать как решение. */
+  /* The research only proposed the rule — you have not confirmed it yet, and
+     it rejects nothing. Dashed and italic, so a proposal cannot be read as a
+     decision. */
   .bpol.b-proposed { background: none; color: #6b7a99; border-style: dashed; font-style: italic; }
   .c-good { background: #e6f4ea; color: #137333; }
   .c-warn { background: #fef7e0; color: #8a6d00; }
@@ -2571,78 +2575,78 @@ _HTML_TEMPLATE = r"""<!doctype html>
     <button class="tab" data-tab="rejected"></button>
     <button class="tab" data-tab="all"></button>
     <span class="spacer"></span>
-    <span class="stamp">обновлено __GENERATED_AT__ · реестр полей v__SCHEMA_VERSION__</span>
+    <span class="stamp">updated __GENERATED_AT__ · field registry v__SCHEMA_VERSION__</span>
   </div>
   <div class="bar">
-    <span class="search"><span class="ico">🔍</span><input id="q" type="search" placeholder="поиск по всем колонкам…"></span>
+    <span class="search"><span class="ico">🔍</span><input id="q" type="search" placeholder="search all columns…"></span>
     <button id="flt"></button>
-    <select id="presets" title="Готовый набор фильтров"></select>
+    <select id="presets" title="A ready-made set of filters"></select>
     <span class="sep"></span>
     <button id="dec"></button>
     <span class="spacer"></span>
     <span class="help" data-pop="keys">
-      <button class="hint" type="button" title="Клавиши и мышь — по «?»"><kbd class="mini">?</kbd>Клавиши</button>
+      <button class="hint" type="button" title="Keys and mouse — press ?"><kbd class="mini">?</kbd>Keys</button>
       <div class="pop"><div class="pop-card">
-        <div class="pop-h">По строкам</div>
+        <div class="pop-h">Rows</div>
         <div class="kk">
-          <span class="keys"><kbd>↓</kbd><kbd>↑</kbd><span class="or">или</span><kbd>j</kbd><kbd>k</kbd></span>
-          <span class="d">перейти к следующей / предыдущей строке</span>
+          <span class="keys"><kbd>↓</kbd><kbd>↑</kbd><span class="or">or</span><kbd>j</kbd><kbd>k</kbd></span>
+          <span class="d">go to the next / previous row</span>
           <span class="keys"><kbd>o</kbd></span>
-          <span class="d">открыть объявление в соседней вкладке; курсор остаётся на строке</span>
+          <span class="d">open the listing in a new tab; the cursor stays on the row</span>
         </div>
-        <div class="pop-h">Решение по строке под курсором</div>
+        <div class="pop-h">Decision on the row under the cursor</div>
         <div class="kk">
-          <span class="keys"><kbd>5</kbd></span><span class="d">в Shortlist</span>
-          <span class="keys"><kbd>4</kbd></span><span class="d">в Longlist — посмотрели, средний вариант</span>
-          <span class="keys"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span><span class="d">отклонить с оценкой</span>
-          <span class="keys"><kbd>r</kbd></span><span class="d">отклонить без оценки</span>
-          <span class="keys"><kbd>a</kbd></span><span class="d">вернуть в «Разобрать»</span>
-          <span class="keys"><kbd>0</kbd></span><span class="d">снять решение</span>
-          <span class="keys"><kbd>d</kbd></span><span class="d">«это я уже видел»: найти ту строку и влить эту в неё; повторное нажатие убирает из очереди</span>
+          <span class="keys"><kbd>5</kbd></span><span class="d">to Shortlist</span>
+          <span class="keys"><kbd>4</kbd></span><span class="d">to Longlist — seen, an average option</span>
+          <span class="keys"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></span><span class="d">reject with a rating</span>
+          <span class="keys"><kbd>r</kbd></span><span class="d">reject without a rating</span>
+          <span class="keys"><kbd>a</kbd></span><span class="d">back to Review</span>
+          <span class="keys"><kbd>0</kbd></span><span class="d">clear the decision</span>
+          <span class="keys"><kbd>d</kbd></span><span class="d">"I have already seen this": find that row and merge this one into it; pressing again removes it from the queue</span>
         </div>
-        <div class="pop-h">По всей базе</div>
+        <div class="pop-h">Whole base</div>
         <div class="kk">
-          <span class="keys"><kbd>Shift</kbd>+<kbd>D</kbd></span><span class="d">поставить в очередь dedupe — поиск повторов по всей базе и слияние с уже существующими</span>
+          <span class="keys"><kbd>Shift</kbd>+<kbd>D</kbd></span><span class="d">queue a dedupe — search the whole base for duplicates and merge them into the existing rows</span>
         </div>
-        <div class="pop-h">Мышью</div>
+        <div class="pop-h">Mouse</div>
         <div class="kk">
-          <span class="keys">клик по заголовку</span><span class="d">сортировка; <kbd>Shift</kbd>+клик добавляет второй ключ</span>
-          <span class="keys">клик по ячейке</span><span class="d">развернуть обрезанный текст целиком</span>
-          <span class="keys">наведение</span><span class="d">цитата из объявления, на которой стоит значение</span>
-          <span class="keys">клик по ID</span><span class="d">открыть объявление на Facebook</span>
+          <span class="keys">click a header</span><span class="d">sort; <kbd>Shift</kbd>+click adds a second key</span>
+          <span class="keys">click a cell</span><span class="d">unfold the clipped text in full</span>
+          <span class="keys">hover</span><span class="d">the quote from the ad that the value rests on</span>
+          <span class="keys">click an ID</span><span class="d">open the listing on Facebook</span>
         </div>
-        <div class="pop-note">Каждое решение сразу перескакивает на следующую строку, так что строка стоит одного нажатия. Накопленное лежит в браузере и переживает пересборку файла; кнопка «Решения» отдаёт готовый блок команд для терминала. Открыть эту справку — <kbd>?</kbd>, закрыть — <kbd>Esc</kbd>.</div>
+        <div class="pop-note">Every decision jumps straight to the next row, so a row costs one keypress. What you collect lives in the browser and survives a rebuild of the file; the "Decisions" button hands out a ready block of commands for the terminal. Open this help with <kbd>?</kbd>, close it with <kbd>Esc</kbd>.</div>
       </div></div>
     </span>
     <span class="help" data-pop="legend">
-      <button class="hint" type="button">ⓘ Легенда</button>
+      <button class="hint" type="button">ⓘ Legend</button>
       <div class="pop"><div class="pop-card">
-        <div class="pop-h">Цвет ячейки</div>
+        <div class="pop-h">Cell colour</div>
         <ul class="lg">
-          <li><span class="sw c-good"></span><span><b>подходит</b> — животные разрешены, цена в бюджете</span></li>
-          <li><span class="sw c-warn"></span><span><b>под вопросом</b> — unclear, 30–35k ฿</span></li>
-          <li><span class="sw c-bad"></span><span><b>стоп-фактор</b> — животные запрещены, цена вне бюджета</span></li>
-          <li><span class="sw c-stale"></span><span>поля не было на момент анализа — нужен ре-анализ</span></li>
-          <li><span class="sw dash c-none">—</span><span>AI смотрел, в объявлении этого нет</span></li>
-          <li><span class="sw src-photo"></span><span>колонка фото-прохода — AI смотрел снимки, а не текст</span></li>
+          <li><span class="sw c-good"></span><span><b>fits</b> — pets allowed, price within budget</span></li>
+          <li><span class="sw c-warn"></span><span><b>in question</b> — unclear, 30–35k ฿</span></li>
+          <li><span class="sw c-bad"></span><span><b>stop factor</b> — pets forbidden, price out of budget</span></li>
+          <li><span class="sw c-stale"></span><span>the field did not exist at analysis time — needs a re-analysis</span></li>
+          <li><span class="sw dash c-none">—</span><span>the AI looked, the ad does not say</span></li>
+          <li><span class="sw src-photo"></span><span>photo-pass column — the AI looked at the pictures, not the text</span></li>
         </ul>
-        <div class="pop-h">Строка</div>
+        <div class="pop-h">Row</div>
         <ul class="lg">
-          <li><span class="sw bar-inprog"></span><span>в работе — написали, договорились о просмотре, или уже посмотрели и ждёт сравнения</span></li>
-          <li><span class="sw bar-short"></span><span>в Shortlist</span></li>
-          <li><span class="sw bar-long"></span><span>в Longlist</span></li>
-          <li><span class="sw bar-rej"></span><span>отклонено — правилами или вами; строка зачёркнута</span></li>
-          <li><span class="pend" style="padding:0 4px;border-radius:3px">4</span><span>решение принято, но ещё не записано</span></li>
-          <li><span class="who-you">вы</span><span>отказ ваш, а не правил — на вкладке Rejected это ещё и фильтр</span></li>
+          <li><span class="sw bar-inprog"></span><span>in progress — messaged, viewing scheduled, or already viewed and waiting for comparison</span></li>
+          <li><span class="sw bar-short"></span><span>in Shortlist</span></li>
+          <li><span class="sw bar-long"></span><span>in Longlist</span></li>
+          <li><span class="sw bar-rej"></span><span>rejected — by the rules or by you; the row is struck through</span></li>
+          <li><span class="pend" style="padding:0 4px;border-radius:3px">4</span><span>decision made, not yet recorded</span></li>
+          <li><span class="who-you">you</span><span>your rejection, not the rules' — on the Rejected tab this is also a filter</span></li>
         </ul>
-        <div class="pop-h">Значки в ячейках</div>
+        <div class="pop-h">Badges in cells</div>
         <ul class="lg">
-          <li><span class="dq">sidebar_noise</span><span>анализ читал не тот текст — строку надо перечитать</span></li>
-          <li><span class="dup-count">×3</span><span>одно объявление, опубликованное несколько раз</span></li>
-          <li><span class="badge fb">fb</span><span>у колонки два источника — значок говорит, чей ответ показан</span></li>
-          <li><span class="badge was">≠ текст</span><span>фото не согласилось с текстом — в подсказке прежнее значение</span></li>
-          <li><span class="bpol c-bad b-confirmed">нельзя</span><span>правило дома о животных, подтверждённое вами — оно и отклоняет объявление</span></li>
-          <li><span class="bpol c-warn b-proposed">по договорённости</span><span>правило только предложено исследованием — ни на что не влияет</span></li>
+          <li><span class="dq">sidebar_noise</span><span>the analysis read the wrong text — the row must be re-read</span></li>
+          <li><span class="dup-count">×3</span><span>one ad posted several times</span></li>
+          <li><span class="badge fb">fb</span><span>the column has two sources — the badge says whose answer is shown</span></li>
+          <li><span class="badge was">≠ text</span><span>the photos disagreed with the text — the previous value is in the tooltip</span></li>
+          <li><span class="bpol c-bad b-confirmed">no pets</span><span>the building's pets rule, confirmed by you — it is what rejects the listing</span></li>
+          <li><span class="bpol c-warn b-proposed">negotiable</span><span>the rule was only proposed by research — it affects nothing</span></li>
         </ul>
       </div></div>
     </span>
@@ -2650,29 +2654,29 @@ _HTML_TEMPLATE = r"""<!doctype html>
   </div>
 </div>
 <div id="filters"><div class="flt-grid" id="flt-grid"></div>
-  <div class="flt-tools"><button id="flt-reset">Сбросить фильтры</button><span id="flt-note"></span></div>
+  <div class="flt-tools"><button id="flt-reset">Reset filters</button><span id="flt-note"></span></div>
 </div>
 <div id="decisions">
   <textarea id="dec-cmd" rows="6" spellcheck="false" readonly></textarea>
   <div class="flt-tools">
-    <button id="dec-copy">Скопировать</button>
-    <button id="dec-clear">Очистить очередь</button>
+    <button id="dec-copy">Copy</button>
+    <button id="dec-clear">Clear queue</button>
     <span id="dec-note"></span>
   </div>
 </div>
 <div class="wrap"><table class="rt"><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
-<div class="empty" id="empty" hidden>Ничего не найдено.</div>
+<div class="empty" id="empty" hidden>Nothing found.</div>
 <script>
 const COLUMNS = __COLUMNS_JSON__;
 const DATA = __DATA_JSON__;
-// Штамп сборки файла. Нужен очереди: отложенный `dedupe` снимается сам,
-// когда файл пересобрался — значит блок команд уже прогнали.
+// The file's build stamp. The queue needs it: a queued `dedupe` clears
+// itself once the file was rebuilt — the block of commands has been run.
 const GENERATED_AT = "__GENERATED_AT__";
 
-// Active — что ещё не разобрано, «В работе» — то, что уже в переписке или
-// на просмотре, остальные — что уже посмотрели и разложили.
+// Active — what has not been reviewed yet, "In progress" — what is already
+// in a chat or at a viewing, the rest — what was looked at and sorted.
 const TAB_LABELS = {
-  active: "Разобрать", in_progress: "В работе", shortlist: "Shortlist",
+  active: "Review", in_progress: "In progress", shortlist: "Shortlist",
   longlist: "Longlist", rejected: "Rejected", all: "All"
 };
 const CLIPPED_KINDS = { verdict: 1, comment: 1, field: 1, text: 1, reason: 1 };
@@ -2689,30 +2693,31 @@ const CLIP_AT = 30;
 // sorting or filtering does not fold everything back up.
 const openCells = new Set();
 
-/* ---- решения прямо из таблицы -------------------------------------------
-   Записать решение — это `rent-assistant rate <id> 4` в терминале, и переключение
-   туда стоит достаточно, чтобы на тысячу активных строк пришлось три десятка
-   решений. Клавиши копят решения здесь, в localStorage: он переживает
-   `export`, который переписывает этот файл после каждой стадии, — а кнопка
-   отдаёт накопленное одним блоком команд. Записывать прямо в decisions.json
-   было бы удобнее, но за это пришлось бы отдать главное свойство файла: он
-   открывается с диска, без сервера и без сети. */
+/* ---- decisions straight from the table ----------------------------------
+   Recording a decision is `rent-assistant rate <id> 4` in the terminal, and
+   switching there costs enough that a thousand active rows got three dozen
+   decisions. The keys collect decisions here, in localStorage: it survives
+   `export`, which rewrites this file after every stage — and the button
+   hands the collected set out as one block of commands. Writing straight
+   into decisions.json would be more convenient, but it would cost the file's
+   main property: it opens from disk, with no server and no network. */
 const PENDING_KEY = "rent-assistant:pending";
 let PENDING = {};
-/* Очередь dedupe — рядом с решениями, но не в PENDING: у строки может быть
-   и оценка, и «это я уже видел», и одна ячейка PENDING их бы перезаписала.
-   `ids` — построчный `d`, `all` — `Shift+D` по всей базе.
+/* The dedupe queue sits next to the decisions but not in PENDING: a row can
+   carry both a rating and "I have already seen this", and one PENDING slot
+   would overwrite one with the other. `ids` is the per-row `d`, `all` is
+   `Shift+D` over the whole base.
 
-   Проверить, что команда доехала, тут нечем: слияние удаляет либо эту
-   строку, либо ту, в которую её влили, и «строки не стало» одинаково значит
-   и «получилось», и «вы её отклонили руками». Поэтому очередь привязана к
-   штампу сборки файла: файл пересобрался — блок команд прогнали, очередь
-   пуста. */
+   There is nothing here to check that the command arrived: a merge deletes
+   either this row or the one it went into, and "the row is gone" means both
+   "it worked" and "you rejected it by hand". So the queue is bound to the
+   file's build stamp: the file was rebuilt — the block of commands was run,
+   the queue is empty. */
 const DEDUPE_KEY = "rent-assistant:dedupe";
 let dedupeQueued = false;
 let dedupeIds = new Set();
-// Строка под курсором и то, что сейчас на экране: клавиши ходят по видимому
-// списку, а он зависит от вкладки, поиска и фильтров.
+// The row under the cursor and what is on screen right now: the keys walk
+// the visible list, which depends on the tab, the search and the filters.
 let cursorId = null;
 let shownRows = [];
 
@@ -2722,10 +2727,10 @@ function esc(s) {
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-/* Колонка с `tabs` живёт только на перечисленных вкладках: `Причина` пишется
-   отказом и ничем больше, `Кто решил` на вкладках, где решали только вы, был
-   бы столбцом одинаковых слов. На остальных вкладках это столбец прочерков
-   высотой во всю таблицу. */
+/* A column with `tabs` lives only on the listed tabs: `Reason` is written by
+   a rejection and by nothing else, `Decided by` on the tabs where only you
+   decided would be a column of one repeated word. On the other tabs it is a
+   column of dashes the full height of the table. */
 function colInTab(col) {
   return !col.tabs || col.tabs.indexOf(tab) !== -1;
 }
@@ -2748,11 +2753,11 @@ function haystack(row) {
   return row._hay;
 }
 
-/* A stage (written / viewing_scheduled / viewed) moves a row into «В
-   работе» instead of wherever its status would otherwise put it — so it is
+/* A stage (written / viewing_scheduled / viewed) moves a row into "In
+   progress" instead of wherever its status would otherwise put it — so it is
    not sitting in Shortlist next to candidates nobody has contacted yet.
    `status` itself is untouched (decisions.save_stage never writes it): a
-   rejected row stays out of «В работе» even with a stage still on it, the
+   rejected row stays out of "In progress" even with a stage still on it, the
    same way it is already out of Shortlist/Longlist. */
 function effectiveTab(row) {
   if (row.stage && row.status !== "rejected") return "in_progress";
@@ -2801,34 +2806,34 @@ function tdHTML(row, col) {
         ? '<a class="' + cls + '" href="' + esc(p.url) + '" target="_blank" rel="noopener">' + label + '</a>'
         : '<span class="' + cls + '">' + label + '</span>';
       const count = (i === 0 && posts.length > 1)
-        ? '<span class="dup-count" title="одно объявление, опубликованное ' + posts.length + ' раза">×' + posts.length + '</span>'
+        ? '<span class="dup-count" title="one ad posted ' + posts.length + ' times">×' + posts.length + '</span>'
         : "";
       // `data_quality` is a badge rather than a column: it was `good` on 99%
       // of the table, and a whole column to flag 27 rows is a bad trade.
       const dq = (i === 0 && cell.dq)
-        ? '<span class="dq" title="качество данных: ' + esc(cell.dq)
-          + ' — анализ читал не тот текст, строку надо перечитать">' + esc(cell.dq) + '</span>'
+        ? '<span class="dq" title="data quality: ' + esc(cell.dq)
+          + ' — the analysis read the wrong text, the row must be re-read">' + esc(cell.dq) + '</span>'
         : "";
       return '<span class="id-row">' + link + count + dq + '</span>';
     }).join("")
-      // Очередь на слияние висит на ID, а не на оценке: сливают строки, а не
-      // решения, и в ячейке с оценкой этот значок закрыл бы саму оценку.
+      // The merge queue hangs on the ID, not on the rating: rows are merged,
+      // not decisions, and in the rating cell this badge would cover the rating.
       + (dedupeIds.has(row.fb_id)
-        ? '<span class="id-row"><span class="pend" title="в очереди на слияние'
-          + ' — нажмите «Решения» и выполните команды в терминале">склеить</span></span>'
+        ? '<span class="id-row"><span class="pend" title="queued for a merge'
+          + ' — press Decisions and run the commands in the terminal">merge</span></span>'
         : "")
       + '</span>';
   } else if (col.kind === "score") {
     inner = empty ? '—' : esc(text);
     if (!empty && cell.n != null) style = scoreStyle(cell.n);
   } else if (col.kind === "rating") {
-    // Ваша оценка 1–5: пусто значит «ещё не смотрели». Решение, принятое в
-    // этой сессии, но ещё не записанное, показывается здесь же — жёлтым,
-    // чтобы его нельзя было спутать с уже сохранённым.
+    // Your rating 1–5: empty means "not looked at yet". A decision made in
+    // this session but not yet recorded shows here too — in yellow, so it
+    // cannot be confused with one already saved.
     const p = PENDING[row.fb_id];
     if (p) {
       inner = '<span class="pend">' + esc(pendingLabel(p)) + '</span>';
-      title = ' title="решение ещё не записано — нажмите «Решения» и выполните команды в терминале"';
+      title = ' title="decision not yet recorded — press Decisions and run the commands in the terminal"';
     } else {
       inner = empty ? '—' : esc(text);
       if (!empty && cell.n != null) style = countStyle(cell.n, 5);
@@ -2839,12 +2844,12 @@ function tdHTML(row, col) {
   } else if (col.kind === "type") {
     inner = empty ? '—' : (TYPE_ICONS[text] || "🏚️") + " " + esc(text);
   } else if (col.kind === "who") {
-    // Кто вынес вердикт. Раньше это был суффикс «(вы)» в хвосте «Причины» —
-    // невидимый для поиска (haystack собирается из cell.t) и неотбираемый
-    // фильтром, а отделить свои отказы от машинных нужно ровно на той
-    // вкладке, где их больше тысячи.
+    // Who made the verdict. It used to be a "(you)" suffix at the end of
+    // "Reason" — invisible to search (the haystack is built from cell.t) and
+    // not selectable by a filter, while separating your rejections from the
+    // machine's is needed exactly on the tab where there are over a thousand.
     inner = empty ? '—'
-      : '<span class="who-' + (text === "вы" ? "you" : "ai") + '">' + esc(text) + '</span>';
+      : '<span class="who-' + (text === "you" ? "you" : "ai") + '">' + esc(text) + '</span>';
   } else {
     inner = empty ? '—' : esc(text);
   }
@@ -2858,12 +2863,12 @@ function tdHTML(row, col) {
   // The photo pass overruled a non-empty text value; the badge keeps the
   // overruled reading one hover away instead of dropping it silently.
   if (!empty && cell.was) {
-    inner += '<span class="badge was" title="' + esc(cell.was) + '">\u2260 текст</span>';
+    inner += '<span class="badge was" title="' + esc(cell.was) + '">\u2260 text</span>';
   }
 
-  // Правило кондо о животных: не колонка, а бейдж на названии проекта — оно
-  // известно только для исследованных зданий. В подсказке — цитаты и ссылки,
-  // чтобы отказ «Building forbids pets» можно было проверить, а не верить.
+  // The condo's pets rule: not a column but a badge on the project name — it
+  // is known only for researched buildings. The tooltip carries quotes and
+  // links, so a "Building forbids pets" rejection can be checked, not trusted.
   if (cell.bp) {
     inner += '<span class="bpol ' + esc(cell.bc) + ' b-' + esc(cell.bs)
       + '" title="' + esc(cell.bev) + '">' + esc(cell.bt) + '</span>';
@@ -2895,55 +2900,56 @@ function rowHTML(row) {
     + visibleColumns().map(c => tdHTML(row, c)).join("") + '</tr>';
 }
 
-/* ---- пресеты -------------------------------------------------------------
-   requirements.md называет жёсткие условия словами, а в панели они ставятся
-   по одному руками — и поэтому не ставятся: из 1123 активных строк набор,
-   отвечающий письму агенту, приходится собирать четырьмя движениями. Кнопка
-   ставит их разом и оставляет видимыми: это пресет, а не отдельный режим, так
-   что любое условие снимается по одному, не унося остальные.
+/* ---- presets -------------------------------------------------------------
+   requirements.md names the hard conditions in words, but in the panel they
+   are set one by one by hand — and so they are not set: out of 1123 active
+   rows, the set that answers the letter to the agent takes four moves to
+   build. The control sets them at once and leaves them visible: it is a
+   preset, not a separate mode, so any condition can be removed on its own
+   without taking the rest with it.
 
-   Пресетов больше одного, и включён всегда не больше одного: они пересекаются
-   по колонкам, и «включить оба» означало бы пересечение, где условие одного
-   молча срезает другой. Поэтому выбор, а не кнопки. Пустой пункт снимает
-   набор целиком, а правка любого фильтра руками возвращает список в него же:
-   на экране уже не пресет, но собранные им условия остаются и досбираются
-   как угодно.
+   There is more than one preset and never more than one is on: they overlap
+   on columns, and "both on" would mean an intersection where one preset's
+   condition silently cuts the other. Hence a select, not buttons. The empty
+   item clears the set as a whole, and editing any filter by hand returns the
+   list to that item: what is on screen is no longer a preset, but the
+   conditions it built stay and can be extended any way.
 
-   `спросить` из «Кандидатов» не выкидывается намеренно — это строки, где про
-   животных в объявлении просто не написано, а по требованиям молчание это
-   вопрос агенту, а не отказ. Снять этот чип — одно нажатие.
+   `ask` is kept in "Candidates" on purpose — these are rows where the ad
+   simply does not mention pets, and by the requirements silence is a
+   question for the agent, not a rejection. Removing that chip is one click.
 
-   Одна оговорка, которую стоит знать: фильтр «от» отбрасывает пустые ячейки,
-   так что строки, где район или число спален не названы вовсе, в набор не
-   попадают — хотя правила их за это не наказывают. */
+   One caveat worth knowing: a "from" filter drops empty cells, so rows where
+   the district or the bedroom count is not named at all do not make the set
+   — although the rules do not punish them for that. */
 const PRESETS = [
   {
     key: "fresh",
-    label: "Только новые",
+    label: "New only",
     filters: () => ({ published_at: freshSince(3) }),
   },
   {
     key: "candidates",
-    label: "Кандидаты",
+    label: "Candidates",
     filters: () => ({
-      verdict: { kind: "enum", values: new Set(["смотреть", "спросить"]) },
+      verdict: { kind: "enum", values: new Set(["view", "ask"]) },
       area_rating: { kind: "range", min: 4, max: null },
       price: { kind: "range", min: null, max: 35000 },
     }),
   },
   {
     key: "kathu2",
-    label: "2 спальни, Kathu",
+    label: "2 bedrooms, Kathu",
     filters: () => ({
       bedrooms: { kind: "range", min: 2, max: 2 },
       area: areaFilter("Kathu"),
     }),
   },
   {
-    // «Bang Tao» и «Bangtao» пишут оба, поэтому подстрока короче названия:
-    // «Tao» ловит и то и другое и на живой базе не задевает ничего чужого.
+    // Both "Bang Tao" and "Bangtao" are written, so the substring is shorter
+    // than the name: "Tao" catches both and touches nothing else on the live base.
     key: "bangtao2",
-    label: "2 спальни, Bang Tao",
+    label: "2 bedrooms, Bang Tao",
     filters: () => ({
       bedrooms: { kind: "range", min: 2, max: 2 },
       area: areaFilter("Tao"),
@@ -2952,12 +2958,12 @@ const PRESETS = [
 ];
 let activePreset = null;
 
-/* Район — свободный текст: «Kathu», «Kathu, Samkong», «Patong, Kathu». Панель
-   даёт по нему то чипы, то поиск подстроки — что именно, решают сами данные
-   (78 разных районов на живой базе — это уже подстрока). Пресет поэтому не
-   перечисляет значения, а спрашивает у панели её же вид фильтра: иначе набор
-   чипов встал бы в колонку, которая рисует поле ввода, и снять его в панели
-   было бы нечем. */
+/* District is free text: "Kathu", "Kathu, Samkong", "Patong, Kathu". The
+   panel gives it either chips or a substring search — which one, the data
+   decides (78 distinct districts on the live base is already a substring).
+   So the preset does not list values; it asks the panel for its own filter
+   kind: otherwise a set of chips would land on a column that draws an input
+   field, and there would be nothing in the panel to remove it with. */
 function areaFilter(name) {
   const needle = name.toLowerCase();
   const col = COLUMNS.find(c => c.key === "area");
@@ -2966,16 +2972,16 @@ function areaFilter(name) {
     const hit = spec.values.filter(v => v.toLowerCase().indexOf(needle) !== -1);
     if (hit.length) return { kind: "enum", values: new Set(hit) };
   }
-  // `raw` — то, что увидит поле в панели: там должно стоять «Kathu», как
-  // написали бы руками, а не приведённая к нижнему регистру пара букв.
+  // `raw` is what the panel's field will show: it should say "Kathu", as
+  // one would type it by hand, not a lowercased pair of letters.
   return { kind: "text", q: needle, raw: name };
 }
 
-/* «Новые» отсчитываются от самой свежей даты в базе, а не от сегодняшней:
-   между прогонами проходит несколько дней, и окно «сегодня минус три» после
-   паузы молча пустеет — пресет показывал бы ноль строк на полной базе. Даты
-   приходят строками YYYY-MM-DD и панель сравнивает их как строки, так что и
-   считать можно строками. */
+/* "New" counts from the newest date in the base, not from today: several
+   days pass between runs, and a "today minus three" window silently empties
+   after a pause — the preset would show zero rows on a full base. Dates
+   arrive as YYYY-MM-DD strings and the panel compares them as strings, so
+   they can be computed as strings too. */
 function freshSince(days) {
   let newest = "";
   for (const row of DATA) {
@@ -2988,9 +2994,10 @@ function freshSince(days) {
   return { kind: "date", min: from.toISOString().slice(0, 10), max: null };
 }
 
-/* Выбор из списка, а не набор кнопок: пресетов уже четыре, а включён всегда
-   не больше одного — список говорит это сам, ряду кнопок пришлось бы
-   объяснять. Пустой пункт — «без пресета», он же способ снять набор. */
+/* A select, not a set of buttons: there are already four presets and never
+   more than one is on — a list says that by itself, a row of buttons would
+   have to explain it. The empty item is "no preset", also the way to clear
+   the set. */
 function applyPreset(key) {
   const preset = PRESETS.find(p => p.key === key);
   Object.keys(FILTERS).forEach(k => delete FILTERS[k]);
@@ -3005,13 +3012,13 @@ function applyPreset(key) {
 
 function buildPresetOptions() {
   document.getElementById("presets").innerHTML =
-    '<option value="">Пресет…</option>'
+    '<option value="">Preset…</option>'
     + PRESETS.map(p => '<option value="' + esc(p.key) + '">' + esc(p.label)
       + "</option>").join("");
 }
 
-// Список пересобирается один раз: render() зовут на каждый ввод в поиске, а
-// перерисованный <select> закрывает раскрытый список под рукой.
+// The list is built once: render() is called on every keystroke in the
+// search, and a re-rendered <select> closes the opened list under the hand.
 function syncPreset() {
   const sel = document.getElementById("presets");
   sel.value = activePreset || "";
@@ -3021,8 +3028,9 @@ function syncPreset() {
 function loadPending() {
   try { PENDING = JSON.parse(localStorage.getItem(PENDING_KEY) || "{}"); }
   catch (e) { PENDING = {}; }
-  // Решение, доехавшее до decisions.json, уходит из очереди само — иначе
-  // список команд рос бы вечно и каждый прогон повторял бы прошлые.
+  // A decision that reached decisions.json leaves the queue on its own —
+  // otherwise the command list would grow forever and each run would repeat
+  // the previous ones.
   const byId = {};
   DATA.forEach(r => { byId[r.fb_id] = r; });
   Object.keys(PENDING).forEach(id => {
@@ -3041,7 +3049,7 @@ function alreadyRecorded(row, p) {
 
 function savePending() {
   try { localStorage.setItem(PENDING_KEY, JSON.stringify(PENDING)); }
-  catch (e) { /* приватное окно — очередь живёт до перезагрузки */ }
+  catch (e) { /* private window — the queue lives until a reload */ }
 }
 
 function loadDedupe() {
@@ -3062,19 +3070,19 @@ function saveDedupe() {
     else localStorage.setItem(DEDUPE_KEY, JSON.stringify({
       stamp: GENERATED_AT, all: dedupeQueued, ids: Array.from(dedupeIds),
     }));
-  } catch (e) { /* приватное окно — очередь живёт до перезагрузки */ }
+  } catch (e) { /* private window — the queue lives until a reload */ }
 }
 
-// `d` по строке: «эту квартиру я уже где-то видел и уже разобрал» — команда
-// ищет ту строку и вливает эту в неё.
+// `d` per row: "I have seen this flat somewhere and already reviewed it" —
+// the command finds that row and merges this one into it.
 function toggleDedupeRow(id) {
   if (dedupeIds.has(id)) dedupeIds.delete(id); else dedupeIds.add(id);
   saveDedupe();
   render();
 }
 
-// `Shift+D` — единственная команда блока, которая не про строку: поиск
-// повторов по всей базе.
+// `Shift+D` is the one command in the block that is not about a row: a
+// search for duplicates across the whole base.
 function toggleDedupeAll() {
   dedupeQueued = !dedupeQueued;
   saveDedupe();
@@ -3095,15 +3103,15 @@ function pendingLabel(p) {
 function commandText() {
   const ids = Object.keys(PENDING);
   if (!ids.length && !dedupeQueued && !dedupeIds.size) {
-    return "Очередь пуста. Встаньте на строку (↓ ↑ или клик) и нажмите 1–5, r или a; d — «это я уже видел», склеить с той строкой.";
+    return "Queue is empty. Move to a row (↓ ↑ or click) and press 1–5, r or a; d — \"I have already seen this\", merge into that row.";
   }
   const lines = ids.map(id => {
     const p = PENDING[id];
     if (p.kind === "rate") return "rent-assistant rate " + id + " " + p.v;
     return (p.kind === "rejected" ? "rent-assistant reject " : "rent-assistant unreject ") + id;
   });
-  // dedupe идёт после решений, а не перед ними: он оставляет ту копию, что
-  // несёт больше работы, и ваша оценка — первое, на что он смотрит.
+  // dedupe goes after the decisions, not before them: it keeps the copy that
+  // carries more work, and your rating is the first thing it looks at.
   dedupeIds.forEach(id => lines.push("rent-assistant dedupe " + id));
   if (dedupeQueued) lines.push("rent-assistant dedupe");
   lines.push("rent-assistant export");
@@ -3121,11 +3129,11 @@ function moveCursor(step) {
 }
 
 let tab = "active";
-// Таблицу открывают, чтобы посмотреть лучшее, поэтому она сразу отсортирована
-// по Score вниз. Строки без анализа уходят в конец: sortValue отдаёт для них
-// null, а null в компараторе всегда последний, независимо от направления.
-// Ключей может быть несколько (Shift+клик по заголовку): порядок в массиве —
-// это и есть приоритет, первый ключ решает, остальные разбирают равенство.
+// The table is opened to see the best, so it starts sorted by Score
+// descending. Rows without an analysis go to the end: sortValue returns null
+// for them, and null is always last in the comparator, whatever the direction.
+// There can be several keys (Shift+click on a header): the order in the array
+// is the priority, the first key decides, the rest break ties.
 let sorts = [{ key: "score", dir: -1 }];
 
 function sortValue(row, key) {
@@ -3141,8 +3149,8 @@ function compareRows(a, b) {
   for (const s of sorts) {
     const x = sortValue(a, s.key), y = sortValue(b, s.key);
     if (x === null && y === null) continue;
-    // Пустая ячейка всегда внизу — иначе разворот сортировки поднимал бы
-    // непроанализированные строки на первый экран.
+    // An empty cell is always at the bottom — otherwise reversing the sort
+    // would lift unanalysed rows onto the first screen.
     if (x === null) return 1;
     if (y === null) return -1;
     const r = (typeof x === "number" && typeof y === "number")
@@ -3153,18 +3161,19 @@ function compareRows(a, b) {
   return 0;
 }
 
-/* ---- фильтры по колонкам ------------------------------------------------
-   FILTERS: ключ колонки → {kind, ...}. Пустой фильтр из объекта удаляется,
-   поэтому Object.keys(FILTERS).length — это счётчик на кнопке. */
+/* ---- per-column filters -------------------------------------------------
+   FILTERS: column key → {kind, ...}. An empty filter is deleted from the
+   object, so Object.keys(FILTERS).length is the counter on the button. */
 const FILTERS = {};
 const NUM_KINDS = { num: 1, score: 1, count: 1, rating: 1 };
-// Чипы даёт только колонка, значения которой и пересчитываемы, и коротки:
-// 55 районов набором кнопок читаются, 34 варианта "чем укомплектована кухня"
-// длиной в предложение — уже нет, там нужна подстрока.
+// Only a column whose values are both countable and short gets chips: 55
+// districts read fine as a set of buttons, 34 sentence-long variants of
+// "what the kitchen comes with" do not — that needs a substring.
 const ENUM_MAX = 60;
 const ENUM_MAX_LEN = 30;
-// Даты приходят как обычный текст, но набором кнопок читаются только пока
-// корпус собран за неделю: на трёх месяцах чипы бесполезны, а «от/до» нет.
+// Dates arrive as plain text, but read as a set of buttons only while the
+// corpus was collected in a week: over three months chips are useless and
+// "from/to" is not.
 const DATE_COLUMNS = { first_seen_at: 1, published_at: 1 };
 const specCache = {};
 
@@ -3176,9 +3185,10 @@ function numOf(cell) {
   return Number.isFinite(n) ? n : null;
 }
 
-// Вид фильтра выводится из данных, а не задаётся в реестре: колонка с
-// коротким набором значений (pets, тип жилья, район) получает чипы, дата —
-// два календаря, число — «от/до», всё остальное — поиск подстроки.
+// The filter kind is derived from the data, not set in the registry: a
+// column with a short set of values (pets, property type, district) gets
+// chips, a date — two calendars, a number — "from/to", everything else — a
+// substring search.
 function filterSpec(col) {
   if (specCache[col.key]) return specCache[col.key];
   let spec;
@@ -3250,8 +3260,8 @@ function dropIfEmpty(key) {
   if (empty) delete FILTERS[key];
 }
 
-// Панель показывает фильтры видимых колонок плюс те, что уже выставлены на
-// скрытых: иначе спрятанный фильтр молча резал бы таблицу.
+// The panel shows the filters of the visible columns plus those already set
+// on hidden ones: otherwise a hidden filter would silently cut the table.
 function filterColumns() {
   return COLUMNS.filter(c =>
     (showExtra || !c.hidden || FILTERS[c.key])
@@ -3270,9 +3280,9 @@ function renderFilters() {
       const mx = f && f.max != null ? f.max : "";
       body = '<span class="range">'
         + '<input type="' + type + '" data-key="' + esc(col.key) + '" data-bound="min"'
-        + ' placeholder="от" value="' + esc(mn) + '">'
+        + ' placeholder="from" value="' + esc(mn) + '">'
         + '<input type="' + type + '" data-key="' + esc(col.key) + '" data-bound="max"'
-        + ' placeholder="до" value="' + esc(mx) + '">'
+        + ' placeholder="to" value="' + esc(mx) + '">'
         + '</span>';
     } else if (spec.kind === "enum") {
       const opts = spec.values.map(v => ({ v: v, label: v }));
@@ -3284,7 +3294,7 @@ function renderFilters() {
       ).join("") + '</span>';
     } else {
       body = '<input type="search" data-key="' + esc(col.key) + '" data-bound="q"'
-        + ' placeholder="подстрока…" value="' + esc(f ? f.raw : "") + '">';
+        + ' placeholder="substring…" value="' + esc(f ? f.raw : "") + '">';
     }
     return '<span class="flt' + (f ? " set" : "") + '" data-col="' + esc(col.key) + '">'
       + '<span class="name">' + esc(col.label) + '</span>' + body + '</span>';
@@ -3295,13 +3305,13 @@ function renderHead() {
   const cols = visibleColumns();
   document.getElementById("head").innerHTML = cols.map(c => {
     const i = sorts.findIndex(s => s.key === c.key);
-    // Номер рядом со стрелкой появляется только когда ключей больше одного —
-    // тогда он и означает приоритет.
+    // The number next to the arrow appears only when there is more than one
+    // key — that is when it means priority.
     const mark = i === -1 ? "" : '<span class="so">' + (sorts[i].dir > 0 ? "▲" : "▼")
       + (sorts.length > 1 ? (i + 1) : "") + '</span>';
     return '<th class="lbl src-' + c.src
       + (i === -1 ? '' : ' sorted') + '" data-key="' + esc(c.key) + '"'
-      + ' title="клик — сортировать, Shift+клик — добавить ключ">'
+      + ' title="click to sort, Shift+click to add a key">'
       + esc(c.label) + mark + '</th>';
   }).join("");
 
@@ -3310,7 +3320,7 @@ function renderHead() {
       const key = th.dataset.key;
       const i = sorts.findIndex(s => s.key === key);
       if (ev.shiftKey) {
-        // Shift проводит ключ по кругу: вверх → вниз → выбыл из сортировки.
+        // Shift cycles the key: ascending → descending → out of the sort.
         if (i === -1) sorts.push({ key: key, dir: 1 });
         else if (sorts[i].dir === 1) sorts[i].dir = -1;
         else sorts.splice(i, 1);
@@ -3348,27 +3358,27 @@ function render() {
 
   const extra = COLUMNS.filter(c => c.hidden).length;
   const more = document.getElementById("more");
-  more.textContent = (showExtra ? "▲ Скрыть доп. поля" : "▼ Ещё " + extra + " полей");
+  more.textContent = (showExtra ? "▲ Hide extra fields" : "▼ " + extra + " more fields");
   more.classList.toggle("on", showExtra);
 
   const set = Object.keys(FILTERS).length;
   const flt = document.getElementById("flt");
-  flt.textContent = set ? "Фильтры (" + set + ")" : "Фильтры";
+  flt.textContent = set ? "Filters (" + set + ")" : "Filters";
   flt.classList.toggle("on", set > 0);
   const inTabCount = DATA.filter(r => inTab(r, tab)).length;
   document.getElementById("flt-note").textContent =
-    "показано " + rows.length + " из " + inTabCount + " во вкладке";
+    "showing " + rows.length + " of " + inTabCount + " in this tab";
 
   syncPreset();
 
   const queued = Object.keys(PENDING).length + dedupeIds.size
     + (dedupeQueued ? 1 : 0);
   const dec = document.getElementById("dec");
-  dec.textContent = queued ? "Решения (" + queued + ")" : "Решения";
+  dec.textContent = queued ? "Decisions (" + queued + ")" : "Decisions";
   dec.classList.toggle("on", queued > 0);
   document.getElementById("dec-cmd").value = commandText();
   document.getElementById("dec-note").textContent = queued
-    ? "выполните в терминале — записанное уйдёт из очереди при следующем export"
+    ? "run in the terminal — what gets recorded leaves the queue on the next export"
     : "";
 }
 
@@ -3409,8 +3419,8 @@ document.getElementById("flt").addEventListener("click", () => {
   document.getElementById("filters").classList.toggle("on");
 });
 
-// Чипы перечислений. Панель не перерисовывается целиком — иначе фокус и
-// каретка в соседнем поле ввода терялись бы на каждом нажатии.
+// Enumeration chips. The panel is not redrawn as a whole — otherwise the
+// focus and the caret in a neighbouring input would be lost on every click.
 document.getElementById("flt-grid").addEventListener("click", ev => {
   const chip = ev.target.closest(".chip");
   if (!chip) return;
@@ -3475,9 +3485,9 @@ document.getElementById("dec").addEventListener("click", () => {
 document.getElementById("dec-copy").addEventListener("click", () => {
   const box = document.getElementById("dec-cmd");
   const note = document.getElementById("dec-note");
-  // `navigator.clipboard` не везде работает на file://, поэтому выделение
-  // текстового поля остаётся запасным путём — и заодно видимым: даже если
-  // копирование запретят, блок уже выделен и его можно взять руками.
+  // `navigator.clipboard` does not work everywhere on file://, so selecting
+  // the text field stays as the fallback — and a visible one: even if copying
+  // is blocked, the block is already selected and can be taken by hand.
   box.select();
   const done = () => { note.textContent = "copied"; };
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -3499,8 +3509,8 @@ document.getElementById("dec-clear").addEventListener("click", () => {
   render();
 });
 
-/* Подсказки: наведение открывает, клик прикалывает — иначе легенду нельзя
-   держать открытой, пока ищешь глазами тот самый значок в таблице. */
+/* Popovers: hover opens, click pins — otherwise the legend cannot be kept
+   open while you look for that one badge in the table. */
 function closeHelp() {
   document.querySelectorAll(".help.open").forEach(h => h.classList.remove("open"));
 }
@@ -3518,13 +3528,13 @@ document.querySelectorAll(".help").forEach(box => {
     ev.stopPropagation();
     toggleHelp(box.dataset.pop);
   });
-  // Клик внутри карточки — это выделение текста, а не «мимо».
+  // A click inside the card is a text selection, not a click "outside".
   box.querySelector(".pop").addEventListener("click", ev => ev.stopPropagation());
 });
 document.addEventListener("click", closeHelp);
 
-/* Клавиши работают по строке под курсором. Поля ввода их не видят — иначе
-   «r» в поиске отклоняло бы объявление. */
+/* Keys act on the row under the cursor. Input fields do not see them —
+   otherwise an "r" typed into the search would reject a listing. */
 document.addEventListener("keydown", ev => {
   const target = ev.target;
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA"
@@ -3536,19 +3546,20 @@ document.addEventListener("keydown", ev => {
   if (key === "Escape") { closeHelp(); return; }
   if (key === "ArrowDown" || key === "j") { ev.preventDefault(); moveCursor(1); return; }
   if (key === "ArrowUp" || key === "k") { ev.preventDefault(); moveCursor(-1); return; }
-  // Заглавная — по всей базе, строчная — по строке под курсором: команда без
-  // id ищет повторы везде, и спутать её со строчной стоит удалённых строк.
+  // Upper case — the whole base, lower case — the row under the cursor: the
+  // command without an id searches everywhere, and confusing the two costs
+  // deleted rows.
   if (key === "D") { ev.preventDefault(); toggleDedupeAll(); return; }
   if (!cursorId) return;
   if (key === "d") { ev.preventDefault(); toggleDedupeRow(cursorId); return; }
 
   if (key === "o") {
-    // Та же ссылка, что на ID: у строки может быть несколько публикаций
-    // одной квартиры, открывается та, что осталась канонической.
+    // The same link as on the ID: a row can have several postings of one
+    // flat, the one that stayed canonical is opened.
     ev.preventDefault();
     const row = shownRows.find(r => r.fb_id === cursorId);
     if (row && row.url) window.open(row.url, "_blank", "noopener");
-    // Курсор не двигается: объявление открыли, чтобы вернуться и решить.
+    // The cursor does not move: the listing was opened to come back and decide.
     return;
   }
 
@@ -3559,7 +3570,7 @@ document.addEventListener("keydown", ev => {
   else return;
 
   ev.preventDefault();
-  // Оценил — поехали дальше: без этого каждая строка стоит двух нажатий.
+  // Rated — move on: without this every row costs two keypresses.
   moveCursor(1);
 });
 
@@ -3597,8 +3608,8 @@ _FIXED_COLUMNS: dict[str, dict[str, Any]] = {
     "source": {"label": "Source", "kind": "text", "src": "fb"},
     "score": {"label": "Score", "kind": "score", "src": "ai"},
     # The district on the 1-5 scale the score already uses. It is not a column
-    # anyone reads row by row — it exists so "хороший район" is expressible as
-    # a filter and a sort key, which free-text `Район` never was.
+    # anyone reads row by row — it exists so "a good district" is expressible
+    # as a filter and a sort key, which free-text `District` never was.
     "area_rating": {"label": "District rating", "kind": "num", "src": "ai"},
     # The AI's recommendation, reduced to its tag. The sentence it wrote is
     # the tooltip, so nothing is lost and the column costs one word.
@@ -3608,10 +3619,10 @@ _FIXED_COLUMNS: dict[str, dict[str, Any]] = {
         "label": "Photo comment", "kind": "comment", "src": "photo",
     },
     "rating": {"label": "My rating", "kind": "rating", "src": "sys"},
-    # Обе колонки живут только там, где им есть что показать: `tabs` —
-    # список вкладок, на остальных колонки нет вовсе. Причину пишет отказ и
-    # ничто больше; «Кто решил» на Longlist и Shortlist был бы столбцом,
-    # где во всех строках стоит «вы».
+    # Both columns live only where they have something to show: `tabs` is
+    # the list of tabs, on the others the column is absent. The reason is
+    # written by a rejection and by nothing else; "Decided by" on Longlist
+    # and Shortlist would be a column with "you" in every row.
     "decided_by": {
         "label": "Decided by", "kind": "who", "src": "sys",
         "tabs": ["rejected", "all"],
@@ -3621,8 +3632,8 @@ _FIXED_COLUMNS: dict[str, dict[str, Any]] = {
         "tabs": ["rejected", "all"],
     },
     # The post-shortlist pipeline (decisions.save_stage), set from the CLI —
-    # there is no keyboard shortcut for it, only display. Scoped to «В
-    # работе» / All the same way `decided_by` / `reason` are scoped to their
+    # there is no keyboard shortcut for it, only display. Scoped to "In
+    # progress" / All the same way `decided_by` / `reason` are scoped to their
     # tabs: elsewhere every row's cell would be empty by construction.
     "stage": {
         "label": "Stage", "kind": "text", "src": "sys",
@@ -3662,7 +3673,7 @@ _FIXED_COLUMNS: dict[str, dict[str, Any]] = {
 }
 
 # The default view, in reading order. Everything countable comes first, so a
-# glance down "цена → район → тип → спальни → площадь" never steps over a
+# glance down "price → district → type → bedrooms → size" never steps over a
 # clipped paragraph; the text columns follow, where their length costs nothing.
 # `decided_by` and `reason` close the table and the page drops them on the
 # tabs where they are empty by construction.
@@ -3696,7 +3707,7 @@ _VISIBLE_ORDER: tuple[str, ...] = (
 
 # Fixed columns that ship folded away. `first_seen_at` is ours, not the ad's —
 # useful when a sweep is being debugged, noise the rest of the time; the
-# district rating is machinery for the "Кандидаты" preset rather than reading
+# district rating is machinery for the "Candidates" preset rather than reading
 # matter, but it stays a real column so the preset is an ordinary set of
 # filters the user can see and adjust.
 _HIDDEN_FIXED: tuple[str, ...] = ("area_rating", "first_seen_at")
@@ -3728,8 +3739,8 @@ def is_photo_field(field: dict[str, Any]) -> bool:
 # knowing whether the dog is welcome is itself the reason to call the agent.
 _UNCLEAR_SPEAKS: frozenset[str] = frozenset({"pets"})
 
-# Who a verdict came from, as the `Кто решил` cell reads it. The column is
-# what makes "мои отказы" a filter chip: the AI auto-rejects outnumber the
+# Who a verdict came from, as the `Decided by` cell reads it. The column is
+# what makes "my rejections" a filter chip: the AI auto-rejects outnumber the
 # hand-made ones 47 to 1, and nothing else on the row separates them.
 _DECIDER_LABELS: dict[str, str] = {"user": "you", "ai": "AI"}
 
@@ -3749,8 +3760,8 @@ def _profile_label(stage_profile: Any) -> str:
         return "primary"
     return str(stage_profile)
 
-# messages.VALID_CONVO_STATES / NEEDS_ACTION_REASONS, in Russian for the
-# table. Kept here rather than in messages.py so the export's vocabulary
+# messages.VALID_CONVO_STATES / NEEDS_ACTION_REASONS, as the table shows
+# them. Kept here rather than in messages.py so the export's vocabulary
 # can change without touching the state machine, same split as
 # decisions.STAGE_LABELS.
 _CONVO_STATE_LABELS: dict[str, str] = {
@@ -3770,7 +3781,8 @@ _CONVO_REASON_LABELS: dict[str, str] = {
 }
 
 # Values of the FB `district` field that name the island or the province
-# rather than a district — nothing to show.
+# rather than a district — nothing to show. The Russian and Thai spellings
+# are what Facebook/ad text carries in those locales.
 _DISTRICT_NOISE: frozenset[str] = frozenset(
     {"phuket", "пхукет", "ภูเก็ต", "changwat phuket", "thailand", "таиланд"}
 )
@@ -3783,7 +3795,7 @@ def normalise_district(value: Any) -> str:
 
     ``Rawai, Phuket, Thailand`` → ``Rawai``, ``Amphoe Thalang`` → ``Thalang``.
     A string that only names the island or the province carries no location,
-    so it collapses to an empty cell rather than repeating "Пхукет" 30 times.
+    so it collapses to an empty cell rather than repeating "Phuket" 30 times.
     """
     if not value:
         return ""
@@ -3818,7 +3830,7 @@ def _display(value: Any) -> str:
 
 
 def _extra_field_keys(registry: ai_schema.Registry) -> list[str]:
-    """Registry keys that live behind the "Ещё N полей" toggle, in order."""
+    """Registry keys that live behind the "N more fields" toggle, in order."""
     known = set(_VISIBLE_ORDER) | _MERGED_FIELD_KEYS
     rest = [f["key"] for f in registry.fields if f["key"] not in known]
     priority = [k for k in _EXTRA_FIELD_ORDER if k in rest]
@@ -3908,7 +3920,7 @@ def _area_rating_cell(item: dict[str, Any]) -> dict[str, Any]:
     ), "n": float(rating)}
 
 
-# The building's pets rule rides on the «Проект/посёлок» cell as a badge, for
+# The building's pets rule rides on the "Project/village" cell as a badge, for
 # the same reason `data_quality` rides on the ID: a column of its own would
 # spend a full width on a word that is blank for every unresearched building.
 _BUILDING_POLICY_LABELS: dict[str, str] = {
@@ -4189,9 +4201,9 @@ def export_html(
     Every listing is rendered with every registry field, joined with its AI
     analysis and the user's own verdict: cells are coloured by
     :func:`rules.cell_class`, rejected rows are struck through and carry the
-    reason and the `Кто решил` column, and the Разобрать / В работе /
+    reason and the `Decided by` column, and the Review / In progress /
     Shortlist / Longlist / Rejected / All tabs filter the set — the first
-    holds what has not been looked at, «В работе» holds whatever carries a
+    holds what has not been looked at, "In progress" holds whatever carries a
     stage from :func:`decisions.save_stage` (contacted, viewing scheduled, or
     viewed and awaiting comparison) and is not rejected, the rest hold
     everything else that has been looked at. Data is embedded inline, so the
