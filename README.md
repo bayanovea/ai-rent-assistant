@@ -1,4 +1,4 @@
-# ai-rent-assistant
+# rent-assistant
 
 [![ci](https://github.com/bayanovea/ai-rent-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/bayanovea/ai-rent-assistant/actions/workflows/ci.yml)
 

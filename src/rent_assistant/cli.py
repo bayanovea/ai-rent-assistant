@@ -143,7 +143,7 @@ def _enrich(listing: dict[str, Any]) -> dict[str, Any]:
 
 
 @click.group()
-@click.version_option(package_name="ai-rent-assistant")
+@click.version_option(package_name="rent-assistant")
 def main() -> None:
     """Long-term rental search: scrape, enrich with AI, decide, export.
 
